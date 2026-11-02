@@ -106,7 +106,7 @@
         return;
       }
       showMeta = false;
-    }, 8000);
+    }, 5000);
   }
 
   function handlePlayerKeydown(event) {
