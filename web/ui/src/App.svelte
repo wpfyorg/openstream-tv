@@ -63,17 +63,17 @@
       }, 15000);
     };
     refreshAuth().finally(scheduleStatusRefresh);
-    window.addEventListener("jiotv:extras-changed", refreshExtrasStatus);
+    window.addEventListener("openstream:extras-changed", refreshExtrasStatus);
     const onSignedOut = () => {
       auth = { ...auth, authenticated: false };
       extrasActive = false;
     };
-    window.addEventListener("jiotv:signed-out", onSignedOut);
+    window.addEventListener("openstream:signed-out", onSignedOut);
     return () => {
       disposed = true;
       window.clearTimeout(statusTimer);
-      window.removeEventListener("jiotv:extras-changed", refreshExtrasStatus);
-      window.removeEventListener("jiotv:signed-out", onSignedOut);
+      window.removeEventListener("openstream:extras-changed", refreshExtrasStatus);
+      window.removeEventListener("openstream:signed-out", onSignedOut);
     };
   });
 </script>
@@ -85,7 +85,7 @@
 {:else}
   <header class="bar">
     <div class="brand-group">
-      <a class="brand" href="#/">JioTV Go</a>
+      <a class="brand" href="#/">OpenStream TV</a>
       {#if extrasActive}
         <span class="extras-active" role="img" aria-label="JioTV+ connected" title="JioTV+ connected">
           <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10" /></svg>

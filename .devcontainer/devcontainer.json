@@ -1,9 +1,9 @@
 // For format details, see https://aka.ms/devcontainer.json. For config options, see the
-// README at: https://github.com/devcontainers/templates/tree/main/src/go
+// README at: https://github.com/devcontainers/templates/tree/main/src/rust
 {
-  "name": "Go",
+  "name": "OpenStream TV",
   // Or use a Dockerfile or Docker Compose file. More info: https://containers.dev/guide/dockerfile
-  "image": "mcr.microsoft.com/devcontainers/go",
+  "image": "mcr.microsoft.com/devcontainers/rust:1-1-bookworm",
   "features": {
     "ghcr.io/devcontainers/features/common-utils:2": {
       "installZsh": true,
@@ -25,7 +25,7 @@
   // "forwardPorts": [],
 
   // Use 'postCreateCommand' to run commands after the container is created.
-  // "postCreateCommand": "go version",
+  // "postCreateCommand": "cargo --version",
 
   // Configure tool-specific properties.
   // "customizations": {},

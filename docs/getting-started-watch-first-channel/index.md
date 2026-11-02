@@ -15,7 +15,7 @@ Once your server is running and your JioTV account says **Logged in** in **Setti
 4. Select its tile. The live player opens. Playback may need a moment to start.
 5. Move the pointer over the player to show controls. Change quality, sound or full screen if those controls are offered.
 
-![Channel browsing on a clean JioTV server: search, categories, languages and subscription labels.](../images/channels-no-account.png)
+![Channel browsing on a clean OpenStream TV server: search, categories, languages and subscription labels.](../images/channels-no-account.png)
 
 **What you should see:** The screenshot shows where to search, but this demo server has *no JioTV account connected*, so it cannot play channels. When signed in, you can try a channel your plan permits.
 

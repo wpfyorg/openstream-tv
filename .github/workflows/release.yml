@@ -83,7 +83,7 @@ jobs:
               android) cargo ndk --target "${{ matrix.target.triple }}" --platform 21 build --release --locked "${flags[@]}" ;;
               *) cargo build --release --locked --target "${{ matrix.target.triple }}" "${flags[@]}" ;;
             esac
-            cp "target/${{ matrix.target.triple }}/release/jiotv${suffix}" "out/jiotv-${variant}-${{ matrix.target.triple }}${suffix}"
+            cp "target/${{ matrix.target.triple }}/release/openstream${suffix}" "out/openstream-${variant}-${{ matrix.target.triple }}${suffix}"
           done
       - name: Run native target tests
         if: matrix.target.test
@@ -106,7 +106,7 @@ jobs:
           if ($errors.Count) { $errors | Format-List; exit 1 }
       - uses: actions/upload-artifact@v4
         with:
-          name: jiotv-${{ matrix.target.triple }}
+          name: openstream-${{ matrix.target.triple }}
           path: out/*
           if-no-files-found: error
           retention-days: 7
@@ -128,10 +128,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: jiotv-${{ matrix.arch == 'x86_64' && 'x86_64-unknown-linux-musl' || matrix.arch == 'aarch64' && 'aarch64-unknown-linux-musl' || 'armv7-unknown-linux-musleabihf' }}
+          name: openstream-${{ matrix.arch == 'x86_64' && 'x86_64-unknown-linux-musl' || matrix.arch == 'aarch64' && 'aarch64-unknown-linux-musl' || 'armv7-unknown-linux-musleabihf' }}
           path: dist/bin
       - name: Restore executable permissions
-        run: chmod 0755 dist/bin/jiotv-*
+        run: chmod 0755 dist/bin/openstream-*
       - name: Install SDK archive support
         run: sudo apt-get update && sudo apt-get install -y zstd
       # A tag names the version; a dry run has no tag, and its ref name (for example
@@ -179,10 +179,10 @@ jobs:
           set -eu
           for variant in full slim; do
             for target in x86_64-unknown-linux-musl aarch64-unknown-linux-musl armv7-unknown-linux-musleabihf i686-unknown-linux-musl aarch64-apple-darwin x86_64-apple-darwin aarch64-linux-android armv7-linux-androideabi x86_64-linux-android; do
-              test -s "dist/jiotv-${variant}-${target}"
+              test -s "dist/openstream-${variant}-${target}"
             done
             for target in x86_64-pc-windows-msvc i686-pc-windows-msvc aarch64-pc-windows-msvc; do
-              test -s "dist/jiotv-${variant}-${target}.exe"
+              test -s "dist/openstream-${variant}-${target}.exe"
             done
           done
           test "$(find dist -type f -name '*.ipk' | wc -l)" -ge 6

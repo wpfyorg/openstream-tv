@@ -1,6 +1,6 @@
 ---
 name: diagnose-playback
-description: Diagnoses JioTV Go live, catch-up, HLS, DASH/Widevine DRM, browser, and IPTV playback failures end to end. Use when playback fails, stalls, returns upstream 400/401/403, reports decoder or demuxer errors, or differs by channel, programme, browser, or IPTV client.
+description: Diagnoses OpenStream TV live, catch-up, HLS, DASH/Widevine DRM, browser, and IPTV playback failures end to end. Use when playback fails, stalls, returns upstream 400/401/403, reports decoder or demuxer errors, or differs by channel, programme, browser, or IPTV client.
 ---
 
 # Diagnose Playback

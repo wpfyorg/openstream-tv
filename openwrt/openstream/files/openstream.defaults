@@ -1,0 +1,4 @@
+#!/bin/sh
+mkdir -p /etc/openstream
+chmod 0700 /etc/openstream
+exit 0

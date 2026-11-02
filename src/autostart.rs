@@ -1,7 +1,7 @@
-//! `jiotv autostart`: runs the server at boot.
+//! `openstream autostart`: runs the server at boot.
 //!
-//! On Linux with systemd it installs a `jiotv` service: a system unit when
-//! run as root, otherwise a user unit. The `JIOTV_*` environment of the
+//! On Linux with systemd it installs an `openstream` service: a system unit when
+//! run as root, otherwise a user unit. The OpenStream TV environment of the
 //! install command goes into an env file readable only by its owner, since
 //! it can hold a tunnel token. On Termux it adds a line to the shell rc
 //! file, like the Go version did.
@@ -9,7 +9,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const SERVICE: &str = "jiotv";
+const SERVICE: &str = "openstream";
 
 struct Paths {
     unit: PathBuf,
@@ -37,7 +37,9 @@ fn has_systemd() -> bool {
 }
 
 fn is_termux() -> bool {
-    std::env::var("PREFIX").map(|p| p.contains("com.termux")).unwrap_or(false)
+    std::env::var("PREFIX")
+        .map(|p| p.contains("com.termux"))
+        .unwrap_or(false)
 }
 
 fn paths() -> anyhow::Result<Paths> {
@@ -57,7 +59,7 @@ fn paths() -> anyhow::Result<Paths> {
     })
 }
 
-/// Whether a jiotv service is installed for this user (or system-wide).
+/// Whether an OpenStream TV service is installed for this user (or system-wide).
 pub fn installed() -> bool {
     has_systemd() && paths().map(|p| p.unit.exists()).unwrap_or(false)
 }
@@ -71,19 +73,31 @@ pub fn restart_hint() -> String {
 
 /// Quotes one ExecStart argument for systemd.
 fn quote(arg: &str) -> String {
-    if !arg.is_empty() && arg.chars().all(|c| c.is_ascii_alphanumeric() || "-_./:=@,+".contains(c)) {
+    if !arg.is_empty()
+        && arg
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "-_./:=@,+".contains(c))
+    {
         return arg.to_string();
     }
-    let escaped = arg.replace('\\', "\\\\").replace('"', "\\\"").replace('%', "%%").replace('$', "$$");
+    let escaped = arg
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('%', "%%")
+        .replace('$', "$$");
     format!("\"{escaped}\"")
 }
 
 fn unit_file(exec: &[String], env_file: &Path, working_dir: &Path, user: bool) -> String {
     let exec_line = exec.iter().map(|a| quote(a)).collect::<Vec<_>>().join(" ");
-    let wanted_by = if user { "default.target" } else { "multi-user.target" };
+    let wanted_by = if user {
+        "default.target"
+    } else {
+        "multi-user.target"
+    };
     format!(
         "[Unit]\n\
-         Description=JioTV Go\n\
+         Description=OpenStream TV\n\
          Wants=network-online.target\n\
          After=network-online.target\n\
          \n\
@@ -101,13 +115,22 @@ fn unit_file(exec: &[String], env_file: &Path, working_dir: &Path, user: bool) -
     )
 }
 
-/// The JIOTV_* variables to keep, with the store path pinned so the service
+/// The OpenStream TV variables to keep, with the store path pinned so the service
 /// finds the same logins whatever its HOME is.
 fn env_file(path_prefix: &str) -> String {
-    let mut vars: Vec<(String, String)> = std::env::vars().filter(|(k, _)| k.starts_with("JIOTV_") && k != "JIOTV_PATH_PREFIX").collect();
-    vars.push(("JIOTV_PATH_PREFIX".to_string(), path_prefix.to_string()));
+    let mut vars: Vec<(String, String)> = std::env::vars()
+        .filter(|(k, _)| {
+            (k.starts_with("OPENSTREAM_") || k.starts_with("JIOTV_"))
+                && k != "OPENSTREAM_PATH_PREFIX"
+                && k != "JIOTV_PATH_PREFIX"
+        })
+        .collect();
+    vars.push((
+        "OPENSTREAM_PATH_PREFIX".to_string(),
+        path_prefix.to_string(),
+    ));
     vars.sort();
-    let mut out = String::from("# Written by `jiotv autostart`.\n");
+    let mut out = String::from("# Written by `openstream autostart`.\n");
     for (k, v) in vars {
         let v = v.replace('\\', "\\\\").replace('"', "\\\"");
         out.push_str(&format!("{k}=\"{v}\"\n"));
@@ -121,16 +144,23 @@ fn shell_quote(value: &str) -> String {
 
 fn termux_env_path() -> anyhow::Result<PathBuf> {
     let home = std::env::var("HOME").map_err(|_| anyhow::anyhow!("HOME is not set"))?;
-    Ok(PathBuf::from(home).join(".config/jiotv/jiotv.env"))
+    Ok(PathBuf::from(home).join(".config/openstream/openstream.env"))
 }
 
 fn shell_env_file(path_prefix: &str) -> String {
     let mut vars: Vec<(String, String)> = std::env::vars()
-        .filter(|(k, _)| k.starts_with("JIOTV_") && k != "JIOTV_PATH_PREFIX")
+        .filter(|(k, _)| {
+            (k.starts_with("OPENSTREAM_") || k.starts_with("JIOTV_"))
+                && k != "OPENSTREAM_PATH_PREFIX"
+                && k != "JIOTV_PATH_PREFIX"
+        })
         .collect();
-    vars.push(("JIOTV_PATH_PREFIX".to_string(), path_prefix.to_string()));
+    vars.push((
+        "OPENSTREAM_PATH_PREFIX".to_string(),
+        path_prefix.to_string(),
+    ));
     vars.sort();
-    let mut out = String::from("# Written by `jiotv autostart`; keep this file private.\n");
+    let mut out = String::from("# Written by `openstream autostart`; keep this file private.\n");
     for (key, value) in vars {
         out.push_str(&format!("export {key}={}\n", shell_quote(&value)));
     }
@@ -147,11 +177,12 @@ fn termux_start_line(exe: &Path, env: &Path, serve_args: &str) -> String {
 }
 
 fn termux_rc_contents(existing: &str, start_line: &str) -> (String, bool) {
-    let already_set_up = existing.contains(TERMUX_MARKER);
+    let already_set_up =
+        existing.contains(TERMUX_MARKER) || existing.contains(LEGACY_TERMUX_MARKER);
     let mut contents = if already_set_up {
         existing
             .lines()
-            .filter(|line| !line.contains(TERMUX_MARKER))
+            .filter(|line| !line.contains(TERMUX_MARKER) && !line.contains(LEGACY_TERMUX_MARKER))
             .map(|line| format!("{line}\n"))
             .collect()
     } else {
@@ -182,21 +213,24 @@ fn systemctl(user: bool, args: &[&str]) -> anyhow::Result<()> {
     if user {
         cmd.arg("--user");
     }
-    let status = cmd.args(args).status().map_err(|e| anyhow::anyhow!("cannot run systemctl: {e}"))?;
+    let status = cmd
+        .args(args)
+        .status()
+        .map_err(|e| anyhow::anyhow!("cannot run systemctl: {e}"))?;
     if !status.success() {
         anyhow::bail!("systemctl {} failed: {status}", args.join(" "));
     }
     Ok(())
 }
 
-/// `jiotv autostart [--args "serve flags"]`.
+/// `openstream autostart [--args "serve flags"]`.
 pub fn install(serve_args: &str, config: Option<&str>, path_prefix: &str) -> anyhow::Result<()> {
     if is_termux() {
         return install_termux(serve_args, path_prefix);
     }
     if !has_systemd() {
         anyhow::bail!(
-            "systemd is not running here. On OpenWrt, the openwrt-jiotv-go package starts jiotv from /etc/init.d/jiotv_go; elsewhere, start `jiotv serve` from your init system"
+            "systemd is not running here. On OpenWrt, the openstream package starts OpenStream TV from /etc/init.d/openstream; elsewhere, start `openstream serve` from your init system"
         );
     }
     let p = paths()?;
@@ -221,7 +255,10 @@ pub fn install(serve_args: &str, config: Option<&str>, path_prefix: &str) -> any
     systemctl(p.user, &["daemon-reload"])?;
     systemctl(p.user, &["enable", "--now", SERVICE])?;
     println!("Installed {} and started it.", p.unit.display());
-    println!("Settings from JIOTV_* variables are in {} (readable only by you).", p.env.display());
+    println!(
+        "OpenStream TV settings are in {} (readable only by you).",
+        p.env.display()
+    );
     if p.user {
         println!("To keep it running after you log out and start it at boot, run once: sudo loginctl enable-linger $USER");
         println!("Logs: journalctl --user -u {SERVICE} -f");
@@ -231,7 +268,7 @@ pub fn install(serve_args: &str, config: Option<&str>, path_prefix: &str) -> any
     Ok(())
 }
 
-/// `jiotv autostart remove`.
+/// `openstream autostart remove`.
 pub fn remove() -> anyhow::Result<()> {
     if is_termux() {
         return remove_termux();
@@ -252,7 +289,8 @@ pub fn remove() -> anyhow::Result<()> {
     Ok(())
 }
 
-const TERMUX_MARKER: &str = "# jiotv autostart";
+const TERMUX_MARKER: &str = "# openstream autostart";
+const LEGACY_TERMUX_MARKER: &str = "# jiotv autostart";
 
 fn termux_rc() -> anyhow::Result<PathBuf> {
     let prefix = std::env::var("PREFIX")?;
@@ -269,10 +307,20 @@ fn install_termux(serve_args: &str, path_prefix: &str) -> anyhow::Result<()> {
     let (contents, already_set_up) = termux_rc_contents(&existing, &line);
     std::fs::write(&rc, contents)?;
     if already_set_up {
-        println!("Updated JioTV autostart in {} (environment in {}).", rc.display(), env.display());
+        println!(
+            "Updated OpenStream TV autostart in {} (environment in {}).",
+            rc.display(),
+            env.display()
+        );
     } else {
-        println!("jiotv will start in the background when Termux opens ({}).", rc.display());
-        println!("Settings from JIOTV_* variables are in {} (readable only by you).", env.display());
+        println!(
+            "OpenStream TV will start in the background when Termux opens ({}).",
+            rc.display()
+        );
+        println!(
+            "OpenStream TV settings are in {} (readable only by you).",
+            env.display()
+        );
     }
     Ok(())
 }
@@ -280,7 +328,11 @@ fn install_termux(serve_args: &str, path_prefix: &str) -> anyhow::Result<()> {
 fn remove_termux() -> anyhow::Result<()> {
     let rc = termux_rc()?;
     let existing = std::fs::read_to_string(&rc).unwrap_or_default();
-    let kept: String = existing.lines().filter(|l| !l.contains(TERMUX_MARKER)).map(|l| format!("{l}\n")).collect();
+    let kept: String = existing
+        .lines()
+        .filter(|l| !l.contains(TERMUX_MARKER) && !l.contains(LEGACY_TERMUX_MARKER))
+        .map(|l| format!("{l}\n"))
+        .collect();
     std::fs::write(&rc, kept)?;
     if let Ok(env) = termux_env_path() {
         let _ = std::fs::remove_file(env);
@@ -295,26 +347,42 @@ mod tests {
 
     #[test]
     fn quotes_exec_arguments() {
-        assert_eq!(quote("/usr/local/bin/jiotv"), "/usr/local/bin/jiotv");
+        assert_eq!(
+            quote("/usr/local/bin/openstream"),
+            "/usr/local/bin/openstream"
+        );
         assert_eq!(quote("--port"), "--port");
-        assert_eq!(quote("/opt/my dir/jiotv"), "\"/opt/my dir/jiotv\"");
+        assert_eq!(
+            quote("/opt/my dir/openstream"),
+            "\"/opt/my dir/openstream\""
+        );
         assert_eq!(quote("50%"), "\"50%%\"");
     }
 
     #[test]
     fn unit_file_has_the_service_basics() {
-        let exec = vec!["/usr/bin/jiotv".to_string(), "serve".to_string(), "--port".to_string(), "5001".to_string()];
-        let unit = unit_file(&exec, Path::new("/etc/jiotv/jiotv.env"), Path::new("/var/lib/jiotv"), false);
-        assert!(unit.contains("ExecStart=/usr/bin/jiotv serve --port 5001\n"));
-        assert!(unit.contains("EnvironmentFile=-/etc/jiotv/jiotv.env\n"));
+        let exec = vec![
+            "/usr/bin/openstream".to_string(),
+            "serve".to_string(),
+            "--port".to_string(),
+            "5001".to_string(),
+        ];
+        let unit = unit_file(
+            &exec,
+            Path::new("/etc/openstream/openstream.env"),
+            Path::new("/var/lib/openstream"),
+            false,
+        );
+        assert!(unit.contains("ExecStart=/usr/bin/openstream serve --port 5001\n"));
+        assert!(unit.contains("EnvironmentFile=-/etc/openstream/openstream.env\n"));
         assert!(unit.contains("WantedBy=multi-user.target\n"));
         assert!(unit.contains("Restart=on-failure\n"));
     }
 
     #[test]
     fn env_file_pins_the_store_path() {
-        let env = env_file("/var/lib/jiotv/");
-        assert!(env.contains("JIOTV_PATH_PREFIX=\"/var/lib/jiotv/\"\n"));
+        let env = env_file("/var/lib/openstream/");
+        assert!(env.contains("OPENSTREAM_PATH_PREFIX=\"/var/lib/openstream/\"\n"));
     }
 
     #[test]
@@ -324,30 +392,35 @@ mod tests {
 
     #[test]
     fn termux_autostart_sources_private_environment_before_starting() {
-        let key = "JIOTV_AUTOSTART_TEST_TOKEN";
+        let key = "OPENSTREAM_AUTOSTART_TEST_TOKEN";
         let previous = std::env::var_os(key);
         std::env::set_var(key, "token with 'quote'");
-        let contents = shell_env_file("/data/data/com.termux/files/home/.jiotv/");
+        let contents = shell_env_file("/data/data/com.termux/files/home/.openstream-tv/");
         match previous {
             Some(value) => std::env::set_var(key, value),
             None => std::env::remove_var(key),
         }
 
-        assert!(contents.contains("export JIOTV_PATH_PREFIX='/data/data/com.termux/files/home/.jiotv/'\n"));
-        assert!(contents.contains("export JIOTV_AUTOSTART_TEST_TOKEN='token with '\\''quote'\\'''\n"));
+        assert!(contents.contains(
+            "export OPENSTREAM_PATH_PREFIX='/data/data/com.termux/files/home/.openstream-tv/'\n"
+        ));
+        assert!(contents
+            .contains("export OPENSTREAM_AUTOSTART_TEST_TOKEN='token with '\\''quote'\\'''\n"));
         let line = termux_start_line(
-            Path::new("/data/data/com.termux/files/usr/bin/jiotv"),
-            Path::new("/data/data/com.termux/files/home/.config/jiotv/jiotv.env"),
+            Path::new("/data/data/com.termux/files/usr/bin/openstream"),
+            Path::new("/data/data/com.termux/files/home/.config/openstream/openstream.env"),
             "--host 0.0.0.0 --tls --tunnel",
         );
-        assert!(line.starts_with(". '/data/data/com.termux/files/home/.config/jiotv/jiotv.env'; "));
+        assert!(line.starts_with(
+            ". '/data/data/com.termux/files/home/.config/openstream/openstream.env'; "
+        ));
         assert!(line.contains("background start --args '--host 0.0.0.0 --tls --tunnel'"));
     }
 
     #[test]
     fn termux_autostart_replaces_stale_arguments() {
         let old = "alias ll='ls -l'\n/home/jiotv background start --args '--host 0.0.0.0' # jiotv autostart\n";
-        let new = ". '/home/.config/jiotv/jiotv.env'; /home/jiotv background start --args '--host 0.0.0.0 --tunnel' # jiotv autostart\n";
+        let new = ". '/home/.config/openstream/openstream.env'; /home/openstream background start --args '--host 0.0.0.0 --tunnel' # openstream autostart\n";
         let (contents, was_set_up) = termux_rc_contents(old, new);
         assert!(was_set_up);
         assert_eq!(contents, "alias ll='ls -l'\n".to_string() + new);

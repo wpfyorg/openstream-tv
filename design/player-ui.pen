@@ -12082,7 +12082,7 @@
           "fill": "$muted",
           "textGrowth": "fixed-width",
           "width": 820,
-          "content": "Show a tiny extras mark beside JioTV Go only while extras is connected. Keep the header quiet: no permanent EXTRA word badge.",
+          "content": "Show a tiny extras mark beside OpenStream TV only while extras is connected. Keep the header quiet: no permanent EXTRA word badge.",
           "lineHeight": 1.4,
           "fontFamily": "$font",
           "fontSize": 13,
@@ -12149,7 +12149,7 @@
                           "id": "a4U2g",
                           "name": "Inactive brand text",
                           "fill": "$text",
-                          "content": "JioTV Go",
+                          "content": "OpenStream TV",
                           "fontFamily": "$font",
                           "fontSize": 17,
                           "fontWeight": "800"
@@ -12262,7 +12262,7 @@
                           "id": "e8PWp7",
                           "name": "Active brand text",
                           "fill": "$text",
-                          "content": "JioTV Go",
+                          "content": "OpenStream TV",
                           "fontFamily": "$font",
                           "fontSize": 17,
                           "fontWeight": "800"

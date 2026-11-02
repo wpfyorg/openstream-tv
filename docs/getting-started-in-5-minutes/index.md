@@ -9,12 +9,12 @@ keywords: [quick start, first run, JioTV account, OTP, watch channel, setup link
 
 This is the shortest path from a new installation to browsing live channels. It requires the **full** build, which includes the browser interface; the slim build is for IPTV clients and has no web UI. You need your own JioTV account and a computer or router that can run the server. **Five minutes** is the approximate hands-on setup time; downloads and OTP delivery may take longer.
 
-## 1. Install JioTV
+## 1. Install OpenStream TV
 
 Choose the instructions for your device in [Installation](../installations/index.md). On a supported Linux or macOS machine, the repository's installer is:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/wpfyorg/better-jiotv-go/main/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/wpfyorg/openstream-tv/main/scripts/install.sh | sh
 ```
 
 Review downloaded scripts before running them if that suits your security policy. On Windows, OpenWrt, Termux and Docker, use the matching platform article.
@@ -24,7 +24,7 @@ Review downloaded scripts before running them if that suits your security policy
 If the guided installer has already started the service, use the address it printed and do not start a second copy. Otherwise, start it in a terminal:
 
 ```sh
-jiotv serve
+openstream serve
 ```
 
 The default address is **http://localhost:5001/** on the server itself. The process must remain running while you watch. The terminal prints a private **Web setup** link on first launch. Copy that complete link into a browser **on the server**; do not share it. It contains your access key.
@@ -35,9 +35,9 @@ For a service on another device, see [access from your network](../configuration
 
 The setup page asks you to choose and repeat an **admin password** with at least eight characters. Select **Set password**. Afterwards, use the same password when the page asks you to **Sign in**.
 
-**Important:** If you opened just `/` before setting a password, the page tells you to use the **Web setup** link from the terminal or run `jiotv admin password` on the server.
+**Important:** If you opened just `/` before setting a password, the page tells you to use the **Web setup** link from the terminal or run `openstream admin password` on the server.
 
-![Setup notice at the normal JioTV web address before an admin password is configured](../images/first-launch-setup.png)
+![Setup notice at the normal OpenStream TV web address before an admin password is configured](../images/first-launch-setup.png)
 
 The screenshot shows the **setup notice**, not the password-entry form. Use the private **Web setup** link from the terminal to open that form.
 

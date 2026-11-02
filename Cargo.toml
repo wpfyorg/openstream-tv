@@ -1,11 +1,11 @@
 [package]
-name = "jiotv"
+name = "openstream-tv"
 version = "1.4.1"
 edition = "2021"
-default-run = "jiotv"
+default-run = "openstream"
 
 [[bin]]
-name = "jiotv"
+name = "openstream"
 path = "src/main.rs"
 
 [features]

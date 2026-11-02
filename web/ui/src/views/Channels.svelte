@@ -55,7 +55,7 @@
           if (query.trim() === q) query = "";
           triedCode = "";
           unlockNotice = { connected: !!d?.extras?.connected };
-          window.dispatchEvent(new CustomEvent("jiotv:extras-changed"));
+          window.dispatchEvent(new CustomEvent("openstream:extras-changed"));
           const isLatest = loads.start();
           try {
             const list = await loadChannels(true);

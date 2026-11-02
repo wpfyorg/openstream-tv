@@ -1,5 +1,5 @@
 ---
-title: Troubleshooting JioTV
+title: Troubleshooting OpenStream TV
 description: Find and fix common installation, account, playback, guide and server problems.
 category: Troubleshooting
 keywords: [troubleshooting, errors, playback, login, installation]

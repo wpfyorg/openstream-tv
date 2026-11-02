@@ -19,7 +19,7 @@ The number or code is wrong, the code expired, the provider rejected the request
 3. Check the message displayed by JioTV and the server log at that time. Do not mistake a browser admin-password prompt for provider OTP login.
 
 ## Solution
-1. Start a fresh sign-in through the JioTV card or run `jiotv login otp` in a terminal.
+1. Start a fresh sign-in through the JioTV card or run `openstream login otp` in a terminal.
 2. Enter the most recent code before it expires. Avoid requesting several codes rapidly.
 3. If a session is invalid, follow the [account-session guide](../account-sessions/index.md) for the available reset and reconnect actions.
 4. If the provider is unavailable, wait until it accepts login again.

@@ -46,8 +46,8 @@
   // Typing the unlock code into the channel search box (Channels.svelte)
   // dispatches this once it succeeds, so this section can appear without a
   // reload.
-  window.addEventListener("jiotv:extras-changed", refresh);
-  onDestroy(() => window.removeEventListener("jiotv:extras-changed", refresh));
+  window.addEventListener("openstream:extras-changed", refresh);
+  onDestroy(() => window.removeEventListener("openstream:extras-changed", refresh));
 
   async function rotateKey() {
     if (!confirm("Make a new access key? Every player using the current playlist URL will stop working until you give it the new one.")) return;
@@ -124,7 +124,7 @@
       </form>
     </section>
   </div>
-  <p class="muted small">JioTV Go {status.version}</p>
+  <p class="muted small">OpenStream TV {status.version}</p>
 {:else if !error}
   <p class="muted">Loading…</p>
 {/if}

@@ -1,4 +1,4 @@
-# JioTV Help Centre: All Articles
+# OpenStream TV Help Centre: All Articles
 
 [Help centre home](help-centre/index.md)
 
@@ -8,7 +8,7 @@ Browse in order, or choose the task you need. The categories and article metadat
 
 - [Start here](getting-started/index.md)
   - [Getting Started in 5 Minutes](getting-started-in-5-minutes/index.md)
-  - [What Is JioTV?](getting-started-what-is-jiotv/index.md)
+  - [What Is OpenStream TV?](getting-started-what-is-openstream-tv/index.md)
   - [Requirements and Supported Devices](getting-started-requirements/index.md)
   - [JioTV and JioTV+: Which Account Do You Need?](getting-started-jiotv-and-extras/index.md)
   - [Choose the Right Installation Method](getting-started-installation-overview/index.md)
@@ -18,7 +18,7 @@ Browse in order, or choose the task you need. The categories and article metadat
 
 ## Installation
 
-- [Install JioTV](installations/index.md)
+- [Install OpenStream TV](installations/index.md)
   - [Install on Linux](installations-linux/index.md)
   - [Install on macOS](installations-macos/index.md)
   - [Install on Windows](installations-windows/index.md)
@@ -28,7 +28,7 @@ Browse in order, or choose the task you need. The categories and article metadat
   - [Install with Docker](installations-docker/index.md)
   - [Install with Docker Compose](installations-docker-compose/index.md)
   - [Install Manually from a Release Binary](installations-manual-binary/index.md)
-  - [Build JioTV from Source](installations-build-from-source/index.md)
+  - [Build OpenStream TV from Source](installations-build-from-source/index.md)
 
 ## Account Setup
 
@@ -38,14 +38,14 @@ Browse in order, or choose the task you need. The categories and article metadat
   - [Connect JioTV+](account-extras/index.md)
   - [Admin Sessions and Sign Out](account-sessions/index.md)
 
-## Using JioTV
+## Using OpenStream TV
 
-- [Using JioTV](using/index.md)
+- [Using OpenStream TV](using/index.md)
   - [Find and Watch Live TV](using-live-tv/index.md)
   - [Read the Programme Guide](using-programme-guide/index.md)
   - [Browse On-Demand Movies and Shows](using-on-demand/index.md)
   - [Use IPTV Playlists and XMLTV Guide](using-iptv-playlists/index.md)
-  - [Use JioTV with VLC](using-vlc/index.md)
+  - [Use OpenStream TV with VLC](using-vlc/index.md)
   - [Settings and Account Controls](using-settings/index.md)
 
 ## Configuration
@@ -59,7 +59,7 @@ Browse in order, or choose the task you need. The categories and article metadat
 
 ## Troubleshooting
 
-- [Troubleshooting JioTV](troubleshooting/index.md)
+- [Troubleshooting OpenStream TV](troubleshooting/index.md)
   - [Fix Video Stuck on Loading](fix-video-stuck-loading/index.md)
   - [Fix DRM and Widevine Playback Errors](fix-drm-playback-errors/index.md)
   - [Fix JioTV OTP Login](fix-otp-login/index.md)
@@ -76,9 +76,9 @@ Browse in order, or choose the task you need. The categories and article metadat
 ## Maintenance
 
 - [Maintenance](maintenance/index.md)
-  - [How to Update JioTV](maintenance-update/index.md)
-  - [Back Up and Restore JioTV](maintenance-backup-restore/index.md)
-  - [Run JioTV as a Background Service](maintenance-background-service/index.md)
+  - [How to Update OpenStream TV](maintenance-update/index.md)
+  - [Back Up and Restore OpenStream TV](maintenance-backup-restore/index.md)
+  - [Run OpenStream TV as a Background Service](maintenance-background-service/index.md)
   - [Docker Updates, Backups and Logs](maintenance-docker/index.md)
-  - [Maintain JioTV on OpenWrt](maintenance-openwrt/index.md)
+  - [Maintain OpenStream TV on OpenWrt](maintenance-openwrt/index.md)
   - [Update and Uninstall](maintenance-update-uninstall/index.md)

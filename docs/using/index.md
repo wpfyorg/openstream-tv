@@ -1,11 +1,11 @@
 ---
-title: Using JioTV
+title: Using OpenStream TV
 description: Watch channels, check the guide, browse on demand and connect IPTV players.
-category: Using JioTV
+category: Using OpenStream TV
 keywords: [JioTV, help, guide, using]
 ---
 
-# Using JioTV
+# Using OpenStream TV
 
 Watch channels, check the guide, browse on demand and connect IPTV players.
 

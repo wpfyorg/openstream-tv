@@ -23,7 +23,7 @@ Check the exact address in the browser. A plain `http://localhost:5001` test can
 
 ### Solution
 
-Enable TLS using `jiotv serve --host 0.0.0.0 --port 5001 --tls` and open `https://<server-lan-address>:5443/`. The generated certificate is self-signed, so accept its warning only when you trust that server, or configure a trusted certificate using both `--tls-cert` and `--tls-key`. Keep IPTV clients on the HTTP playlist listener where needed.
+Enable TLS using `openstream serve --host 0.0.0.0 --port 5001 --tls` and open `https://<server-lan-address>:5443/`. The generated certificate is self-signed, so accept its warning only when you trust that server, or configure a trusted certificate using both `--tls-cert` and `--tls-key`. Keep IPTV clients on the HTTP playlist listener where needed.
 
 ### Verification
 
@@ -48,7 +48,7 @@ The player says protected playback is unavailable, or a DASH channel fails with 
 
 ### Diagnosis
 
-First use HTTPS or localhost. Read the UI's specific protected-playback message: the app checks whether EME is available, whether Widevine key-system access succeeds, and whether it can create a MediaKeys session. Try a current browser/device known to support Widevine and compare an ordinary, non-protected channel. Check `drm` / `JIOTV_DRM` in the [configuration reference](../configuration-reference/index.md); its current default is enabled.
+First use HTTPS or localhost. Read the UI's specific protected-playback message: the app checks whether EME is available, whether Widevine key-system access succeeds, and whether it can create a MediaKeys session. Try a current browser/device known to support Widevine and compare an ordinary, non-protected channel. Check `drm` / `OPENSTREAM_DRM` in the [configuration reference](../configuration-reference/index.md); its current default is enabled.
 
 ### Solution
 

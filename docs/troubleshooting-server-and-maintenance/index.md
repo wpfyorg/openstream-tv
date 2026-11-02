@@ -47,7 +47,7 @@ The host reports high memory use, the UI becomes slow, or the process is termina
 - Several active viewers or large concurrent media requests increase workload.
 - The host or container has a low memory limit or is under pressure from other services.
 - Repeated provider/network errors cause retries or slow requests.
-- The symptom is attributed to JioTV without checking total host/container use.
+- The symptom is attributed to OpenStream TV without checking total host/container use.
 
 ### Diagnosis
 
@@ -108,7 +108,7 @@ The container is running but the UI is unreachable, browser playback fails, or l
 
 ### Diagnosis
 
-Check `docker ps` for status and published ports, then `docker logs jiotv` for startup output. Check the container's volume mapping and that it persists at `/app/.jiotv_go` for the documented image. Compare the image variant with the web UI requirement. Use the LAN address of the Docker host, not the container's loopback address.
+Check `docker ps` for status and published ports, then `docker logs openstream` for startup output. Check the container's volume mapping and that it persists at `/app/.openstream-tv` for the documented image. Compare the image variant with the web UI requirement. Use the LAN address of the Docker host, not the container's loopback address.
 
 ### Solution
 
@@ -126,7 +126,7 @@ Share image tag/variant, redacted `docker ps` port mapping, volume destination, 
 
 ### Symptoms
 
-`jiotv update` fails, reports an unavailable release, or the version does not change after an update.
+`openstream update` fails, reports an unavailable release, or the version does not change after an update.
 
 ### Possible causes
 
@@ -137,11 +137,11 @@ Share image tag/variant, redacted `docker ps` port mapping, volume destination, 
 
 ### Diagnosis
 
-Check the exact updater message, current `jiotv --help`/version output, install method and permissions on the executable directory. Check whether the process needs a service restart. For Docker, compare the running image ID/tag with the image you pulled. On OpenWrt, identify whether the app came from `apk` or `opkg`.
+Check the exact updater message, current `openstream --help`/version output, install method and permissions on the executable directory. Check whether the process needs a service restart. For Docker, compare the running image ID/tag with the image you pulled. On OpenWrt, identify whether the app came from `apk` or `opkg`.
 
 ### Solution
 
-For a manually installed binary, run `jiotv update` with a user who can update that binary, then restart the service as indicated. For Docker, pull and recreate the container with the same data volume. For OpenWrt, update through the package manager rather than the built-in binary updater. Do not run platform installers over an existing managed service unless its guide directs you to.
+For a manually installed binary, run `openstream update` with a user who can update that binary, then restart the service as indicated. For Docker, pull and recreate the container with the same data volume. For OpenWrt, update through the package manager rather than the built-in binary updater. Do not run platform installers over an existing managed service unless its guide directs you to.
 
 ### Verification
 

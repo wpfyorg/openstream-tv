@@ -11,8 +11,8 @@ The server currently uses **one active JioTV provider account** at a time. There
 
 ## Switch in Settings
 
-1. Open **Settings** while signed into the JioTV web interface.
-2. In the **JioTV** card, select **Log out**, then confirm. This button appears for a connected account when provider logout is allowed. It is available by default unless an administrator sets `disable_logout = true` or `JIOTV_DISABLE_LOGOUT=true`.
+1. Open **Settings** while signed into the OpenStream TV web interface.
+2. In the **JioTV** card, select **Log out**, then confirm. This button appears for a connected account when provider logout is allowed. It is available by default unless an administrator sets `disable_logout = true` or `OPENSTREAM_DISABLE_LOGOUT=true`.
 3. In the same card, enter the **new** account's mobile number and request an OTP.
 4. Enter the OTP sent to that number to finish signing in.
 5. Return to **Channels** and reload the channel list.
@@ -25,14 +25,14 @@ The account card shown below is from a clean server before login. It illustrates
 
 ## Switch using the CLI
 
-If logout is disabled in Settings, or you manage a headless server, use the commands below. Stop JioTV **before** changing the credentials so the running process does not overwrite the new state.
+If logout is disabled in Settings, or you manage a headless server, use the commands below. Stop OpenStream TV **before** changing the credentials so the running process does not overwrite the new state.
 
 ```sh
-jiotv login reset
-jiotv login otp
+openstream login reset
+openstream login otp
 ```
 
-Both commands must run as the **same operating-system user and with the same configuration/data directory** used by the server. The first clears the JioTV login; the second prompts for the new number and OTP. Then restart JioTV using your original command or service manager. For OpenWrt, follow its [service-management instructions](../maintenance-openwrt/index.md). For a Docker install, prefer the Settings workflow unless you know how to run commands against the container's persistent volume.
+Both commands must run as the **same operating-system user and with the same configuration/data directory** used by the server. The first clears the JioTV login; the second prompts for the new number and OTP. Then restart OpenStream TV using your original command or service manager. For OpenWrt, follow its [service-management instructions](../maintenance-openwrt/index.md). For a Docker install, prefer the Settings workflow unless you know how to run commands against the container's persistent volume.
 
 ## If switching does not work
 

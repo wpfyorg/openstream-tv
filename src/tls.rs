@@ -143,13 +143,19 @@ fn certificate_names(host: &str) -> Vec<String> {
     if let Some(h) = hostname() {
         push(h);
     }
-    for ip in [outbound_ip("0.0.0.0:0", "192.0.2.1:9"), outbound_ip("[::]:0", "[2001:db8::1]:9")]
-        .into_iter()
-        .flatten()
+    for ip in [
+        outbound_ip("0.0.0.0:0", "192.0.2.1:9"),
+        outbound_ip("[::]:0", "[2001:db8::1]:9"),
+    ]
+    .into_iter()
+    .flatten()
     {
         push(ip.to_string());
     }
-    if let Ok(ip) = host.trim_matches(|c| c == '[' || c == ']').parse::<IpAddr>() {
+    if let Ok(ip) = host
+        .trim_matches(|c| c == '[' || c == ']')
+        .parse::<IpAddr>()
+    {
         if !ip.is_unspecified() {
             push(ip.to_string());
         }
@@ -180,7 +186,8 @@ fn hostname() -> Option<String> {
     let h = raw.trim();
     let valid = !h.is_empty()
         && h.len() <= 253
-        && h.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.');
+        && h.chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.');
     valid.then(|| h.to_string())
 }
 
@@ -203,11 +210,7 @@ fn cert_validity() -> (time::OffsetDateTime, time::OffsetDateTime) {
     (start, end)
 }
 
-fn generate_self_signed(
-    cert_path: &Path,
-    key_path: &Path,
-    names: &[String],
-) -> anyhow::Result<()> {
+fn generate_self_signed(cert_path: &Path, key_path: &Path, names: &[String]) -> anyhow::Result<()> {
     use rcgen::{CertificateParams, DnType, ExtendedKeyUsagePurpose, KeyPair, SanType};
 
     let mut sans = Vec::new();
@@ -223,7 +226,9 @@ fn generate_self_signed(
     }
     let mut params = CertificateParams::new(Vec::<String>::new())?;
     params.subject_alt_names = sans;
-    params.distinguished_name.push(DnType::CommonName, "JioTV Go");
+    params
+        .distinguished_name
+        .push(DnType::CommonName, "OpenStream TV");
     params.extended_key_usages = vec![ExtendedKeyUsagePurpose::ServerAuth];
     let (not_before, not_after) = cert_validity();
     params.not_before = not_before;
@@ -272,8 +277,11 @@ pub async fn serve<S, F>(
     mut shutdown: watch::Receiver<bool>,
 ) where
     F: Fn(SocketAddr) -> S + Send + Sync + 'static,
-    S: Service<Request<Body>, Response = axum::response::Response, Error = std::convert::Infallible>
-        + Clone
+    S: Service<
+            Request<Body>,
+            Response = axum::response::Response,
+            Error = std::convert::Infallible,
+        > + Clone
         + Send
         + 'static,
     S::Future: Send + 'static,
@@ -393,7 +401,10 @@ mod tests {
         let two = data_dir();
         load_or_create("", "", one.path().to_str().unwrap(), "localhost").unwrap();
         load_or_create("", "", two.path().to_str().unwrap(), "localhost").unwrap();
-        let (c1, k1) = (one.path().join("tls/cert.pem"), one.path().join("tls/key.pem"));
+        let (c1, k1) = (
+            one.path().join("tls/cert.pem"),
+            one.path().join("tls/key.pem"),
+        );
         let k2 = two.path().join("tls/key.pem");
         let (c1s, k1s, k2s) = (
             c1.to_str().unwrap(),
@@ -405,9 +416,13 @@ mod tests {
         assert!(!ok.generated);
         assert!(load_or_create(c1s, k2s, "/nonexistent", "localhost").is_err());
 
-        let err = load_or_create(c1s, "", "/nonexistent", "localhost").err().unwrap();
+        let err = load_or_create(c1s, "", "/nonexistent", "localhost")
+            .err()
+            .unwrap();
         assert!(err.to_string().contains("must be given together"));
-        let err = load_or_create("", k1s, "/nonexistent", "localhost").err().unwrap();
+        let err = load_or_create("", k1s, "/nonexistent", "localhost")
+            .err()
+            .unwrap();
         assert!(err.to_string().contains("must be given together"));
     }
 

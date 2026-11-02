@@ -1,26 +1,26 @@
 ---
 title: CLI Commands and Options
-description: Reference for the current Rust jiotv command and its server flags.
+description: Reference for the OpenStream TV command and its server flags.
 category: Configuration
 keywords: [CLI, serve, login, update, epg, key, autostart, TLS, port]
 ---
 
 # CLI Commands and Options
 
-Run `jiotv --help` to see the installed binary's command list. These commands are defined by the current Rust CLI.
+Run `openstream --help` to see the installed binary's command list. These commands are defined by the current Rust CLI.
 
 | Command | What it does |
 | --- | --- |
-| `jiotv serve` | Start the HTTP server. Also accepted: `jiotv run`, `jiotv start` or no command. |
-| `jiotv login otp` | Sign in to the JioTV provider account by OTP from the server terminal. |
-| `jiotv login reset` | Clear JioTV login state. |
-| `jiotv tv+ login` / `jiotv tv+ logout` | Connect/disconnect the optional JioTV+ account when `tv_plus` is enabled. `jiotv extras login` is still accepted. |
-| `jiotv admin password` | Set an admin password from the CLI. |
-| `jiotv key show` / `jiotv key rotate` | Show or replace the IPTV access key. Treat its output as confidential. |
-| `jiotv epg generate` / `jiotv epg delete` | Generate the current guide or remove its cache. |
-| `jiotv background start` / `jiotv background stop` | Start or stop a detached server process. |
-| `jiotv update` | Check/install a release. `--version vX.Y.Z` requests a specific release. |
-| `jiotv autostart` / `jiotv autostart remove` | Install/remove supported startup integration (systemd; Termux shell startup). |
+| `openstream serve` | Start the HTTP server. Also accepted: `openstream run`, `openstream start` or no command. |
+| `openstream login otp` | Sign in to the JioTV provider account by OTP from the server terminal. |
+| `openstream login reset` | Clear JioTV login state. |
+| `openstream tv+ login` / `openstream tv+ logout` | Connect/disconnect the optional JioTV+ account when `tv_plus` is enabled. `openstream extras login` is still accepted. |
+| `openstream admin password` | Set an admin password from the CLI. |
+| `openstream key show` / `openstream key rotate` | Show or replace the IPTV access key. Treat its output as confidential. |
+| `openstream epg generate` / `openstream epg delete` | Generate the current guide or remove its cache. |
+| `openstream background start` / `openstream background stop` | Start or stop a detached server process. |
+| `openstream update` | Check/install a release. `--version vX.Y.Z` requests a specific release. |
+| `openstream autostart` / `openstream autostart remove` | Install/remove supported startup integration (systemd; Termux shell startup). |
 
 All commands accept `--config PATH`. `--skip-update-check` suppresses the startup version check.
 
@@ -37,8 +37,8 @@ All commands accept `--config PATH`. `--skip-update-check` suppresses the startu
 | `--tunnel` | off | Start a Cloudflare tunnel where supported. |
 | `--tunnel-token` | unset | Named tunnel token; keep private. |
 
-`--tunnel-token` is visible in the process list. Prefer `JIOTV_TUNNEL_TOKEN`, which the guided installer and OpenWrt service use. `jiotv autostart` records current `JIOTV_*` variables in a private environment file for systemd and Termux autostart. On other systems, persist settings in a user-owned environment file or set them in the shell that starts the server.
+`--tunnel-token` is visible in the process list. Prefer `OPENSTREAM_TUNNEL_TOKEN`, which the guided installer and OpenWrt service use. `openstream autostart` records current `OPENSTREAM_*` variables in a private environment file for systemd and Termux autostart. On other systems, persist settings in a user-owned environment file or set them in the shell that starts the server.
 
-Example: `jiotv serve --host 127.0.0.1 --port 5001 --tls`. This serves HTTP on 5001 and HTTPS on 5443. When no certificate files are supplied, the server generates a self-signed certificate; browsers may show a warning until you trust it.
+Example: `openstream serve --host 127.0.0.1 --port 5001 --tls`. This serves HTTP on 5001 and HTTPS on 5443. When no certificate files are supplied, the server generates a self-signed certificate; browsers may show a warning until you trust it.
 
 **Avoid exposing the service publicly** without strong controls. The access key and login are not a substitute for a network security plan. See [Network and HTTPS](../configuration-network-security/index.md).

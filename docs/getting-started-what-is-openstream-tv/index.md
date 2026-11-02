@@ -1,13 +1,13 @@
 ---
-title: What Is JioTV?
+title: What Is OpenStream TV?
 description: Understand live channels, programme guide, IPTV playlists, JioTV+ and on-demand video.
 category: Getting Started
-keywords: [about JioTV, features, JioTV+, TV+, live, IPTV]
+keywords: [about OpenStream TV, features, JioTV, JioTV+, TV+, live, IPTV]
 ---
 
-# What Is JioTV?
+# What Is OpenStream TV?
 
-JioTV is a small server that runs on a device you control. You open its web interface to browse live channels, select a programme, and watch where your account and device are supported. Its main screen has **Channels**, **On demand**, and **Settings**.
+OpenStream TV is a small server that runs on a device you control. You open its web interface to browse live channels, select a programme, and watch where your account and device are supported. Its main screen has **Channels**, **On demand**, and **Settings**.
 
 It can provide:
 
@@ -22,10 +22,10 @@ It can provide:
 
 A **JioTV account** provides the normal JioTV channel source. **JioTV+** is the optional second account and source; the older name **Extras** still appears in some places. JioTV+ is disabled by default, and availability depends on how the server was configured. A JioTV+ subscription or provider entitlement may be needed for some titles and channels. A channel shown on screen is not a promise that your account can play it.
 
-You also create a separate **admin password** to protect the JioTV web interface. This password is not your JioTV mobile-number login.
+You also create a separate **admin password** to protect the OpenStream TV web interface. This password is not your JioTV mobile-number login.
 
-## What JioTV does not guarantee
+## What OpenStream TV does not guarantee
 
-Not every channel is playable on every browser. Protected streams may require a working DRM/Widevine environment and a secure HTTPS browser origin. JioTV cannot grant subscriptions or bypass regional, account, provider or licensing restrictions.
+Not every channel is playable on every browser. Protected streams may require a working DRM/Widevine environment and a secure HTTPS browser origin. OpenStream TV cannot grant subscriptions or bypass regional, account, provider or licensing restrictions.
 
 Continue with [system requirements](../getting-started-requirements/index.md) or [Getting Started in 5 Minutes](../getting-started-in-5-minutes/index.md).

@@ -1,6 +1,6 @@
 //! HTTP server wiring: the access gate, the JSON API, playlist/channels,
-//! logo proxy and (full build) the Svelte UI's static assets. Mirrors
-//! `cmd/jiotv_go.go` / `cmd/ui.go` / `internal/access/access.go`.
+//! logo proxy and (full build) the Svelte UI's static assets. The access
+//! behavior follows the original Go implementation's server/access layers.
 //!
 //! The gate strips a `/k/<key>` prefix by hand, as a plain `tower::Service`
 //! wrapped *outside* the axum `Router`, rather than as `Router::layer()`
@@ -541,8 +541,8 @@ mod tests {
         let key = state.access.key().unwrap();
 
         let dir = tempfile::tempdir().unwrap();
-        let material = crate::tls::load_or_create("", "", dir.path().to_str().unwrap(), "127.0.0.1")
-            .unwrap();
+        let material =
+            crate::tls::load_or_create("", "", dir.path().to_str().unwrap(), "127.0.0.1").unwrap();
         let cert_pem = std::fs::read(dir.path().join("tls/cert.pem")).unwrap();
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -565,7 +565,9 @@ mod tests {
         // A garbage connection must not break the accept loop.
         {
             use tokio::io::AsyncWriteExt;
-            let mut raw = tokio::net::TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+            let mut raw = tokio::net::TcpStream::connect(("127.0.0.1", port))
+                .await
+                .unwrap();
             raw.write_all(b"GET / HTTP/1.1\r\n\r\n").await.unwrap();
         }
 
@@ -621,7 +623,10 @@ mod tests {
             let resp = send(state.clone(), uri).await;
             assert_ne!(resp.status(), StatusCode::NOT_FOUND, "{uri}");
             let text = body_text(resp).await;
-            assert!(!text.contains("not available for the active account"), "{uri}: {text}");
+            assert!(
+                !text.contains("not available for the active account"),
+                "{uri}: {text}"
+            );
         }
     }
 

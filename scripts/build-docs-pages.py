@@ -12,7 +12,7 @@ import tempfile
 repo = Path(__file__).resolve().parents[1]
 output = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else repo / "docs/book"
 
-with tempfile.TemporaryDirectory(prefix="jiotv-docs-pages-") as staging:
+with tempfile.TemporaryDirectory(prefix="openstream-docs-pages-") as staging:
     book = Path(staging)
     source = book / "src"
     shutil.copytree(repo / "docs", source, ignore=shutil.ignore_patterns("book"))

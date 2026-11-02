@@ -7,9 +7,9 @@ body:
   - type: markdown
     attributes:
       value: |
-        # JioTV Go Security issue
+        # OpenStream TV Security issue
 
-        Important to note that your issue may have already been reported before. Please check for existing issues [here](https://github.com/jiotv-go/jiotv_go/labels/security).
+        Important to note that your issue may have already been reported before. Please check for existing issues [here](https://github.com/wpfyorg/openstream-tv/labels/security).
 
   - type: textarea
     attributes:
