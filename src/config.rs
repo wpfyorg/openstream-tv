@@ -19,7 +19,7 @@ pub struct Config {
     #[serde(rename = "tv_plus", alias = "extras", alias = "tvplus")]
     pub extras: bool,
     /// Enables the optional Fastway Live TV provider. It still needs
-    /// `jiotv fastway login` (or the Settings card) before channels appear.
+    /// `openstream fastway login` (or the Settings card) before channels appear.
     pub fastway: bool,
     pub disable_auth: bool,
     pub title: String,

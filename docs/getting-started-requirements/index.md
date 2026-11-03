@@ -13,7 +13,7 @@ You need a device that can run the Rust `openstream` binary, network access to t
 
 The repository supplies installers/build or packaging support for Linux, macOS, Windows, OpenWrt, Raspberry Pi and other Linux single-board computers, and Android through **Termux**. It also supplies a Docker image. Exact CPU architecture support varies by release; check the [platform-specific instructions](../installations/index.md) before downloading.
 
-The **full** build serves the browser UI. The **slim** build omits browser assets and is intended for IPTV clients. JioTV+ is a runtime switch (`tv_plus = true`, `JIOTV_TVPLUS=true` or `OPENSTREAM_TVPLUS=true`), not a separate build. Fastway is also optional and enabled with `fastway = true` or `JIOTV_FASTWAY=true`.
+The **full** build serves the browser UI. The **slim** build omits browser assets and is intended for IPTV clients. JioTV+ is a runtime switch (`tv_plus = true`, `JIOTV_TVPLUS=true` or `OPENSTREAM_TVPLUS=true`), not a separate build. Fastway is also optional and enabled with `fastway = true` or `OPENSTREAM_FASTWAY=true`.
 
 ## Where you can watch
 

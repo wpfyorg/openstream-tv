@@ -41,7 +41,7 @@ Save, start with `openstream --config ./openstream.toml serve`, then open `http:
 | `disable_logout` | `JIOTV_DISABLE_LOGOUT`, `OPENSTREAM_DISABLE_LOGOUT` | `false` | Boolean. Hide/disable JioTV logout when true. |
 | `drm` | `JIOTV_DRM`, `OPENSTREAM_DRM` | `true` | Boolean. Allow the protected DASH pathway; does not bypass DRM. |
 | `tv_plus` | `JIOTV_TVPLUS`, `OPENSTREAM_TVPLUS` | `false` | Boolean. Enable the optional JioTV+ account. Needs a JioFiber or AirFiber login. |
-| `fastway` | `JIOTV_FASTWAY` | `false` | Boolean. Enable the optional Fastway Live TV provider. Connect an account with `openstream fastway login` or Settings before channels appear. |
+| `fastway` | `OPENSTREAM_FASTWAY` | `false` | Boolean. Enable the optional Fastway Live TV provider. Connect an account with `openstream fastway login` or Settings before channels appear. |
 | `disable_auth` | `JIOTV_DISABLE_AUTH`, `OPENSTREAM_DISABLE_AUTH` | `false` | Boolean. Disable app access checks. Dangerous on reachable networks; use only with a trusted external access control. |
 | `title` | `JIOTV_TITLE`, `OPENSTREAM_TITLE` | `"OpenStream TV"` | Display title; any TOML string. |
 | `disable_url_encryption` | `JIOTV_DISABLE_URL_ENCRYPTION`, `OPENSTREAM_DISABLE_URL_ENCRYPTION` | `false` | Boolean. Disable encryption of local proxy parameters. Leave false. |
