@@ -22,7 +22,7 @@ The player offers pause/resume, mute, playback quality (**Auto**, **High**, **Me
 
 ![OpenStream TV live player with quality controls and the current programme guide](../images/player-guide-jiotv-plus.png)
 
-This v1.5.0 capture uses a JioTV+ channel and verifies the current player/guide layout. The headless capture was still at **Starting live TV…**, so it is not evidence that the stream completed playback.
+This v1.5.0 capture uses a JioTV+ channel and verifies the current player/guide layout. Playback for the tested JioTV+ channel was later verified manually. That single successful test does not establish that every channel will play for every account.
 
 **Expected result:** playback starts and programme details appear when the channel provides guide data. Quality choices are requests; the available stream may limit the result.
 

@@ -21,7 +21,7 @@ Once your server is running and your JioTV account says **Logged in** in **Setti
 
 ![Live player layout with quality controls and the current programme guide](../images/player-guide-jiotv-plus.png)
 
-The player screenshot was captured from the same JioTV+ session. The headless browser was still showing **Starting live TV…**, so this image verifies the player and guide layout, not successful media playback.
+The player screenshot was captured from the same JioTV+ session. Playback for the tested JioTV+ channel was later verified manually. The screenshot still documents the player and guide layout; one successful channel does not prove all channels are available or playable.
 
 If the player says **Subscription required**, try a channel included in your plan. If the player mentions **DRM**, **Widevine**, a license, or a secure origin, see [Fix DRM playback errors](../troubleshooting-protected-playback/index.md). If the screen remains loading, see [Fix a channel that will not play](../troubleshooting-channels-and-playback/index.md).
 
