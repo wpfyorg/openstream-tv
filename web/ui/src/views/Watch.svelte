@@ -1,5 +1,6 @@
 <script>
   import { onDestroy, onMount } from "svelte";
+  import { fade } from "svelte/transition";
   import { api, loadChannels, formatTime } from "../lib/api.js";
   import {
     createShakaPlayer,
@@ -106,7 +107,7 @@
         return;
       }
       showMeta = false;
-    }, 5000);
+    }, 3000);
   }
 
   function handlePlayerKeydown(event) {
@@ -410,13 +411,11 @@
     };
     window.addEventListener("offline", onOffline);
     window.addEventListener("online", onOnline);
-    window.addEventListener("keydown", markActivity);
     markActivity();
     return () => {
       clearInterval(clockTimer);
       window.removeEventListener("offline", onOffline);
       window.removeEventListener("online", onOnline);
-      window.removeEventListener("keydown", markActivity);
     };
   });
 
@@ -438,6 +437,7 @@
     aria-label="Live player"
     tabindex="0"
     bind:this={playerContainer}
+    onpointerenter={markActivity}
     onpointermove={markActivity}
     onpointerdown={markActivity}
     ontouchstart={markActivity}
@@ -447,7 +447,7 @@
     <!-- svelte-ignore a11y_media_has_caption -->
     <video bind:this={video} autoplay playsinline></video>
     {#if showMeta && playerState.kind === "playing"}
-      <div class="player-controls">
+      <div class="player-controls" out:fade={{ duration: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 250 }}>
         <div class="controls-scrim" aria-hidden="true"></div>
         <div class="player-meta" aria-hidden="true">
           <div class="player-meta-top">
