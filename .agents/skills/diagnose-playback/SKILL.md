@@ -11,7 +11,7 @@ Find the first failing hop. Player errors are downstream symptoms, not root caus
 
 Record channel ID, live/catch-up/premium mode, programme `srno` and timestamps when applicable, requested quality, client, and whether DRM is enabled. Do not compare cases until these inputs match.
 
-Run with `OPENSTREAM_DEBUG=true OPENSTREAM_LOG_TO_STDOUT=true`. Reproduce one failing request and retain status, redirect location, content type, and relevant server log lines for each hop. Never publish credentials, encrypted `auth` values, SSO tokens, license challenges, or HDNEA values.
+Run with `OPENSTREAM_DEBUG=true OPENSTREAM_LOG_TO_STDOUT=true`. Reproduce one failing request and retain status, redirect location, content type, and relevant server log lines for each hop. Follow the repository's **Diagnostic Evidence and Sanitization** rules in `AGENTS.md`; never publish credentials, encrypted `auth` values, SSO tokens, license challenges, or HDNEA values.
 
 ## Trace the chain
 

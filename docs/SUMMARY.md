@@ -61,6 +61,7 @@ Browse in order, or choose the task you need. The categories and article metadat
 ## Troubleshooting
 
 - [Troubleshooting OpenStream TV](troubleshooting/index.md)
+  - [Collect logs and report a problem safely](troubleshooting-reporting-logs/index.md)
   - [Fix Video Stuck on Loading](fix-video-stuck-loading/index.md)
   - [Fix DRM and Widevine Playback Errors](fix-drm-playback-errors/index.md)
   - [Fix JioTV OTP Login](fix-otp-login/index.md)
