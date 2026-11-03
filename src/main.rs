@@ -31,6 +31,7 @@ mod vod;
 mod ui_assets;
 
 use std::io::Write;
+use std::net::Ipv4Addr;
 use std::sync::Arc;
 
 fn main() -> anyhow::Result<()> {
@@ -374,7 +375,7 @@ async fn serve(
             if state.fastway.connected() {
                 " (logged in)"
             } else {
-                " (run `jiotv fastway login`)"
+                " (run `openstream fastway login`)"
             }
         );
     }
@@ -400,11 +401,11 @@ async fn serve(
         });
     }
 
-    if !cfg.disable_auth {
+    let playlist = if !cfg.disable_auth {
         let playlist = access.playlist_path()?;
         println!(
             "Playlist: http://{}:{}{playlist}",
-            display_host(&args.host),
+            reachable_host(&args.host),
             args.port
         );
         #[cfg(feature = "full")]
@@ -419,9 +420,11 @@ async fn serve(
             };
             println!("Web setup: {origin}{setup} (or run: openstream admin password)");
         }
+        playlist
     } else {
         println!("Auth is disabled: playlist at /playlist.m3u");
-    }
+        "/playlist.m3u".to_string()
+    };
 
     if let Ok(http) = args.port.parse::<u16>() {
         let tls = args
@@ -455,6 +458,12 @@ async fn serve(
     };
 
     let listener = tokio::net::TcpListener::bind(format!("{}:{}", args.host, args.port)).await?;
+    if args.host == "0.0.0.0" {
+        match lan_ipv4_addresses() {
+            Ok(addresses) => print_lan_playlists(&addresses, &playlist, &args.port),
+            Err(error) => tracing::warn!("cannot detect LAN IPv4 addresses: {error}"),
+        }
+    }
 
     let mut tunnel_handle = None;
     if args.tunnel {
@@ -578,9 +587,40 @@ async fn shutdown_signal() {
 /// The host to print in a URL meant to be opened from another device. A
 /// wildcard bind address names no machine, so it becomes a placeholder.
 fn reachable_host(host: &str) -> String {
-    match host {
-        "0.0.0.0" | "[::]" | "::" | "[::0]" | "0:0:0:0:0:0:0:0" => "<server-ip>".to_string(),
-        other => display_host(other),
+    if is_wildcard_host(host) {
+        "<server-ip>".to_string()
+    } else {
+        display_host(host)
+    }
+}
+
+fn is_wildcard_host(host: &str) -> bool {
+    matches!(
+        host,
+        "0.0.0.0" | "[::]" | "::" | "[::0]" | "0:0:0:0:0:0:0:0"
+    )
+}
+
+fn lan_ipv4_addresses() -> anyhow::Result<Vec<Ipv4Addr>> {
+    let interfaces = if_addrs::get_if_addrs()?;
+    Ok(private_ipv4_addresses(interfaces.into_iter().filter_map(
+        |interface| match interface.ip() {
+            std::net::IpAddr::V4(address) => Some(address),
+            std::net::IpAddr::V6(_) => None,
+        },
+    )))
+}
+
+fn private_ipv4_addresses(addresses: impl IntoIterator<Item = Ipv4Addr>) -> Vec<Ipv4Addr> {
+    let mut result: Vec<_> = addresses.into_iter().filter(Ipv4Addr::is_private).collect();
+    result.sort_unstable();
+    result.dedup();
+    result
+}
+
+fn print_lan_playlists(addresses: &[Ipv4Addr], playlist: &str, port: &str) {
+    for address in addresses {
+        println!("LAN playlist: http://{address}:{port}{playlist}");
     }
 }
 
@@ -971,5 +1011,30 @@ mod tests {
         assert_eq!(reachable_host("localhost"), "localhost");
         assert_eq!(reachable_host(""), "localhost");
         assert_eq!(reachable_host("192.168.1.10"), "192.168.1.10");
+    }
+
+    #[test]
+    fn lan_candidates_are_private_ipv4_sorted_and_deduplicated() {
+        let addresses = private_ipv4_addresses([
+            Ipv4Addr::new(192, 168, 1, 20),
+            Ipv4Addr::new(10, 0, 0, 4),
+            Ipv4Addr::new(192, 168, 1, 20),
+            Ipv4Addr::new(8, 8, 8, 8),
+            Ipv4Addr::new(169, 254, 1, 2),
+        ]);
+        assert_eq!(
+            addresses,
+            [Ipv4Addr::new(10, 0, 0, 4), Ipv4Addr::new(192, 168, 1, 20)]
+        );
+    }
+
+    #[test]
+    fn only_wildcard_hosts_advertise_detected_lan_addresses() {
+        for wildcard in ["0.0.0.0", "[::]", "::", "[::0]", "0:0:0:0:0:0:0:0"] {
+            assert!(is_wildcard_host(wildcard));
+        }
+        for local in ["localhost", "127.0.0.1", "192.168.1.10"] {
+            assert!(!is_wildcard_host(local));
+        }
     }
 }

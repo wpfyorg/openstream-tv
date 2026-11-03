@@ -9,6 +9,8 @@ keywords: [IPTV, M3U, XMLTV, EPG, playlist, external player]
 
 OpenStream TV provides an **M3U playlist** for channel streams and an **XMLTV/EPG** URL for programme schedules. The URLs are available in **Settings → IPTV playlist**.
 
+For IPTV devices on your LAN, start the server with `openstream serve --host 0.0.0.0`. After it starts, it prints a LAN playlist URL for each detected private IPv4 address. Choose the address reachable by your player. The default localhost bind only accepts connections from the server itself.
+
 1. Open the OpenStream TV web interface and select **Settings**.
 2. Copy the **Playlist** URL and add it as a network playlist in your IPTV app.
 3. If the server has EPG enabled, copy the **EPG** URL and add it as the app's XMLTV/guide source.
