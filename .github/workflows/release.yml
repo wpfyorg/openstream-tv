@@ -9,7 +9,16 @@ on:
   # a real tag depends on them.
   pull_request:
     types: [labeled, synchronize, reopened]
-    paths: [".github/workflows/release.yml", "scripts/ci-openwrt-packages.sh", "scripts/build-openwrt-packages.sh", "openwrt/**"]
+    paths:
+      - ".github/workflows/release.yml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "src/**"
+      - "build.rs"
+      - "web/ui/dist/**"
+      - "scripts/ci-openwrt-packages.sh"
+      - "scripts/build-openwrt-packages.sh"
+      - "openwrt/**"
   workflow_dispatch:
 
 # Read-only by default: dry runs on pull requests execute branch code. Only the publish

@@ -601,6 +601,7 @@ fn is_wildcard_host(host: &str) -> bool {
     )
 }
 
+#[cfg(not(target_os = "android"))]
 fn lan_ipv4_addresses() -> anyhow::Result<Vec<Ipv4Addr>> {
     let interfaces = if_addrs::get_if_addrs()?;
     Ok(private_ipv4_addresses(interfaces.into_iter().filter_map(
@@ -609,6 +610,14 @@ fn lan_ipv4_addresses() -> anyhow::Result<Vec<Ipv4Addr>> {
             std::net::IpAddr::V6(_) => None,
         },
     )))
+}
+
+#[cfg(target_os = "android")]
+fn lan_ipv4_addresses() -> anyhow::Result<Vec<Ipv4Addr>> {
+    // Android API 21 does not provide getifaddrs/freeifaddrs. The release
+    // matrix targets API 21, so interface enumeration must stay out of these
+    // binaries. The normal playlist URL is still printed above.
+    Ok(Vec::new())
 }
 
 fn private_ipv4_addresses(addresses: impl IntoIterator<Item = Ipv4Addr>) -> Vec<Ipv4Addr> {

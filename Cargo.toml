@@ -57,6 +57,8 @@ urlencoding = "2"
 tempfile = "3"
 url = "2"
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+
+[target.'cfg(not(target_os = "android"))'.dependencies]
 if-addrs = "0.15.0"
 
 [dev-dependencies]
