@@ -7,7 +7,7 @@ keywords: [install, setup, Linux, Windows, macOS, OpenWrt, Termux, Docker, full,
 
 # Choose the Right Installation Method
 
-JioTV is a **server**. One device runs it, and a browser or IPTV application opens its interface or playlist over the network. For example, you can run the server on a Raspberry Pi and watch from a laptop on the same home network.
+OpenStream TV is a **server**. One device runs it, and a browser or IPTV application opens its interface or playlist over the network. For example, you can run the server on a Raspberry Pi and watch from a laptop on the same home network.
 
 Choose your server device first:
 
@@ -29,4 +29,4 @@ The Linux, macOS, Windows and OpenWrt installers run a guided setup when they ha
 
 Which account you need depends on your network: JioTV works on any network, JioTV+ needs a JioFiber or AirFiber login, and Fastway needs a Fastway subscription or an ACT connection.
 
-After installing, use [Getting Started in 5 Minutes](../getting-started-in-5-minutes/index.md). If your browser runs on another device, read [Access JioTV on your home network](../configuration-network-security/index.md).
+After installing, use [Getting Started in 5 Minutes](../getting-started-in-5-minutes/index.md). If your browser runs on another device, read [Access OpenStream TV on your home network](../configuration-network-security/index.md).

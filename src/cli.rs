@@ -1,5 +1,4 @@
-//! Command-line parsing with `lexopt`, mirroring the subcommands in
-//! `main.go`.
+//! Command-line parsing with `lexopt`.
 
 pub enum Command {
     Serve(ServeArgs),
@@ -43,7 +42,9 @@ impl Default for ServeArgs {
             tls_cert: String::new(),
             tls_key: String::new(),
             tunnel: false,
-            tunnel_token: std::env::var("JIOTV_TUNNEL_TOKEN").ok(),
+            tunnel_token: std::env::var("OPENSTREAM_TUNNEL_TOKEN")
+                .or_else(|_| std::env::var("JIOTV_TUNNEL_TOKEN"))
+                .ok(),
         }
     }
 }
@@ -83,7 +84,10 @@ pub fn parse() -> anyhow::Result<Args> {
             Long("help") | Short('h') => {
                 command = Some(Command::Help);
             }
-            Value(v) => positionals.push(v.into_string().map_err(|_| anyhow::anyhow!("invalid arg"))?),
+            Value(v) => positionals.push(
+                v.into_string()
+                    .map_err(|_| anyhow::anyhow!("invalid arg"))?,
+            ),
             _ => return Err(arg.unexpected().into()),
         }
     }
@@ -101,14 +105,16 @@ pub fn parse() -> anyhow::Result<Args> {
                 Some("reset") | Some("logout") | Some("lo") => Command::LoginReset,
                 Some(other) => anyhow::bail!("unknown login subcommand: {other}"),
             },
-            Some("tv+") | Some("tvplus") | Some("extras") => match positionals.get(1).map(String::as_str) {
-                Some("login") => Command::ExtrasLogin,
-                Some("logout") => Command::ExtrasLogout,
-                other => anyhow::bail!("usage: jiotv tv+ login|logout (got {other:?})"),
-            },
+            Some("tv+") | Some("tvplus") | Some("extras") => {
+                match positionals.get(1).map(String::as_str) {
+                    Some("login") => Command::ExtrasLogin,
+                    Some("logout") => Command::ExtrasLogout,
+                    other => anyhow::bail!("usage: openstream tv+ login|logout (got {other:?})"),
+                }
+            }
             Some("admin") => match positionals.get(1).map(String::as_str) {
                 Some("password") => Command::AdminPassword,
-                other => anyhow::bail!("usage: jiotv admin password (got {other:?})"),
+                other => anyhow::bail!("usage: openstream admin password (got {other:?})"),
             },
             Some("key") => match positionals.get(1).map(String::as_str) {
                 Some("rotate") => Command::KeyRotate,
@@ -118,18 +124,24 @@ pub fn parse() -> anyhow::Result<Args> {
             Some("epg") => match positionals.get(1).map(String::as_str) {
                 Some("generate") | Some("gen") | Some("g") => Command::EpgGenerate,
                 Some("delete") | Some("del") | Some("d") => Command::EpgDelete,
-                other => anyhow::bail!("usage: jiotv epg generate|delete (got {other:?})"),
+                other => anyhow::bail!("usage: openstream epg generate|delete (got {other:?})"),
             },
             Some("background") | Some("bg") => match positionals.get(1).map(String::as_str) {
-                Some("start") | Some("run") | Some("r") => Command::BackgroundStart { args: background_args },
+                Some("start") | Some("run") | Some("r") => Command::BackgroundStart {
+                    args: background_args,
+                },
                 Some("stop") | Some("k") | Some("kill") => Command::BackgroundStop,
-                other => anyhow::bail!("usage: jiotv background start|stop (got {other:?})"),
+                other => anyhow::bail!("usage: openstream background start|stop (got {other:?})"),
             },
             Some("update") | Some("upgrade") | Some("u") => Command::Update { version },
             Some("autostart") | Some("as") => match positionals.get(1).map(String::as_str) {
-                None | Some("install") | Some("enable") => Command::Autostart { args: background_args },
+                None | Some("install") | Some("enable") => Command::Autostart {
+                    args: background_args,
+                },
                 Some("remove") | Some("disable") | Some("uninstall") => Command::AutostartRemove,
-                Some(other) => anyhow::bail!("usage: jiotv autostart [--args \"...\"] | autostart remove (got {other})"),
+                Some(other) => anyhow::bail!(
+                    "usage: openstream autostart [--args \"...\"] | autostart remove (got {other})"
+                ),
             },
             Some(other) => anyhow::bail!("unknown command: {other}"),
         });

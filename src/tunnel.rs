@@ -53,7 +53,11 @@ pub async fn ensure_cloudflared(data_dir: &Path) -> anyhow::Result<PathBuf> {
     let url = format!("{RELEASE_BASE}/{asset}");
     println!("Downloading cloudflared from {url} to {}", local.display());
 
-    let bytes = reqwest::get(&url).await?.error_for_status()?.bytes().await?;
+    let bytes = reqwest::get(&url)
+        .await?
+        .error_for_status()?
+        .bytes()
+        .await?;
     std::fs::create_dir_all(data_dir)?;
 
     if asset.ends_with(".tgz") {
@@ -112,7 +116,10 @@ pub struct Tunnel {
 impl Tunnel {
     /// Spawns a quick (trycloudflare.com) tunnel for `local_port`, returning
     /// once the public URL has been parsed from cloudflared's stderr.
-    pub async fn spawn_quick(cloudflared: &Path, local_port: u16) -> anyhow::Result<(Tunnel, String)> {
+    pub async fn spawn_quick(
+        cloudflared: &Path,
+        local_port: u16,
+    ) -> anyhow::Result<(Tunnel, String)> {
         let mut child = Command::new(cloudflared)
             .args([
                 "tunnel",
@@ -129,7 +136,7 @@ impl Tunnel {
         Ok((Tunnel { child }, url))
     }
 
-    /// Runs a named tunnel using a token (`--tunnel-token` / `JIOTV_TUNNEL_TOKEN`).
+    /// Runs a named tunnel using a token (`--tunnel-token` / `OPENSTREAM_TUNNEL_TOKEN`).
     pub async fn spawn_named(cloudflared: &Path, token: &str) -> anyhow::Result<Tunnel> {
         let child = Command::new(cloudflared)
             .args(["tunnel", "run", "--token", token])

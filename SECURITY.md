@@ -8,7 +8,7 @@ Security fixes are applied to the latest released version and the active `main` 
 
 Do **not** open a public issue for a suspected vulnerability.
 
-Use [GitHub private vulnerability reporting](https://github.com/jiotv-go/jiotv_go/security/advisories/new). Include:
+Use [GitHub private vulnerability reporting](https://github.com/wpfyorg/openstream-tv/security/advisories/new). Include:
 
 - affected version, commit, or deployment method;
 - impact and attack prerequisites;
@@ -16,7 +16,7 @@ Use [GitHub private vulnerability reporting](https://github.com/jiotv-go/jiotv_g
 - relevant configuration details and sanitized logs; and
 - a proposed fix, if available.
 
-Do not include Jio credentials, OTPs, access tokens, API keys, private URLs, or other secrets. Redact them before submitting the report.
+Do not include provider credentials, OTPs, access tokens, API keys, private URLs, or other secrets. Redact them before submitting the report.
 
 If private reporting is unavailable, contact a repository maintainer privately through email rather than using the public issue tracker.
 
@@ -26,4 +26,4 @@ Maintainers will assess reports privately, reproduce the issue, and coordinate a
 
 ## Scope
 
-Relevant reports include vulnerabilities in the Go server, web UI, release artifacts, container images, CI configuration, and handling of credentials, DRM, encrypted stream URLs, or upstream proxy requests. Reports limited to third-party JioTV service availability or account support are out of scope unless this repository's code creates the vulnerability.
+Relevant reports include vulnerabilities in the OpenStream TV server, web UI, release artifacts, container images, CI configuration, and handling of credentials, DRM, encrypted stream URLs, or upstream proxy requests. Reports limited to third-party JioTV service availability or account support are out of scope unless this repository's code creates the vulnerability.

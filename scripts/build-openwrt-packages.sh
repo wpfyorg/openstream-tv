@@ -15,13 +15,13 @@ root=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 [ -x "$slim" ] || { echo "missing slim binary: $slim" >&2; exit 1; }
 [ -f "$sdk/include/package.mk" ] || { echo "not an OpenWrt SDK directory: $sdk" >&2; exit 1; }
 
-cp -R "$root/openwrt/jiotv" "$sdk/package/jiotv"
+cp -R "$root/openwrt/openstream" "$sdk/package/openstream"
 make -C "$sdk" defconfig
-make -C "$sdk" package/jiotv/compile V=s \
-  PKG_VERSION="$version" JIOTV_FULL_BIN="$full" JIOTV_SLIM_BIN="$slim"
+make -C "$sdk" package/openstream/compile V=s \
+  PKG_VERSION="$version" OPENSTREAM_FULL_BIN="$full" OPENSTREAM_SLIM_BIN="$slim"
 
 mkdir -p "$root/dist/openwrt"
-find "$sdk/bin/packages" -type f \( -name 'jiotv_*.ipk' -o -name 'jiotv-*.apk' -o -name 'jiotv-slim_*.ipk' -o -name 'jiotv-slim-*.apk' \) \
+find "$sdk/bin/packages" -type f \( -name 'openstream_*.ipk' -o -name 'openstream-*.apk' -o -name 'openstream-slim_*.ipk' -o -name 'openstream-slim-*.apk' \) \
   -exec sh -c '
     packages_root=$1
     output=$2
@@ -44,4 +44,4 @@ find "$sdk/bin/packages" -type f \( -name 'jiotv_*.ipk' -o -name 'jiotv-*.apk' -
       esac
     done
   ' sh "$sdk/bin/packages" "$root/dist/openwrt" {} +
-test -n "$(find "$root/dist/openwrt" -type f \( -name 'jiotv_*.ipk' -o -name 'jiotv-*.apk' -o -name 'jiotv-slim_*.ipk' -o -name 'jiotv-slim-*.apk' \) -print -quit)"
+test -n "$(find "$root/dist/openwrt" -type f \( -name 'openstream_*.ipk' -o -name 'openstream-*.apk' -o -name 'openstream-slim_*.ipk' -o -name 'openstream-slim-*.apk' \) -print -quit)"

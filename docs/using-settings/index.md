@@ -1,7 +1,7 @@
 ---
 title: Settings and Account Controls
 description: Check account status, manage passwords and playlist access, and find server configuration guidance.
-category: Using JioTV
+category: Using OpenStream TV
 keywords: [settings, admin password, playlist, EPG, access key, accounts]
 ---
 

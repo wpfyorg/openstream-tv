@@ -1,4 +1,4 @@
-// Small fetch wrapper for the JioTV Go API.
+// Small fetch wrapper for the OpenStream TV API.
 import { signsOutOn401 } from "./authPolicy.js";
 
 export class ApiError extends Error {
@@ -27,7 +27,7 @@ export async function api(path, { method = "GET", body } = {}) {
   }
   if (!res.ok) {
     if (res.status === 401 && signsOutOn401(path, data?.message)) {
-      window.dispatchEvent(new CustomEvent("jiotv:signed-out"));
+      window.dispatchEvent(new CustomEvent("openstream:signed-out"));
     }
     throw new ApiError(res.status, data?.message || res.statusText);
   }

@@ -1,3 +1,3 @@
-# JioTV documentation
+# OpenStream TV documentation
 
-[Open the JioTV help centre](help-centre/index.md) or [browse all articles](SUMMARY.md).
+[Open the OpenStream TV help centre](help-centre/index.md) or [browse all articles](SUMMARY.md).

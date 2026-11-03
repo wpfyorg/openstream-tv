@@ -13,7 +13,7 @@ test("offers the plain-HTTP origin from the local HTTPS port", () => {
 
 test("keeps the page origin on plain HTTP, tunnels and proxies", () => {
   assert.equal(plainHttpOrigin(new URL("http://192.168.1.10:5001/"), status), "http://192.168.1.10:5001");
-  assert.equal(plainHttpOrigin(new URL("https://jiotv.example.com/"), status), "https://jiotv.example.com");
+  assert.equal(plainHttpOrigin(new URL("https://openstream.example.com/"), status), "https://openstream.example.com");
   assert.equal(plainHttpOrigin(new URL("https://192.168.1.10:8443/"), status), "https://192.168.1.10:8443");
 });
 

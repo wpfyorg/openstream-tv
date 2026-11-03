@@ -38,12 +38,12 @@
 
 <div class="wrap">
   <form class="card" onsubmit={submit}>
-    <h1>JioTV Go</h1>
+    <h1>OpenStream TV</h1>
     {#if setup && !keyBase}
       <p>No admin password is set yet.</p>
       <p class="muted">
         Open the setup link the server printed when it started (it contains the access key), or run
-        <code>jiotv admin password</code> on the server.
+        <code>openstream admin password</code> on the server.
       </p>
     {:else}
       <p class="muted">{setup ? "Choose an admin password for this server." : "Enter the admin password."}</p>

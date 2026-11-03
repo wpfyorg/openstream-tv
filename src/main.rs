@@ -124,13 +124,14 @@ async fn epg_generate(
     Ok(())
 }
 
-const PID_FILE_NAME: &str = ".jiotv.pid";
+const PID_FILE_NAME: &str = ".openstream.pid";
+const LEGACY_PID_FILE_NAME: &str = ".jiotv.pid";
 
 /// Starts `serve` as a detached child process (re-invoking this same
 /// binary) and records its PID, so `background stop` can find it later.
 /// Mirrors `RunInBackground`.
 fn background_start(args: &str, path_prefix: &str) -> anyhow::Result<()> {
-    println!("Starting jiotv server in background...");
+    println!("Starting OpenStream TV server in background...");
     let pid_path = format!("{path_prefix}{PID_FILE_NAME}");
     let exe = std::env::current_exe()?;
 
@@ -153,15 +154,21 @@ fn background_start(args: &str, path_prefix: &str) -> anyhow::Result<()> {
         anyhow::bail!("server exited immediately after start: {status}");
     }
 
-    println!("jiotv server started successfully in background.");
+    println!("OpenStream TV server started successfully in background.");
     Ok(())
 }
 
 /// Reads the PID file `background_start` wrote and kills that process.
 /// Mirrors `StopBackground`.
 fn background_stop(path_prefix: &str) -> anyhow::Result<()> {
-    println!("Stopping jiotv server running in background...");
-    let pid_path = format!("{path_prefix}{PID_FILE_NAME}");
+    println!("Stopping OpenStream TV server running in background...");
+    let new_pid_path = format!("{path_prefix}{PID_FILE_NAME}");
+    let legacy_pid_path = format!("{path_prefix}{LEGACY_PID_FILE_NAME}");
+    let pid_path = if std::path::Path::new(&new_pid_path).exists() {
+        new_pid_path
+    } else {
+        legacy_pid_path
+    };
     let pid_str = std::fs::read_to_string(&pid_path)
         .map_err(|e| anyhow::anyhow!("failed to read PID file: {e}"))?;
     let pid: u32 = pid_str
@@ -176,7 +183,7 @@ fn background_stop(path_prefix: &str) -> anyhow::Result<()> {
         // pointers or shared memory are involved.
         let ret = unsafe { libc_kill(pid as i32, 15) };
         if ret != 0 {
-            anyhow::bail!("failed to kill jiotv process {pid}");
+            anyhow::bail!("failed to kill OpenStream TV process {pid}");
         }
     }
     #[cfg(not(unix))]
@@ -184,11 +191,11 @@ fn background_stop(path_prefix: &str) -> anyhow::Result<()> {
         std::process::Command::new("taskkill")
             .args(["/PID", &pid.to_string(), "/F"])
             .status()
-            .map_err(|e| anyhow::anyhow!("failed to kill jiotv process {pid}: {e}"))?;
+            .map_err(|e| anyhow::anyhow!("failed to kill OpenStream TV process {pid}: {e}"))?;
     }
 
     std::fs::remove_file(&pid_path)?;
-    println!("jiotv server stopped successfully.");
+    println!("OpenStream TV server stopped successfully.");
     Ok(())
 }
 
@@ -278,12 +285,23 @@ fn create_private_dir(path: &str) -> std::io::Result<()> {
 
 fn default_path_prefix() -> anyhow::Result<String> {
     if is_openwrt() {
+        if std::path::Path::new("/etc/openstream").exists()
+            || !std::path::Path::new("/etc/jiotv").exists()
+        {
+            return Ok("/etc/openstream".to_string());
+        }
         return Ok("/etc/jiotv".to_string());
     }
 
     let home =
         home_dir().ok_or_else(|| anyhow::anyhow!("cannot resolve the user profile directory"))?;
-    Ok(format!("{home}/.jiotv_go"))
+    let current = format!("{home}/.openstream-tv");
+    let legacy = format!("{home}/.jiotv_go");
+    if std::path::Path::new(&current).exists() || !std::path::Path::new(&legacy).exists() {
+        Ok(current)
+    } else {
+        Ok(legacy)
+    }
 }
 
 fn is_openwrt() -> bool {
@@ -342,7 +360,7 @@ async fn serve(
             if state.extras.connected() {
                 " (logged in)"
             } else {
-                " (run `jiotv tv+ login`)"
+                " (run `openstream tv+ login`)"
             }
         );
     }
@@ -385,7 +403,7 @@ async fn serve(
             } else {
                 format!("http://{}:{}", display_host(&args.host), args.port)
             };
-            println!("Web setup: {origin}{setup} (or run: jiotv admin password)");
+            println!("Web setup: {origin}{setup} (or run: openstream admin password)");
         }
     } else {
         println!("Auth is disabled: playlist at /playlist.m3u");
@@ -426,8 +444,7 @@ async fn serve(
 
     let mut tunnel_handle = None;
     if args.tunnel {
-        let data_dir =
-            std::env::var("HOME").map(|h| std::path::PathBuf::from(h).join(".jiotv_go"))?;
+        let data_dir = std::path::PathBuf::from(&path_prefix);
         let cloudflared = tunnel::ensure_cloudflared(&data_dir).await?;
         if let Some(token) = &args.tunnel_token {
             let t = tunnel::Tunnel::spawn_named(&cloudflared, token).await?;
@@ -671,7 +688,13 @@ fn login_reset(store: &store::Store) -> anyhow::Result<()> {
 
 fn admin_password(access: &access::Access, path_prefix: &str) -> anyhow::Result<()> {
     let password = rpassword_prompt("New admin password: ")?;
-    let init = std::path::Path::new("/etc/init.d/jiotv");
+    let new_init = std::path::Path::new("/etc/init.d/openstream");
+    let legacy_init = std::path::Path::new("/etc/init.d/jiotv");
+    let init = if new_init.exists() {
+        new_init
+    } else {
+        legacy_init
+    };
     if is_openwrt() && init.exists() {
         // The running service caches the store in memory and rewrites the whole
         // file on every update, so the password must be written while it is
@@ -682,7 +705,7 @@ fn admin_password(access: &access::Access, path_prefix: &str) -> anyhow::Result<
             Ok(())
         })?;
         if restarted {
-            println!("Admin password set. JioTV service restarted.");
+            println!("Admin password set. OpenStream TV service restarted.");
         } else {
             println!("Admin password set.");
         }
@@ -710,14 +733,16 @@ fn with_service_stopped(
     if was_running {
         let stop = std::process::Command::new(init).arg("stop").status()?;
         if !stop.success() {
-            anyhow::bail!("could not stop the JioTV service ({stop}); nothing was changed");
+            anyhow::bail!("could not stop the OpenStream TV service ({stop}); nothing was changed");
         }
         // procd only signals the process on `stop`; wait until it has exited so
         // its cached store cannot be written over the new one.
         let deadline = std::time::Instant::now() + stop_timeout;
         while is_running()? {
             if std::time::Instant::now() >= deadline {
-                anyhow::bail!("the JioTV service did not stop in time; nothing was changed");
+                anyhow::bail!(
+                    "the OpenStream TV service did not stop in time; nothing was changed"
+                );
             }
             std::thread::sleep(std::time::Duration::from_millis(200));
         }
@@ -726,7 +751,9 @@ fn with_service_stopped(
     if was_running {
         let start = std::process::Command::new(init).arg("start").status()?;
         if !start.success() {
-            anyhow::bail!("the change was applied, but starting the JioTV service failed: {start}");
+            anyhow::bail!(
+                "the change was applied, but starting the OpenStream TV service failed: {start}"
+            );
         }
     }
     result.map(|()| was_running)
@@ -756,8 +783,8 @@ fn rotate_key(access: &access::Access) -> anyhow::Result<()> {
 
 fn print_help() {
     println!(
-        "jiotv - Stream JioTV on any device\n\n\
-         USAGE:\n  jiotv [--config PATH] [--skip-update-check] <command>\n\n\
+        "openstream - OpenStream TV multi-provider streaming server\n\n\
+         USAGE:\n  openstream [--config PATH] [--skip-update-check] <command>\n\n\
          COMMANDS:\n  \
          serve [--host H] [--port P] [--public] [--tls [--tls-port P] [--tls-cert F --tls-key F]] [--tunnel] [--tunnel-token T]\n  \
          \x20 --tls            also serve HTTPS (default port 5443) next to plain HTTP; browsers need\n  \
@@ -766,12 +793,12 @@ fn print_help() {
          \x20 --tls-cert/--tls-key  PEM files to use (both or neither); without them a self-signed\n  \
          \x20                  certificate is created in <data dir>/tls/ on first start and reused\n  \
          login otp | login reset\n  \
-         tv+ login | tv+ logout   (off by default; needs tv_plus = true / JIOTV_TVPLUS=true)\n  \
+         tv+ login | tv+ logout   (off by default; needs tv_plus = true / OPENSTREAM_TVPLUS=true)\n  \
          epg generate | epg delete\n  \
          admin password\n  \
          key show | key rotate\n  \
          background start [--args \"...\"] | background stop\n  \
-         update [--version vX.Y.Z]      (needs JIOTV_UPDATE_TOKEN for a private repo)\n  \
+         update [--version vX.Y.Z]      (needs OPENSTREAM_UPDATE_TOKEN for a private repo)\n  \
          autostart [--args \"...\"] | autostart remove   (systemd service; Termux: shell rc)\n"
     );
 }
@@ -794,7 +821,7 @@ mod tests {
             if running {
                 std::fs::write(&marker, "").unwrap();
             }
-            let script = dir.join("jiotv.init");
+            let script = dir.join("openstream.init");
             std::fs::write(
                 &script,
                 format!(
@@ -865,7 +892,7 @@ mod tests {
         #[test]
         fn private_dir_is_created_with_owner_only_access() {
             let dir = tempfile::tempdir().unwrap();
-            let target = dir.path().join("etc").join("jiotv");
+            let target = dir.path().join("etc").join("openstream");
             create_private_dir(target.to_str().unwrap()).unwrap();
             let mode = std::fs::metadata(&target).unwrap().permissions().mode();
             assert_eq!(mode & 0o077, 0, "group/other must have no access");

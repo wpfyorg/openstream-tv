@@ -38,20 +38,20 @@ chmod +x "$FIXTURE/service" "$FIXTURE/bin/uci" "$FIXTURE/bin/cp" "$FIXTURE/bin/c
 
 export PATH="$FIXTURE/bin:$PATH"
 export MOCK_RUNNING="$FIXTURE/running"
-export JIOTV_DATA_DIR="$FIXTURE/data"
-export JIOTV_STORE="$FIXTURE/data/store_v4.toml"
-export JIOTV_SERVICE="$FIXTURE/service"
-printf 'ssoToken = "original"\n' > "$JIOTV_STORE"
+export OPENSTREAM_DATA_DIR="$FIXTURE/data"
+export OPENSTREAM_STORE="$FIXTURE/data/store_v4.toml"
+export OPENSTREAM_SERVICE="$FIXTURE/service"
+printf 'ssoToken = "original"\n' > "$OPENSTREAM_STORE"
 printf 'extras_credentials = "replacement"\n' > "$FIXTURE/data/token-extra"
 
 for failure in cp chmod mv; do
   touch "$MOCK_RUNNING"
   export MOCK_FAIL="$failure"
-  if sh "$ROOT/scripts/jiotv-token" extra > "$FIXTURE/output" 2>&1; then
+  if sh "$ROOT/scripts/openstream-token" extra > "$FIXTURE/output" 2>&1; then
     echo "unexpected success with $failure failure" >&2
     exit 1
   fi
   test -f "$MOCK_RUNNING" || { echo "service remained stopped after $failure failure" >&2; exit 1; }
-  grep -q '^ssoToken = "original"$' "$JIOTV_STORE" || { echo "store changed after $failure failure" >&2; exit 1; }
+  grep -q '^ssoToken = "original"$' "$OPENSTREAM_STORE" || { echo "store changed after $failure failure" >&2; exit 1; }
 done
 echo 'token-switch failure recovery OK (backup, chmod, mv)'

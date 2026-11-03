@@ -1,13 +1,13 @@
 ---
-title: Install JioTV
+title: Install OpenStream TV
 description: Choose an installation method for Linux, macOS, Windows, OpenWrt, Termux, Docker or a source build.
 category: Installation
 keywords: [install, Linux, macOS, Windows, OpenWrt, Raspberry Pi, SBC, Termux, Docker]
 ---
 
-# Install JioTV
+# Install OpenStream TV
 
-JioTV runs as a server on a computer or router. Pick the guide for the system where the server will run:
+OpenStream TV runs as a server on a computer or router. Pick the guide for the system where the server will run:
 
 - [Linux](../installations-linux/index.md), including [Raspberry Pi and other SBCs](../installations-sbc/index.md)
 - [macOS](../installations-macos/index.md)

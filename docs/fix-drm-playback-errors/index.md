@@ -15,12 +15,12 @@ The page is on LAN HTTP, the browser or device lacks a working Widevine Content 
 
 ## Diagnosis
 1. Check the browser address. A plain LAN IP starting with `http://` may prevent encrypted playback, while localhost is treated specially.
-2. Open the same JioTV server via configured HTTPS, then retry the channel.
+2. Open the same OpenStream TV server via configured HTTPS, then retry the channel.
 3. Try a non-protected channel and another protected channel, if both are available to your account.
 4. Note the player error and browser/device version. Check **Settings** account status and the server's timestamped logs.
 
 ## Solution
-1. On your trusted LAN, run the server with `jiotv serve --host 0.0.0.0 --tls` or configure the equivalent TLS-enabled service.
+1. On your trusted LAN, run the server with `openstream serve --host 0.0.0.0 --tls` or configure the equivalent TLS-enabled service.
 2. Browse to `https://<server-address>:5443/`. A generated self-signed certificate must be trusted on that device. For routine shared access, prefer a trusted certificate.
 3. Use a browser/device with a working Widevine implementation and an account that can access the channel. A successful API capability check alone does not prove usable DRM playback.
 4. If the provider refused the stream or license, retry later or choose permitted content.

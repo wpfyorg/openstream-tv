@@ -1,18 +1,18 @@
 ---
 title: Start here
-description: First install JioTV, connect your account, and learn your way around.
+description: First install OpenStream TV, connect your account, and learn your way around.
 category: Getting Started
 keywords: [JioTV, help, guide, getting-started]
 ---
 
 # Start here
 
-First install JioTV, connect your account, and learn your way around.
+First install OpenStream TV, connect your provider account, and learn your way around.
 
 ## Articles
 
 - [Getting Started in 5 Minutes](../getting-started-in-5-minutes/index.md)
-- [What Is JioTV?](../getting-started-what-is-jiotv/index.md)
+- [What Is OpenStream TV?](../getting-started-what-is-openstream-tv/index.md)
 - [Requirements and Supported Devices](../getting-started-requirements/index.md)
 - [JioTV and JioTV+: Which Account Do You Need?](../getting-started-jiotv-and-extras/index.md)
 - [Choose the Right Installation Method](../getting-started-installation-overview/index.md)

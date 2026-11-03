@@ -1,7 +1,7 @@
 ---
 title: Browse On-Demand Movies and Shows
 description: Search provider catalogues, browse sections, choose episodes, and play available titles.
-category: Using JioTV
+category: Using OpenStream TV
 keywords: [on demand, movies, shows, episodes, provider, OTT]
 ---
 

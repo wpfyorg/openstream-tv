@@ -1,7 +1,7 @@
 ---
 title: Find and Watch Live TV
 description: Search and filter channels, use the live player, and read its programme guide.
-category: Using JioTV
+category: Using OpenStream TV
 keywords: [live TV, channels, filters, player, programme guide, EPG]
 ---
 

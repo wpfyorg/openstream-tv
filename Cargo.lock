@@ -828,49 +828,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
-name = "jiotv"
-version = "1.4.1"
-dependencies = [
- "aes",
- "anyhow",
- "axum",
- "base64",
- "ctr",
- "flate2",
- "hex",
- "hmac",
- "http-body-util",
- "hyper",
- "hyper-util",
- "lexopt",
- "mime_guess",
- "pbkdf2",
- "percent-encoding",
- "rand 0.8.8",
- "rcgen",
- "reqwest",
- "rust-embed",
- "rustls",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "subtle",
- "tempfile",
- "thiserror 1.0.69",
- "time",
- "tokio",
- "tokio-rustls",
- "toml",
- "tower",
- "tower-http",
- "tracing",
- "tracing-subscriber",
- "url",
- "urlencoding",
- "wiremock",
-]
-
-[[package]]
 name = "js-sys"
 version = "0.3.105"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1029,6 +986,49 @@ name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
+
+[[package]]
+name = "openstream-tv"
+version = "1.4.1"
+dependencies = [
+ "aes",
+ "anyhow",
+ "axum",
+ "base64",
+ "ctr",
+ "flate2",
+ "hex",
+ "hmac",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "lexopt",
+ "mime_guess",
+ "pbkdf2",
+ "percent-encoding",
+ "rand 0.8.8",
+ "rcgen",
+ "reqwest",
+ "rust-embed",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "subtle",
+ "tempfile",
+ "thiserror 1.0.69",
+ "time",
+ "tokio",
+ "tokio-rustls",
+ "toml",
+ "tower",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+ "urlencoding",
+ "wiremock",
+]
 
 [[package]]
 name = "parking_lot"

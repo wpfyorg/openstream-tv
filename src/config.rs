@@ -1,7 +1,5 @@
-//! Configuration: env vars (`JIOTV_*`) and an optional TOML/YAML/JSON config
-//! file, mirroring the Go `internal/config` package. Only TOML is actually
-//! parsed here (the Go version also read YAML/JSON via cleanenv); TOML is the
-//! format the project's own docs recommend and the one `store_v4.toml` uses.
+//! OpenStream TV configuration. `OPENSTREAM_*` is the primary environment
+//! prefix; historical `JIOTV_*` names remain accepted for compatibility.
 
 use serde::Deserialize;
 use std::env;
@@ -47,7 +45,7 @@ impl Default for Config {
             drm: true,
             extras: false,
             disable_auth: false,
-            title: "JioTV Go".to_string(),
+            title: "OpenStream TV".to_string(),
             disable_url_encryption: false,
             proxy: String::new(),
             path_prefix: String::new(),
@@ -82,7 +80,12 @@ impl Config {
 
     fn apply_env(&mut self) {
         macro_rules! env_bool {
-            ($field:ident, $name:literal) => {
+            ($field:ident, $legacy:literal, $name:literal) => {
+                if let Ok(v) = env::var($legacy) {
+                    if let Ok(b) = v.parse::<bool>() {
+                        self.$field = b;
+                    }
+                }
                 if let Ok(v) = env::var($name) {
                     if let Ok(b) = v.parse::<bool>() {
                         self.$field = b;
@@ -91,33 +94,68 @@ impl Config {
             };
         }
         macro_rules! env_str {
-            ($field:ident, $name:literal) => {
+            ($field:ident, $legacy:literal, $name:literal) => {
+                if let Ok(v) = env::var($legacy) {
+                    self.$field = v;
+                }
                 if let Ok(v) = env::var($name) {
                     self.$field = v;
                 }
             };
         }
-        env_bool!(epg, "JIOTV_EPG");
-        env_bool!(debug, "JIOTV_DEBUG");
-        env_bool!(disable_ts_handler, "JIOTV_DISABLE_TS_HANDLER");
-        env_bool!(disable_logout, "JIOTV_DISABLE_LOGOUT");
-        env_bool!(drm, "JIOTV_DRM");
-        // `tv_plus` is the documented key; `JIOTV_EXTRAS` is the previous name
-        // and is still accepted so existing deployments keep working.
-        env_bool!(extras, "JIOTV_EXTRAS");
-        env_bool!(extras, "JIOTV_TVPLUS");
-        env_bool!(disable_auth, "JIOTV_DISABLE_AUTH");
-        env_str!(title, "JIOTV_TITLE");
-        env_bool!(disable_url_encryption, "JIOTV_DISABLE_URL_ENCRYPTION");
-        env_str!(proxy, "JIOTV_PROXY");
-        env_str!(path_prefix, "JIOTV_PATH_PREFIX");
-        env_str!(log_path, "JIOTV_LOG_PATH");
-        env_bool!(log_to_stdout, "JIOTV_LOG_TO_STDOUT");
-        env_str!(custom_channels_file, "JIOTV_CUSTOM_CHANNELS_FILE");
+        env_bool!(epg, "JIOTV_EPG", "OPENSTREAM_EPG");
+        env_bool!(debug, "JIOTV_DEBUG", "OPENSTREAM_DEBUG");
+        env_bool!(
+            disable_ts_handler,
+            "JIOTV_DISABLE_TS_HANDLER",
+            "OPENSTREAM_DISABLE_TS_HANDLER"
+        );
+        env_bool!(
+            disable_logout,
+            "JIOTV_DISABLE_LOGOUT",
+            "OPENSTREAM_DISABLE_LOGOUT"
+        );
+        env_bool!(drm, "JIOTV_DRM", "OPENSTREAM_DRM");
+        if let Ok(v) = env::var("JIOTV_EXTRAS") {
+            if let Ok(b) = v.parse::<bool>() {
+                self.extras = b;
+            }
+        }
+        env_bool!(extras, "JIOTV_TVPLUS", "OPENSTREAM_TVPLUS");
+        env_bool!(
+            disable_auth,
+            "JIOTV_DISABLE_AUTH",
+            "OPENSTREAM_DISABLE_AUTH"
+        );
+        env_str!(title, "JIOTV_TITLE", "OPENSTREAM_TITLE");
+        env_bool!(
+            disable_url_encryption,
+            "JIOTV_DISABLE_URL_ENCRYPTION",
+            "OPENSTREAM_DISABLE_URL_ENCRYPTION"
+        );
+        env_str!(proxy, "JIOTV_PROXY", "OPENSTREAM_PROXY");
+        env_str!(path_prefix, "JIOTV_PATH_PREFIX", "OPENSTREAM_PATH_PREFIX");
+        env_str!(log_path, "JIOTV_LOG_PATH", "OPENSTREAM_LOG_PATH");
+        env_bool!(
+            log_to_stdout,
+            "JIOTV_LOG_TO_STDOUT",
+            "OPENSTREAM_LOG_TO_STDOUT"
+        );
+        env_str!(
+            custom_channels_file,
+            "JIOTV_CUSTOM_CHANNELS_FILE",
+            "OPENSTREAM_CUSTOM_CHANNELS_FILE"
+        );
         if let Ok(v) = env::var("JIOTV_DEFAULT_CATEGORIES") {
             self.default_categories = parse_int_list(&v);
         }
+        if let Ok(v) = env::var("OPENSTREAM_DEFAULT_CATEGORIES") {
+            self.default_categories = parse_int_list(&v);
+        }
         if let Ok(v) = env::var("JIOTV_DEFAULT_LANGUAGES") {
+            self.default_languages = parse_int_list(&v);
+        }
+        if let Ok(v) = env::var("OPENSTREAM_DEFAULT_LANGUAGES") {
             self.default_languages = parse_int_list(&v);
         }
     }
@@ -131,6 +169,10 @@ fn parse_int_list(v: &str) -> Vec<i64> {
 
 fn common_file() -> Option<String> {
     const NAMES: &[&str] = &[
+        "openstream.toml",
+        "openstream.yml",
+        "openstream.yaml",
+        "openstream.json",
         "jiotv_go.yml",
         "jiotv_go.yaml",
         "jiotv_go.toml",
@@ -162,22 +204,22 @@ mod tests {
     #[test]
     fn env_overrides_defaults() {
         let _guard = ENV_LOCK.lock().unwrap();
-        std::env::set_var("JIOTV_TITLE", "Test Title");
-        std::env::set_var("JIOTV_DRM", "false");
+        std::env::set_var("OPENSTREAM_TITLE", "Test Title");
+        std::env::set_var("OPENSTREAM_DRM", "false");
         let cfg = Config::load(None).unwrap();
         assert_eq!(cfg.title, "Test Title");
         assert!(!cfg.drm);
-        std::env::remove_var("JIOTV_TITLE");
-        std::env::remove_var("JIOTV_DRM");
+        std::env::remove_var("OPENSTREAM_TITLE");
+        std::env::remove_var("OPENSTREAM_DRM");
     }
 
     #[test]
     fn documented_env_var_turns_tv_plus_on() {
         let _guard = ENV_LOCK.lock().unwrap();
-        std::env::set_var("JIOTV_TVPLUS", "true");
+        std::env::set_var("OPENSTREAM_TVPLUS", "true");
         let cfg = Config::load(None).unwrap();
         assert!(cfg.extras);
-        std::env::remove_var("JIOTV_TVPLUS");
+        std::env::remove_var("OPENSTREAM_TVPLUS");
     }
 
     #[test]
@@ -190,14 +232,14 @@ mod tests {
     }
 
     #[test]
-    fn documented_env_var_wins_over_deprecated() {
+    fn openstream_env_var_wins_over_legacy() {
         let _guard = ENV_LOCK.lock().unwrap();
-        std::env::set_var("JIOTV_TVPLUS", "true");
-        std::env::set_var("JIOTV_EXTRAS", "false");
+        std::env::set_var("OPENSTREAM_TVPLUS", "true");
+        std::env::set_var("JIOTV_TVPLUS", "false");
         let cfg = Config::load(None).unwrap();
         assert!(cfg.extras);
+        std::env::remove_var("OPENSTREAM_TVPLUS");
         std::env::remove_var("JIOTV_TVPLUS");
-        std::env::remove_var("JIOTV_EXTRAS");
     }
 
     #[test]

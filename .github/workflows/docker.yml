@@ -37,7 +37,7 @@ jobs:
             v*) release_tag="$ref" ;;
             *) echo "unsupported tag: $ref"; exit 1 ;;
           esac
-          asset="jiotv-${{ matrix.variant }}-${{ matrix.target }}"
+          asset="openstream-${{ matrix.variant }}-${{ matrix.target }}"
           mkdir -p docker/context
           for attempt in $(seq 1 60); do
             if gh release download "$release_tag" --repo "$GITHUB_REPOSITORY" --pattern "$asset" --pattern SHA256SUMS --dir docker/context; then
@@ -51,8 +51,8 @@ jobs:
             sleep 10
           done
           (cd docker/context && grep -F "  $asset" SHA256SUMS | sha256sum -c -)
-          mv "docker/context/$asset" docker/context/jiotv
-          chmod 0755 docker/context/jiotv
+          mv "docker/context/$asset" docker/context/openstream
+          chmod 0755 docker/context/openstream
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
@@ -68,15 +68,15 @@ jobs:
             --platform "${{ matrix.platform }}" \
             --build-arg VARIANT="${{ matrix.variant }}" \
             --file docker/Dockerfile \
-            --load --tag "jiotv-smoke:${{ matrix.variant }}" docker/context
-          docker run --rm --platform "${{ matrix.platform }}" --entrypoint /usr/local/bin/jiotv \
-            "jiotv-smoke:${{ matrix.variant }}" --help
-          docker run -d --name jiotv-smoke --platform "${{ matrix.platform }}" \
-            -p 5001:5001 "jiotv-smoke:${{ matrix.variant }}"
+            --load --tag "openstream-smoke:${{ matrix.variant }}" docker/context
+          docker run --rm --platform "${{ matrix.platform }}" --entrypoint /usr/local/bin/openstream \
+            "openstream-smoke:${{ matrix.variant }}" --help
+          docker run -d --name openstream-smoke --platform "${{ matrix.platform }}" \
+            -p 5001:5001 "openstream-smoke:${{ matrix.variant }}"
           sleep 3
-          docker inspect -f '{{.State.Running}}' jiotv-smoke | grep -qx true
-          docker logs jiotv-smoke
-          docker rm -f jiotv-smoke
+          docker inspect -f '{{.State.Running}}' openstream-smoke | grep -qx true
+          docker logs openstream-smoke
+          docker rm -f openstream-smoke
       - name: Push architecture image
         env:
           IMAGE: ghcr.io/${{ github.repository }}
