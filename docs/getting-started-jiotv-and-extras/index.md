@@ -16,8 +16,8 @@ The server can hold three accounts. Your network decides which one you have:
 | **Fastway** | A Fastway subscription, or an ACT connection | Live TV from Fastway |
 
 - **JioTV** is the one to start with. It is the only account that works on any network, so it is enough for a new installation.
-- **JioTV+** is the optional second source. It is off until `tv_plus = true` (or `OPENSTREAM_TVPLUS=true`) is set, and it needs its own sign-in with the JioFiber or AirFiber number, separate from JioTV.
-- **Fastway** is only offered when the installed release supports it.
+- **JioTV+** is the optional second source. It is off until `tv_plus = true` (or `JIOTV_TVPLUS=true` / `OPENSTREAM_TVPLUS=true`) is set, and it needs its own sign-in with the JioFiber or AirFiber number, separate from JioTV.
+- **Fastway** is the optional third source. It is only offered when the installed release supports it; enable it with `fastway = true` (or `JIOTV_FASTWAY=true`) and connect with its own Fastway username and password. See [Connect Fastway Live TV](../account-fastway/index.md).
 
 The installers list only the accounts the downloaded release supports and print this same hint above the account menu. The older name **Extras** may still appear in older guides and error messages. `openstream extras login` remains a command alias; `openstream tv+ login` is the current spelling.
 

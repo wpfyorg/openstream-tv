@@ -21,6 +21,7 @@ title = "Home TV"
 epg = true
 drm = true
 tv_plus = false
+fastway = false
 disable_auth = false
 debug = false
 log_to_stdout = true
@@ -32,27 +33,30 @@ Save, start with `openstream --config ./openstream.toml serve`, then open `http:
 
 ## Complete configuration table
 
-| TOML key | Environment variable | Default | Purpose and accepted values |
+| TOML key | Environment variable(s) | Default | Purpose and accepted values |
 | --- | --- | --- | --- |
-| `epg` | `OPENSTREAM_EPG` | `false` | Boolean. Generate/refresh the XMLTV guide. |
-| `debug` | `OPENSTREAM_DEBUG` | `false` | Boolean. Show more diagnostic output. |
-| `disable_ts_handler` | `OPENSTREAM_DISABLE_TS_HANDLER` | `false` | Boolean. Avoid local TS/AAC segment proxying when supported; change only when diagnosing HLS. |
-| `disable_logout` | `OPENSTREAM_DISABLE_LOGOUT` | `false` | Boolean. Hide/disable JioTV logout when true. |
-| `drm` | `OPENSTREAM_DRM` | `true` | Boolean. Allow the protected DASH pathway; does not bypass DRM. |
-| `tv_plus` | `OPENSTREAM_TVPLUS` | `false` | Boolean. Enable the optional JioTV+ account. Needs a JioFiber or AirFiber login. |
-| `disable_auth` | `OPENSTREAM_DISABLE_AUTH` | `false` | Boolean. Disable app access checks. Dangerous on reachable networks; use only with a trusted external access control. |
-| `title` | `OPENSTREAM_TITLE` | `"OpenStream TV"` | Display title; any TOML string. |
-| `disable_url_encryption` | `OPENSTREAM_DISABLE_URL_ENCRYPTION` | `false` | Boolean. Disable encryption of local proxy parameters. Leave false. |
-| `proxy` | `OPENSTREAM_PROXY` | `""` | Optional outgoing proxy URL. |
-| `path_prefix` | `OPENSTREAM_PATH_PREFIX` | `""` | Directory for OpenStream TV state. Empty uses the runtime's resolved default. |
-| `log_path` | `OPENSTREAM_LOG_PATH` | `""` | Reserved in this build; do not rely on file logging. |
-| `log_to_stdout` | `OPENSTREAM_LOG_TO_STDOUT` | `true` | Boolean. Emit logs to process output. |
-| `custom_channels_file` | `OPENSTREAM_CUSTOM_CHANNELS_FILE` | `""` | Optional path to custom-channel JSON file. |
-| `default_categories` | `OPENSTREAM_DEFAULT_CATEGORIES` | `[]` | Integer category IDs; environment form is comma-separated. |
-| `default_languages` | `OPENSTREAM_DEFAULT_LANGUAGES` | `[]` | Integer language IDs; environment form is comma-separated. |
+| `epg` | `JIOTV_EPG`, `OPENSTREAM_EPG` | `false` | Boolean. Generate/refresh the XMLTV guide. |
+| `debug` | `JIOTV_DEBUG`, `OPENSTREAM_DEBUG` | `false` | Boolean. Show more diagnostic output. |
+| `disable_ts_handler` | `JIOTV_DISABLE_TS_HANDLER`, `OPENSTREAM_DISABLE_TS_HANDLER` | `false` | Boolean. Avoid local TS/AAC segment proxying when supported; change only when diagnosing HLS. |
+| `disable_logout` | `JIOTV_DISABLE_LOGOUT`, `OPENSTREAM_DISABLE_LOGOUT` | `false` | Boolean. Hide/disable JioTV logout when true. |
+| `drm` | `JIOTV_DRM`, `OPENSTREAM_DRM` | `true` | Boolean. Allow the protected DASH pathway; does not bypass DRM. |
+| `tv_plus` | `JIOTV_TVPLUS`, `OPENSTREAM_TVPLUS` | `false` | Boolean. Enable the optional JioTV+ account. Needs a JioFiber or AirFiber login. |
+| `fastway` | `JIOTV_FASTWAY` | `false` | Boolean. Enable the optional Fastway Live TV provider. Connect an account with `openstream fastway login` or Settings before channels appear. |
+| `disable_auth` | `JIOTV_DISABLE_AUTH`, `OPENSTREAM_DISABLE_AUTH` | `false` | Boolean. Disable app access checks. Dangerous on reachable networks; use only with a trusted external access control. |
+| `title` | `JIOTV_TITLE`, `OPENSTREAM_TITLE` | `"OpenStream TV"` | Display title; any TOML string. |
+| `disable_url_encryption` | `JIOTV_DISABLE_URL_ENCRYPTION`, `OPENSTREAM_DISABLE_URL_ENCRYPTION` | `false` | Boolean. Disable encryption of local proxy parameters. Leave false. |
+| `proxy` | `JIOTV_PROXY`, `OPENSTREAM_PROXY` | `""` | Optional outgoing proxy URL. |
+| `path_prefix` | `JIOTV_PATH_PREFIX`, `OPENSTREAM_PATH_PREFIX` | `""` | Directory for OpenStream TV state. Empty uses the runtime's resolved default. |
+| `log_path` | `JIOTV_LOG_PATH`, `OPENSTREAM_LOG_PATH` | `""` | Reserved in this build; do not rely on file logging. |
+| `log_to_stdout` | `JIOTV_LOG_TO_STDOUT`, `OPENSTREAM_LOG_TO_STDOUT` | `true` | Boolean. Emit logs to process output. |
+| `custom_channels_file` | `JIOTV_CUSTOM_CHANNELS_FILE`, `OPENSTREAM_CUSTOM_CHANNELS_FILE` | `""` | Optional path to custom-channel JSON file. |
+| `default_categories` | `JIOTV_DEFAULT_CATEGORIES` | `[]` | Integer category IDs; environment form is comma-separated. |
+| `default_languages` | `JIOTV_DEFAULT_LANGUAGES` | `[]` | Integer language IDs; environment form is comma-separated. |
 
-Boolean environment values must be `true` or `false` in lowercase (as Rust's parser expects). Example: `OPENSTREAM_EPG=true openstream serve`. For integer lists, use `OPENSTREAM_DEFAULT_LANGUAGES=1,6`.
+Boolean environment values must be `true` or `false` in lowercase (as Rust's parser expects). Use either the `JIOTV_*` environment variable or its documented `OPENSTREAM_*` alias where listed; the `OPENSTREAM_*` value takes precedence when both are set. Example: `OPENSTREAM_EPG=true openstream serve`. Integer-list settings use `JIOTV_DEFAULT_LANGUAGES=1,6`.
 
-The TOML key is `tv_plus` and the environment variable is `OPENSTREAM_TVPLUS`. The previous TOML key `extras` and legacy environment variable `JIOTV_EXTRAS` are still accepted, so an older config file or unit file keeps working; `OPENSTREAM_TVPLUS` takes precedence when both are set. `OPENSTREAM_TUNNEL_TOKEN` is also accepted for the optional Cloudflare tunnel flag. Update uses `OPENSTREAM_UPDATE_TOKEN` for private repository access, when required.
+The TOML key is `tv_plus`; `JIOTV_TVPLUS` and `OPENSTREAM_TVPLUS` are accepted, with `OPENSTREAM_TVPLUS` taking precedence. The previous TOML key `extras` and legacy `JIOTV_EXTRAS` variable are also accepted. Both `JIOTV_*` and `OPENSTREAM_*` aliases are accepted for tunnel and update tokens.
+
+When more than one alternate source is connected, Fastway takes priority over JioTV+, and JioTV+ takes priority over the JioTV catalogue. See [Connect Fastway Live TV](../account-fastway/index.md).
 
 For runtime listening options, see [CLI commands](../configuration-cli/index.md); for protection see [Network and HTTPS](../configuration-network-security/index.md); for storage see [Data and logs](../configuration-storage-logs/index.md).

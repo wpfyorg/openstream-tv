@@ -18,6 +18,9 @@ pub struct Config {
     /// and `tvplus` are still accepted so existing config files keep working.
     #[serde(rename = "tv_plus", alias = "extras", alias = "tvplus")]
     pub extras: bool,
+    /// Enables the optional Fastway Live TV provider. It still needs
+    /// `jiotv fastway login` (or the Settings card) before channels appear.
+    pub fastway: bool,
     pub disable_auth: bool,
     pub title: String,
     pub disable_url_encryption: bool,
@@ -44,6 +47,7 @@ impl Default for Config {
             disable_logout: false,
             drm: true,
             extras: false,
+            fastway: false,
             disable_auth: false,
             title: "OpenStream TV".to_string(),
             disable_url_encryption: false,
@@ -122,6 +126,7 @@ impl Config {
             }
         }
         env_bool!(extras, "JIOTV_TVPLUS", "OPENSTREAM_TVPLUS");
+        env_bool!(fastway, "JIOTV_FASTWAY", "OPENSTREAM_FASTWAY");
         env_bool!(
             disable_auth,
             "JIOTV_DISABLE_AUTH",

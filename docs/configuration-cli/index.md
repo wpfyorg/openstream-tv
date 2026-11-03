@@ -2,7 +2,7 @@
 title: CLI Commands and Options
 description: Reference for the OpenStream TV command and its server flags.
 category: Configuration
-keywords: [CLI, serve, login, update, epg, key, autostart, TLS, port]
+keywords: [CLI, serve, login, update, epg, key, autostart, TLS, port, fastway]
 ---
 
 # CLI Commands and Options
@@ -15,6 +15,7 @@ Run `openstream --help` to see the installed binary's command list. These comman
 | `openstream login otp` | Sign in to the JioTV provider account by OTP from the server terminal. |
 | `openstream login reset` | Clear JioTV login state. |
 | `openstream tv+ login` / `openstream tv+ logout` | Connect/disconnect the optional JioTV+ account when `tv_plus` is enabled. `openstream extras login` is still accepted. |
+| `openstream fastway login` / `openstream fastway logout` | Connect/disconnect the optional Fastway provider when `fastway = true` / `JIOTV_FASTWAY=true`. |
 | `openstream admin password` | Set an admin password from the CLI. |
 | `openstream key show` / `openstream key rotate` | Show or replace the IPTV access key. Treat its output as confidential. |
 | `openstream epg generate` / `openstream epg delete` | Generate the current guide or remove its cache. |
