@@ -17,6 +17,13 @@ web/node_modules/
 # Local playback / QA artifacts
 /qa-results/
 
+# Local documentation and design work
+/.commandcode/
+/.rtfm/
+/docs-old/
+/design/generated*.png
+/design/home.pen
+
 # config
 config.json
 config.yml
