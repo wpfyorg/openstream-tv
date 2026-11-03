@@ -7,7 +7,7 @@ keywords: [Fastway, provider, account, DASH, Widevine, PallyCon, channels]
 
 # Connect Fastway Live TV
 
-**Fastway** is an optional third-party live-TV source. It is separate from the JioTV account and from JioTV+ (formerly called Extras), and it is disabled by default. You need credentials that Fastway accepts for live-TV service; the server never grants or bypasses provider entitlements. The bundled installer labels the choice **Fastway/ACT**, but v1.5.0 does not prove eligibility for every ACT plan.
+**Fastway** is an optional third-party live-TV source. It is separate from the JioTV account and from JioTV+ (formerly called Extras), and it is disabled by default. You need credentials that Fastway accepts for live-TV service; the server never grants or bypasses provider entitlements. ACT eligibility, where offered by the provider, depends on that provider and plan.
 
 ## Enable Fastway
 

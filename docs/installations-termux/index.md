@@ -17,10 +17,22 @@ curl -fsSL https://raw.githubusercontent.com/wpfyorg/openstream-tv/main/scripts/
 
 The binary is installed in Termux's `$PREFIX/bin`. The installer also runs the guided setup in the Termux terminal: build (`full` or `slim`), account (JioTV, JioTV+, or Fastway when the release supports it), the address other devices will use, an optional Cloudflare tunnel, and the account sign-in. Arrow keys select and Enter confirms.
 
-To start and sign in later instead, or if you skipped the questions with `OPENSTREAM_ONBOARD=never`:
+To sign in later instead, or if you skipped the questions with `OPENSTREAM_ONBOARD=never`, use the command for your provider:
 
 ```sh
+# JioTV: mobile-number OTP
 openstream login otp
+
+# JioTV+: eligible JioFiber or AirFiber login
+openstream tv+ login
+
+# Fastway: prompts for the provider username and password
+openstream fastway login
+```
+
+Then protect and start the full web build:
+
+```sh
 openstream admin password
 openstream serve --host 0.0.0.0 --tls
 ```

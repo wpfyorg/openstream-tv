@@ -428,9 +428,9 @@ try {
         $TvPlusCmd = ''
         if ($help -match 'tv\+ login') { $TvPlusCmd = 'tv+ login' }
         elseif ($help -match 'extras login') { $TvPlusCmd = 'extras login' }
-        $providers = @(@{ Value = 'jiotv'; Label = 'JioTV       live channels and programme guide - any network' })
-        if ($TvPlusCmd) { $providers += @{ Value = 'extras'; Label = 'JioTV+      extra channels, movies and shows - JioFiber/AirFiber' } }
-        if ($help -match 'fastway login') { $providers += @{ Value = 'fastway'; Label = 'Fastway     live TV from a Fastway subscription - Fastway/ACT' } }
+        $providers = @(@{ Value = 'jiotv'; Label = 'JioTV       live channels and programme guide - mobile-number OTP' })
+        if ($TvPlusCmd) { $providers += @{ Value = 'extras'; Label = 'JioTV+      extra channels, movies and shows - eligible JioFiber/AirFiber login' } }
+        if ($help -match 'fastway login') { $providers += @{ Value = 'fastway'; Label = 'Fastway     live TV - Fastway-accepted credentials' } }
 
         if (-not ($providers.Value -contains $Provider)) { $Provider = '' }
         if (-not $Provider) {
@@ -440,8 +440,9 @@ try {
                 Write-Step "Using $only (the only provider this build supports)"
             }
             else {
-                Write-Host '  Which login you have depends on your network: JioTV works anywhere,' -ForegroundColor DarkGray
-                Write-Host '  JioTV+ needs a JioFiber or AirFiber login, Fastway needs Fastway or ACT.' -ForegroundColor DarkGray
+                Write-Host '  JioTV signs in with a mobile-number OTP. JioTV+ needs an eligible' -ForegroundColor DarkGray
+                Write-Host '  JioFiber or AirFiber login. Fastway needs credentials its provider accepts.' -ForegroundColor DarkGray
+                Write-Host '  ACT eligibility, where offered, depends on the provider.' -ForegroundColor DarkGray
                 $Provider = Select-Option 'Which account are you setting up?' $providers
             }
         }

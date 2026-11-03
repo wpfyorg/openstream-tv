@@ -39,10 +39,22 @@ The guided installer configures the selected account and admin password but does
 openstream serve --host 0.0.0.0 --tls
 ```
 
-If you skipped guided setup or its sign-in/password step failed, run the missing setup commands before `serve`:
+If you skipped guided setup or its sign-in step failed, use the command for your provider:
 
 ```powershell
+# JioTV: mobile-number OTP
 openstream login otp
+
+# JioTV+: eligible JioFiber or AirFiber login
+openstream tv+ login
+
+# Fastway: prompts for the provider username and password
+openstream fastway login
+```
+
+For the full web build, set the admin password before `serve`:
+
+```powershell
 openstream admin password
 ```
 

@@ -13,7 +13,7 @@ SSH to the router as `root`. The installer detects `apk` or `opkg`, chooses a su
 wget -qO- https://raw.githubusercontent.com/wpfyorg/openstream-tv/main/scripts/install.sh | sh
 ```
 
-By default, the installer enables the service and starts it. Open the browser interface at `https://<router-ip>:5443/` and accept the self-signed certificate warning. IPTV players use `http://<router-ip>:5001/`. The normal package is `full`; for headless installations, set `OPENSTREAM_VARIANT=slim` before running the script. The slim package has no web interface and requires terminal OTP login.
+By default, the installer enables the service and starts it. Open the browser interface at `https://<router-ip>:5443/` and accept the self-signed certificate warning. IPTV players use `http://<router-ip>:5001/`. The normal package is `full`; for headless installations, set `OPENSTREAM_VARIANT=slim` before running the script. The slim package has no web interface and requires terminal provider sign-in.
 
 ## Guided setup
 

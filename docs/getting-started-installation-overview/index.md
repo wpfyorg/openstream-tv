@@ -40,6 +40,6 @@ If you need reproducible deployments, pin a release or container tag instead of 
 
 The Linux, macOS, Windows and OpenWrt installers run a guided setup when they have a terminal: choose the build, choose the account (JioTV, JioTV+, or Fastway when the release supports it), confirm the LAN address, decide whether to use a Cloudflare tunnel, and sign in. Docker and unattended installs skip it and use the documented environment variables instead.
 
-Which provider you can use depends on the account: JioTV uses its mobile-number OTP flow, JioTV+ needs an eligible JioFiber or AirFiber login, and Fastway needs credentials accepted by Fastway. The installer labels Fastway as **Fastway/ACT**, but ACT-plan eligibility has not been verified across plans.
+Which provider you can use depends on the account: JioTV uses its mobile-number OTP flow, JioTV+ needs an eligible JioFiber or AirFiber login, and Fastway needs credentials accepted by the provider. ACT eligibility, where offered, depends on the provider.
 
 After installing, use [Getting Started in 5 Minutes](../getting-started-in-5-minutes/index.md). If your browser runs on another device, read [Access OpenStream TV on your home network](../configuration-network-security/index.md).

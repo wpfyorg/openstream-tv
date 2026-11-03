@@ -90,7 +90,7 @@ The player stays on loading, DASH fails, the browser reports DRM/Widevine troubl
 ### Diagnose and fix
 
 1. Try another Fastway channel to separate a single-channel problem from an account/provider-wide failure.
-2. For browser playback from another device, use OpenStream HTTPS on port 5443 and a browser with supported Widevine. Plain `http://<LAN-IP>:5001` is not a secure browser origin.
+2. For browser playback from another device, use OpenStream HTTPS on its configured HTTPS port (default `5443`) and a browser with supported Widevine. Plain `http://<LAN-IP>:<configured-http-port>` is not a secure browser origin; the default HTTP port is `5001`.
 3. Check a short redacted server-log window for `fastway`, `DASH`, `license` or `PallyCon` errors.
 4. Reconnect Fastway if the logs show the provider token was rejected and re-login could not recover it.
 5. If only the IPTV client fails, confirm it supports DASH and the `inputstream.adaptive` metadata used by the Fastway M3U entries.

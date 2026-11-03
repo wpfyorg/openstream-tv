@@ -38,10 +38,22 @@ curl -fsSL https://raw.githubusercontent.com/wpfyorg/openstream-tv/main/scripts/
 
 ## First run
 
-The guided setup connects the account for you. If you skipped it or the account/password step did not complete, do the setup by hand instead:
+The guided setup connects the account for you. If you skipped it or the account sign-in did not complete, use the command for your provider:
 
 ```sh
+# JioTV: mobile-number OTP
 openstream login otp
+
+# JioTV+: eligible JioFiber or AirFiber login
+openstream tv+ login
+
+# Fastway: prompts for the provider username and password
+openstream fastway login
+```
+
+Then protect and start the full web build:
+
+```sh
 openstream admin password
 openstream serve --host 127.0.0.1 --tls
 ```

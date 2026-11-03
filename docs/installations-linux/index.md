@@ -31,7 +31,7 @@ The installer uses `/usr/local/bin` when run as root and writable; otherwise it 
 Run the installer from a terminal and it walks through setup instead of only dropping a binary in place:
 
 1. **Build** — `full` (browser interface plus IPTV) or `slim` (IPTV only). Use the arrow keys and press Enter.
-2. **Account** — JioTV, JioTV+ or Fastway. The installer describes JioTV+ as needing JioFiber/AirFiber and labels Fastway as **Fastway/ACT**. Provider entitlement still controls whether a login and stream are accepted; ACT-plan eligibility is not guaranteed by the installer. Only providers supported by the downloaded release are listed.
+2. **Account** — JioTV, JioTV+ or Fastway. The installer describes JioTV as a mobile-number OTP flow, JioTV+ as needing an eligible JioFiber/AirFiber login, and Fastway as needing credentials accepted by its provider. ACT eligibility, where offered, depends on the provider. Only providers supported by the downloaded release are listed.
 3. **Address** — the LAN address other devices will use, pre-filled with the detected one. Press Enter to accept it.
 4. **Remote access** — LAN only, a temporary Cloudflare URL, or a permanent Cloudflare tunnel with a token.
 5. **Credentials** — the sign-in for the account you chose, then an admin password for the `full` build.
@@ -42,15 +42,27 @@ Sign-in is retried up to three times. If it still fails, the binary stays instal
 
 ## Start and sign in
 
-If you skipped the guided setup, sign in and start the server by hand:
+If you skipped the guided setup, sign in with the command for your provider:
 
 ```sh
+# JioTV: mobile-number OTP
 openstream login otp
+
+# JioTV+: eligible JioFiber or AirFiber login
+openstream tv+ login
+
+# Fastway: prompts for the provider username and password
+openstream fastway login
+```
+
+Then protect and start the full web build:
+
+```sh
 openstream admin password
 openstream serve --host 0.0.0.0 --tls
 ```
 
-Enter the one-time password when prompted. The admin password protects the web interface; the JioTV OTP signs the server into your provider account. On the same machine, open `https://localhost:5443/` and accept the self-signed certificate warning. From another trusted LAN device, use `https://<server-ip>:5443/`. IPTV applications use the HTTP playlist on port `5001`. The `slim` build has no browser interface.
+For JioTV, enter the one-time password when prompted. Fastway instead asks for its provider username and password. The admin password protects the web interface. On the same machine, open `https://localhost:5443/` and accept the self-signed certificate warning. From another trusted LAN device, use `https://<server-ip>:5443/`. IPTV applications use the HTTP playlist on port `5001`. The `slim` build has no browser interface.
 
 To start at boot on a systemd Linux machine, see [Background service](../maintenance-background-service/index.md). To update or remove OpenStream TV, see [Update and uninstall](../maintenance-update-uninstall/index.md).
 

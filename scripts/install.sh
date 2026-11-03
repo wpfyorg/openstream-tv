@@ -377,11 +377,11 @@ ob_choose_provider() {
   elif ob_binary_supports "$ob_bin" 'extras login'; then
     ob_tvplus_args='extras login'
   fi
-  ob_add jiotv "JioTV       live channels and programme guide - any network"
+  ob_add jiotv "JioTV       live channels and programme guide - mobile-number OTP"
   [ -n "$ob_tvplus_args" ] &&
-    ob_add extras "JioTV+      extra channels, movies and shows - JioFiber/AirFiber"
+    ob_add extras "JioTV+      extra channels, movies and shows - eligible JioFiber/AirFiber login"
   ob_binary_supports "$ob_bin" 'fastway login' &&
-    ob_add fastway "Fastway     live TV from a Fastway subscription - Fastway/ACT"
+    ob_add fastway "Fastway     live TV - Fastway-accepted credentials"
   if [ -n "$provider" ]; then
     case "|$ob_vals|" in
       *"|$provider|"*) return 0 ;;
@@ -392,8 +392,9 @@ ob_choose_provider() {
     *'|'*) ;;
     *) provider=$ob_vals; ob_name=$ob_vals; [ "$provider" = extras ] && ob_name='JioTV+'; ui_step "Using $ob_name (the only provider this build supports)"; return 0 ;;
   esac
-  ui_note "Which login you have depends on your network: JioTV works anywhere,"
-  ui_note "JioTV+ needs a JioFiber or AirFiber login, Fastway needs Fastway or ACT."
+  ui_note "JioTV signs in with a mobile-number OTP. JioTV+ needs an eligible"
+  ui_note "JioFiber or AirFiber login. Fastway needs credentials its provider accepts."
+  ui_note "ACT eligibility, where offered, depends on the provider."
   printf '\n'
   ui_select "Which account are you setting up?" "$ob_vals" "$ob_lbls"
   provider=$ui_sel_value
