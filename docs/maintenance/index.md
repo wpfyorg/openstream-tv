@@ -2,7 +2,7 @@
 title: Maintenance
 description: Update safely, preserve data and inspect your running server.
 category: Maintenance
-keywords: [JioTV, help, guide, maintenance]
+keywords: [OpenStream TV, help, guide, maintenance]
 ---
 
 # Maintenance
@@ -16,6 +16,6 @@ Update safely, preserve data and inspect your running server.
 - [Run OpenStream TV as a Background Service](../maintenance-background-service/index.md)
 - [Docker Updates, Backups and Logs](../maintenance-docker/index.md)
 - [Maintain OpenStream TV on OpenWrt](../maintenance-openwrt/index.md)
-- [Update and Uninstall](../maintenance-update-uninstall/index.md)
+- [Uninstall OpenStream TV Safely](../maintenance-update-uninstall/index.md)
 
 [All help centre articles](../help-centre/index.md).

@@ -21,7 +21,7 @@ The default variant is `full`. To choose a variant or version, download the scri
 
 ```sh
 curl -fsSLO https://raw.githubusercontent.com/wpfyorg/openstream-tv/main/scripts/install.sh
-OPENSTREAM_VARIANT=slim OPENSTREAM_VERSION=1.3.3 sh install.sh
+OPENSTREAM_VARIANT=slim OPENSTREAM_VERSION=1.5.0 sh install.sh
 ```
 
 The installer uses `/usr/local/bin` when run as root and writable; otherwise it uses `$HOME/.local/bin`. Set `OPENSTREAM_INSTALL_DIR` to choose another directory. If the command is not found afterward, add the install directory to `PATH` and open a new terminal.
@@ -31,7 +31,7 @@ The installer uses `/usr/local/bin` when run as root and writable; otherwise it 
 Run the installer from a terminal and it walks through setup instead of only dropping a binary in place:
 
 1. **Build** — `full` (browser interface plus IPTV) or `slim` (IPTV only). Use the arrow keys and press Enter.
-2. **Account** — JioTV, JioTV+ or Fastway. The menu prints a one-line reminder that JioTV works on any network, JioTV+ needs a JioFiber or AirFiber login, and Fastway needs a Fastway subscription or an ACT connection. Only the accounts the downloaded release supports are listed, so an unreleased provider never appears as a dead option.
+2. **Account** — JioTV, JioTV+ or Fastway. The installer describes JioTV+ as needing JioFiber/AirFiber and labels Fastway as **Fastway/ACT**. Provider entitlement still controls whether a login and stream are accepted; ACT-plan eligibility is not guaranteed by the installer. Only providers supported by the downloaded release are listed.
 3. **Address** — the LAN address other devices will use, pre-filled with the detected one. Press Enter to accept it.
 4. **Remote access** — LAN only, a temporary Cloudflare URL, or a permanent Cloudflare tunnel with a token.
 5. **Credentials** — the sign-in for the account you chose, then an admin password for the `full` build.

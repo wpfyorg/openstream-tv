@@ -69,6 +69,7 @@ Browse in order, or choose the task you need. The categories and article metadat
   - [Fix Web Interface Not Opening](fix-web-interface-not-opening/index.md)
   - [Fix installation and startup problems](troubleshooting-installation-startup/index.md)
   - [Fix JioTV login and JioTV+ problems](troubleshooting-accounts-and-extras/index.md)
+  - [Fix Fastway login and playback problems](troubleshooting-fastway/index.md)
   - [Fix channel loading and playback problems](troubleshooting-channels-and-playback/index.md)
   - [Fix HLS, DASH, DRM and browser playback](troubleshooting-protected-playback/index.md)
   - [Fix EPG, playlists and channel mode problems](troubleshooting-epg-and-playlists/index.md)
@@ -82,4 +83,4 @@ Browse in order, or choose the task you need. The categories and article metadat
   - [Run OpenStream TV as a Background Service](maintenance-background-service/index.md)
   - [Docker Updates, Backups and Logs](maintenance-docker/index.md)
   - [Maintain OpenStream TV on OpenWrt](maintenance-openwrt/index.md)
-  - [Update and Uninstall](maintenance-update-uninstall/index.md)
+  - [Uninstall OpenStream TV Safely](maintenance-update-uninstall/index.md)

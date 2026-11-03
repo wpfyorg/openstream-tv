@@ -7,7 +7,7 @@ keywords: [macOS, Mac, Apple silicon, Intel, install, terminal]
 
 # Install on macOS
 
-The installer supports Intel (`x86_64`) and Apple silicon (`arm64`) Macs. It downloads the matching release and checks its SHA-256 checksum.
+The installer supports Intel (`x86_64`) and Apple silicon (`arm64`) Macs. It downloads the latest matching GitHub release by default and checks its SHA-256 checksum. Set `OPENSTREAM_VERSION` to a release such as `1.5.0` when you need to pin the installed version.
 
 ## Install
 
@@ -38,7 +38,7 @@ curl -fsSL https://raw.githubusercontent.com/wpfyorg/openstream-tv/main/scripts/
 
 ## First run
 
-The guided setup connects the account for you. To do it by hand instead:
+The guided setup connects the account for you. If you skipped it or the account/password step did not complete, do the setup by hand instead:
 
 ```sh
 openstream login otp
@@ -48,7 +48,7 @@ openstream serve --host 127.0.0.1 --tls
 
 Open `https://localhost:5443/` and accept the self-signed certificate warning. To access the server from other devices on your home network, bind to all interfaces with `--host 0.0.0.0` and use your Mac's LAN address. Keep access limited to a trusted network. The `slim` build has no browser interface.
 
-For boot-time service setup, see [Background service](../maintenance-background-service/index.md). For updating and removing the binary, see [Update and uninstall](../maintenance-update-uninstall/index.md).
+For boot-time service setup, see [Background service](../maintenance-background-service/index.md). For updates, see [How to Update OpenStream TV](../maintenance-update/index.md); for removal, see [Uninstall OpenStream TV Safely](../maintenance-update-uninstall/index.md).
 
 ## Verify and troubleshoot
 

@@ -41,7 +41,7 @@ Save, start with `openstream --config ./openstream.toml serve`, then open `http:
 | `disable_logout` | `JIOTV_DISABLE_LOGOUT`, `OPENSTREAM_DISABLE_LOGOUT` | `false` | Boolean. Hide/disable JioTV logout when true. |
 | `drm` | `JIOTV_DRM`, `OPENSTREAM_DRM` | `true` | Boolean. Allow the protected DASH pathway; does not bypass DRM. |
 | `tv_plus` | `JIOTV_TVPLUS`, `OPENSTREAM_TVPLUS` | `false` | Boolean. Enable the optional JioTV+ account. Needs a JioFiber or AirFiber login. |
-| `fastway` | `OPENSTREAM_FASTWAY` | `false` | Boolean. Enable the optional Fastway Live TV provider. Connect an account with `openstream fastway login` or Settings before channels appear. |
+| `fastway` | `JIOTV_FASTWAY`, `OPENSTREAM_FASTWAY` | `false` | Boolean. Enable the optional Fastway Live TV provider. Connect an account with `openstream fastway login` or Settings before channels appear. |
 | `disable_auth` | `JIOTV_DISABLE_AUTH`, `OPENSTREAM_DISABLE_AUTH` | `false` | Boolean. Disable app access checks. Dangerous on reachable networks; use only with a trusted external access control. |
 | `title` | `JIOTV_TITLE`, `OPENSTREAM_TITLE` | `"OpenStream TV"` | Display title; any TOML string. |
 | `disable_url_encryption` | `JIOTV_DISABLE_URL_ENCRYPTION`, `OPENSTREAM_DISABLE_URL_ENCRYPTION` | `false` | Boolean. Disable encryption of local proxy parameters. Leave false. |
@@ -50,8 +50,8 @@ Save, start with `openstream --config ./openstream.toml serve`, then open `http:
 | `log_path` | `JIOTV_LOG_PATH`, `OPENSTREAM_LOG_PATH` | `""` | Reserved in this build; do not rely on file logging. |
 | `log_to_stdout` | `JIOTV_LOG_TO_STDOUT`, `OPENSTREAM_LOG_TO_STDOUT` | `true` | Boolean. Emit logs to process output. |
 | `custom_channels_file` | `JIOTV_CUSTOM_CHANNELS_FILE`, `OPENSTREAM_CUSTOM_CHANNELS_FILE` | `""` | Optional path to custom-channel JSON file. |
-| `default_categories` | `JIOTV_DEFAULT_CATEGORIES` | `[]` | Integer category IDs; environment form is comma-separated. |
-| `default_languages` | `JIOTV_DEFAULT_LANGUAGES` | `[]` | Integer language IDs; environment form is comma-separated. |
+| `default_categories` | `JIOTV_DEFAULT_CATEGORIES`, `OPENSTREAM_DEFAULT_CATEGORIES` | `[]` | Integer category IDs; environment form is comma-separated. |
+| `default_languages` | `JIOTV_DEFAULT_LANGUAGES`, `OPENSTREAM_DEFAULT_LANGUAGES` | `[]` | Integer language IDs; environment form is comma-separated. |
 
 Boolean environment values must be `true` or `false` in lowercase (as Rust's parser expects). Use either the `JIOTV_*` environment variable or its documented `OPENSTREAM_*` alias where listed; the `OPENSTREAM_*` value takes precedence when both are set. Example: `OPENSTREAM_EPG=true openstream serve`. Integer-list settings use `JIOTV_DEFAULT_LANGUAGES=1,6`.
 

@@ -7,7 +7,7 @@ keywords: [OpenWrt, router, apk, opkg, procd, package]
 
 # Install on OpenWrt
 
-SSH to the router as `root`. The installer detects `apk` or `opkg`, chooses a supported package ABI, verifies the downloaded package checksum, and installs the package. Supported package architectures are x86_64, aarch64 Cortex-A53 and ARM Cortex-A7 NEON. Other router architectures are not published.
+SSH to the router as `root`. The installer detects `apk` or `opkg`, chooses a supported package ABI, verifies the downloaded package checksum, and installs the package from the latest GitHub release by default. Set `OPENSTREAM_VERSION` to a release such as `1.5.0` to pin it. Supported package architectures are x86_64, aarch64 Cortex-A53 and ARM Cortex-A7 NEON. Other router architectures are not published.
 
 ```sh
 wget -qO- https://raw.githubusercontent.com/wpfyorg/openstream-tv/main/scripts/install.sh | sh

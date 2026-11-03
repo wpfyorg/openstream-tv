@@ -15,6 +15,7 @@ Before changing anything, note the app version, install type, browser or IPTV pl
 
 - [Installation, startup, architecture, permissions and ports](../troubleshooting-installation-startup/index.md)
 - [JioTV login, OTP, sessions, tokens and JioTV+](../troubleshooting-accounts-and-extras/index.md)
+- [Fastway login, catalogue, DASH and PallyCon problems](../troubleshooting-fastway/index.md)
 - [Channels, loading, buffering and subscriptions](../troubleshooting-channels-and-playback/index.md)
 - [HLS, DASH, DRM, Widevine, licenses and browser security](../troubleshooting-protected-playback/index.md)
 - [EPG, missing channels, playlists and mode changes](../troubleshooting-epg-and-playlists/index.md)

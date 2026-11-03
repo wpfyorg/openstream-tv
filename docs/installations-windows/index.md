@@ -7,7 +7,7 @@ keywords: [Windows, PowerShell, install, Windows 11, Windows 10]
 
 # Install on Windows
 
-The PowerShell installer supports x64, x86, and ARM64 Windows. It verifies the matching release binary with the release SHA-256 manifest, installs `openstream.exe` under your local Programs directory, and adds that directory to your user `PATH`.
+The PowerShell installer supports x64, x86, and ARM64 Windows. It downloads the latest matching GitHub release by default, verifies it with the release SHA-256 manifest, installs `openstream.exe` under your local Programs directory, and adds that directory to your user `PATH`. Use `-Version 1.5.0` or set `OPENSTREAM_VERSION=1.5.0` when you need to pin the installed version.
 
 Open PowerShell and run:
 
@@ -33,24 +33,29 @@ $env:OPENSTREAM_TUNNEL = 'none'
 
 `$env:OPENSTREAM_ONBOARD = 'never'` keeps the plain non-interactive install. Redirected output (CI, scheduled tasks) skips the flow automatically.
 
-The installer configures the account but does not start the server. Start it after setup:
+The guided installer configures the selected account and admin password but does not keep the server running. After successful guided setup, start the server:
+
+```powershell
+openstream serve --host 0.0.0.0 --tls
+```
+
+If you skipped guided setup or its sign-in/password step failed, run the missing setup commands before `serve`:
 
 ```powershell
 openstream login otp
 openstream admin password
-openstream serve --host 0.0.0.0 --tls
 ```
 
-Enter the OTP in the terminal. The installer configures the account but does not start the server; run the printed `openstream serve` command after setup. Open `https://localhost:5443/` on the same PC and accept the self-signed certificate warning. Other devices on your trusted LAN can use `https://<this-PC-ip>:5443/`; find the address with `ipconfig`. IPTV players use the authenticated playlist URL printed by the installer. The `slim` build has no browser interface.
+Open `https://localhost:5443/` on the same PC and accept the self-signed certificate warning. Other devices on your trusted LAN can use `https://<this-PC-ip>:5443/`; find the address with `ipconfig`. IPTV players use the authenticated playlist URL printed by the installer. The `slim` build has no browser interface.
 
 The installer accepts `-Variant full|slim`, `-Version latest|<version>`, `-InstallDir <directory>`, and `-Repo <owner/repository>`. For example, to install a specific release in a custom directory:
 
 ```powershell
 irm https://raw.githubusercontent.com/wpfyorg/openstream-tv/main/scripts/install.ps1 -OutFile install-openstream.ps1
-.\install-openstream.ps1 -Version 1.3.3 -InstallDir "$env:LOCALAPPDATA\OpenStream TV"
+.\install-openstream.ps1 -Version 1.5.0 -InstallDir "$env:LOCALAPPDATA\OpenStream TV"
 ```
 
-The installer does not register a Windows service. Keep the terminal running while serving, or use a separately managed service wrapper only if you know how to configure and secure it. Update with `openstream update`; see [Update and uninstall](../maintenance-update-uninstall/index.md).
+The installer does not register a Windows service. Keep the terminal running while serving, or use a separately managed service wrapper only if you know how to configure and secure it. Update with `openstream update`; see [How to Update OpenStream TV](../maintenance-update/index.md) and [Uninstall OpenStream TV Safely](../maintenance-update-uninstall/index.md).
 
 ## Verify and troubleshoot
 
