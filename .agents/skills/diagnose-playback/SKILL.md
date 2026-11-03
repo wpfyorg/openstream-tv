@@ -11,7 +11,7 @@ Find the first failing hop. Player errors are downstream symptoms, not root caus
 
 Record channel ID, live/catch-up/premium mode, programme `srno` and timestamps when applicable, requested quality, client, and whether DRM is enabled. Do not compare cases until these inputs match.
 
-Run with `JIOTV_DEBUG=true JIOTV_LOG_TO_STDOUT=true`. Reproduce one failing request and retain status, redirect location, content type, and relevant server log lines for each hop. Never publish credentials, encrypted `auth` values, SSO tokens, license challenges, or HDNEA values.
+Run with `OPENSTREAM_DEBUG=true OPENSTREAM_LOG_TO_STDOUT=true`. Reproduce one failing request and retain status, redirect location, content type, and relevant server log lines for each hop. Never publish credentials, encrypted `auth` values, SSO tokens, license challenges, or HDNEA values.
 
 ## Trace the chain
 
@@ -43,4 +43,4 @@ Classify the first failure before editing:
 
 Fix the earliest shared boundary that violates the chain. Preserve encrypted upstream URLs and existing credential-refresh flow. Do not add retries unless evidence shows a transient failure and retry semantics are bounded.
 
-Add one focused regression test using `httptest` or Fiber's test client for the failed contract. Then rerun the exact failing chain through the first previously failing media request, plus the focused package or frontend test. For browser behavior, verify in a real browser; for IPTV behavior, exercise the playlist/manifest/license route used by the client.
+Add one focused Rust regression test at the failed boundary, using the existing Axum service helpers or `wiremock` when an upstream HTTP contract is involved. Then rerun the exact failing chain through the first previously failing media request, plus the focused `cargo test` or frontend test. For browser behavior, verify in a real browser; for IPTV behavior, exercise the playlist/manifest/license route used by the client.
