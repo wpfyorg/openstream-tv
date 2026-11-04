@@ -21,6 +21,15 @@ const EPG_URL_FMT: &str =
 pub const EPG_POSTER_URL: &str = "https://jiotv.catchup.cdn.jio.com/dare_images/shows/";
 const CACHE_METADATA_VERSION: u32 = 1;
 const CACHE_MAX_AGE: Duration = Duration::from_secs(24 * 60 * 60);
+pub const STORE_KEY_ENABLED: &str = "epg_enabled";
+
+pub fn enabled_with_override(config_enabled: bool, stored: Option<&str>) -> bool {
+    match stored {
+        Some("true") => true,
+        Some("false") => false,
+        _ => config_enabled,
+    }
+}
 
 #[derive(Default)]
 pub struct EpgState {
@@ -742,6 +751,14 @@ mod tests {
     use super::*;
     use http_body_util::BodyExt;
     use std::collections::HashMap;
+
+    #[test]
+    fn stored_enabled_override_wins_over_config() {
+        assert!(enabled_with_override(false, Some("true")));
+        assert!(!enabled_with_override(true, Some("false")));
+        assert!(enabled_with_override(true, None));
+        assert!(!enabled_with_override(false, Some("invalid")));
+    }
 
     fn tv_channel(id: &str, name: &str) -> crate::television::Channel {
         crate::television::Channel {

@@ -45,11 +45,15 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    let cfg = config::Config::load(args.config.as_deref())?;
+    let mut cfg = config::Config::load(args.config.as_deref())?;
     init_logging(&cfg);
 
     let path_prefix = resolve_path_prefix(&cfg)?;
     let store = Arc::new(store::Store::open(&path_prefix)?);
+    cfg.epg = epg::enabled_with_override(
+        cfg.epg,
+        store.get_opt(epg::STORE_KEY_ENABLED).as_deref(),
+    );
     let access = Arc::new(access::Access::new(store.clone()));
     let secure = Arc::new(secureurl::SecureUrl::new(cfg.disable_url_encryption));
     if cfg.disable_url_encryption {
@@ -82,6 +86,8 @@ fn main() -> anyhow::Result<()> {
             runtime.block_on(epg_generate(&cfg, &path_prefix, store, access, secure))
         }
         cli::Command::EpgDelete => epg_delete(&path_prefix),
+        cli::Command::EpgOn => set_epg_enabled(&store, true),
+        cli::Command::EpgOff => set_epg_enabled(&store, false),
         cli::Command::BackgroundStart { args } => background_start(&args, &path_prefix),
         cli::Command::BackgroundStop => background_stop(&path_prefix),
         cli::Command::Update { version } => runtime.block_on(update::run(version.as_deref())),
@@ -222,6 +228,18 @@ fn epg_delete(path_prefix: &str) -> anyhow::Result<()> {
         } else {
             "EPG file does not exist"
         }
+    );
+    Ok(())
+}
+
+fn set_epg_enabled(store: &store::Store, enabled: bool) -> anyhow::Result<()> {
+    store.set(
+        epg::STORE_KEY_ENABLED,
+        if enabled { "true" } else { "false" },
+    )?;
+    println!(
+        "EPG {} permanently. Restart the OpenStream TV service to apply it.",
+        if enabled { "enabled" } else { "disabled" }
     );
     Ok(())
 }
@@ -403,11 +421,12 @@ async fn serve(
 
     let playlist = if !cfg.disable_auth {
         let playlist = access.playlist_path()?;
-        println!(
-            "Playlist: http://{}:{}{playlist}",
-            reachable_host(&args.host),
-            args.port
-        );
+        let origin = format!("http://{}:{}", reachable_host(&args.host), args.port);
+        println!("Playlist: {origin}{playlist}");
+        if cfg.epg {
+            let epg_path = format!("{}epg.xml.gz", playlist.trim_end_matches("playlist.m3u"));
+            println!("EPG: {origin}{epg_path}");
+        }
         #[cfg(feature = "full")]
         if !access.has_password() {
             let setup = playlist.trim_end_matches("playlist.m3u").to_string();
@@ -422,7 +441,12 @@ async fn serve(
         }
         playlist
     } else {
-        println!("Auth is disabled: playlist at /playlist.m3u");
+        let origin = format!("http://{}:{}", reachable_host(&args.host), args.port);
+        println!("Auth is disabled");
+        println!("Playlist: {origin}/playlist.m3u");
+        if cfg.epg {
+            println!("EPG: {origin}/epg.xml.gz");
+        }
         "/playlist.m3u".to_string()
     };
 
@@ -888,7 +912,7 @@ fn print_help() {
          login otp | login reset\n  \
          tv+ login | tv+ logout   (off by default; needs tv_plus = true / OPENSTREAM_TVPLUS=true)\n  \
          fastway login | fastway logout (off by default; needs fastway = true / OPENSTREAM_FASTWAY=true)\n  \
-         epg generate | epg delete\n  \
+         epg generate | epg delete | epg on | epg off\n  \
          admin password\n  \
          key show | key rotate\n  \
          background start [--args \"...\"] | background stop\n  \

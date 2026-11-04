@@ -18,6 +18,7 @@ Run `openstream --help` to see the installed binary's command list. These comman
 | `openstream fastway login` / `openstream fastway logout` | Connect/disconnect the optional Fastway provider when `fastway = true` / `OPENSTREAM_FASTWAY=true`. |
 | `openstream admin password` | Set an admin password from the CLI. |
 | `openstream key show` / `openstream key rotate` | Show or replace the IPTV access key. Treat its output as confidential. |
+| `openstream epg on` / `openstream epg off` | Permanently enable or disable automatic EPG generation for this data directory. Restart the service after changing it. |
 | `openstream epg generate` / `openstream epg delete` | Generate the current guide or remove its cache. |
 | `openstream background start` / `openstream background stop` | Start or stop a detached server process. |
 | `openstream update` | Check/install a release. `--version vX.Y.Z` requests a specific release. |

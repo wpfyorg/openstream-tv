@@ -19,6 +19,8 @@ epg = true
 
 You can also start OpenStream TV with the environment variable `OPENSTREAM_EPG=true`. Restart the server after changing the setting. The EPG endpoint is `/epg.xml.gz`; in **Settings**, copy the **EPG** URL shown for your installation. The command `openstream epg generate` creates a guide, and `openstream epg delete` removes the generated cache. The programme schedule depends on account access and upstream data.
 
+For headless and slim installs, `openstream epg on` stores a persistent EPG override in the OpenStream TV data directory; `openstream epg off` reverses it. The stored override takes precedence over the config-file or environment default. Restart the service after changing it. When EPG is enabled, server startup prints the EPG URL directly below the M3U playlist URL.
+
 ## M3U playlist and access key
 
 The full web interface shows playlist and EPG links in **Settings**. A protected installation uses `/k/<key>/playlist.m3u` and `/k/<key>/epg.xml.gz`. If authentication is deliberately disabled, the paths are `/playlist.m3u` and `/epg.xml.gz` and access-key rotation is unavailable. Do not replace the full link with a guessed path; use **Copy** for the link supplied by your server.
