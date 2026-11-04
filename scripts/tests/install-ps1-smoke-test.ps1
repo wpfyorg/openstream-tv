@@ -11,11 +11,11 @@ try {
     $env:OPENSTREAM_VARIANT = 'slim'
     $output = & (Join-Path $PSScriptRoot '..\install.ps1') -Version '1.4.0' -InstallDir $installDir -NoTls 6>&1 | Out-String
 
-    $installed = Join-Path $installDir 'openstream.exe'
+    $installed = Join-Path $installDir 'ost.exe'
     if (-not (Test-Path -LiteralPath $installed -PathType Leaf)) {
-        throw 'The Windows installer did not place openstream.exe in the requested directory.'
+        throw 'The Windows installer did not place ost.exe in the requested directory.'
     }
-    if ($output -notmatch 'Installed openstream \(slim,') {
+    if ($output -notmatch 'Installed ost \(slim,') {
         throw 'OPENSTREAM_VARIANT=slim did not select the slim Windows asset.'
     }
 

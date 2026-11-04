@@ -29,12 +29,12 @@ The **full** build serves the web interface. A **slim** build has no web interfa
 
 | Method | Version behavior | Command you run afterward |
 | --- | --- | --- |
-| Linux, macOS, or Termux installer | Downloads the latest GitHub release by default. Set `OPENSTREAM_VERSION` to pin a release. | `openstream` |
-| Windows PowerShell installer | Downloads the latest GitHub release by default. Use `-Version` or `OPENSTREAM_VERSION` to pin a release. | `openstream` (`openstream.exe` on disk) |
-| OpenWrt installer | Installs the matching `openstream` or `openstream-slim` package from the latest GitHub release by default. `OPENSTREAM_VERSION` can select a release. | `/usr/bin/openstream` |
-| Docker or Compose | `ghcr.io/wpfyorg/openstream-tv:latest` tracks the current full image; `:slim` tracks the slim image. Use a versioned tag when you need a fixed release. | `/usr/local/bin/openstream` inside the container |
-| Manual binary | Uses the exact GitHub release asset you download and verify. Install or rename it as `openstream`. | `openstream` |
-| Build from source | Builds the revision currently checked out. That revision can be newer than the latest release. | `target/release/openstream` before installation |
+| Linux, macOS, or Termux installer | Downloads the latest GitHub release by default. Set `OPENSTREAM_VERSION` to pin a release. | `ost` |
+| Windows PowerShell installer | Downloads the latest GitHub release by default. Use `-Version` or `OPENSTREAM_VERSION` to pin a release. | `ost` (`ost.exe` on disk) |
+| OpenWrt installer | Installs the matching `openstream` or `openstream-slim` package from the latest GitHub release by default. `OPENSTREAM_VERSION` can select a release. | `/usr/bin/ost` |
+| Docker or Compose | `ghcr.io/wpfyorg/openstream-tv:latest` tracks the current full image; `:slim` tracks the slim image. Use a versioned tag when you need a fixed release. | `/usr/local/bin/ost` inside the container |
+| Manual binary | Uses the exact GitHub release asset you download and verify. Install or rename it as `ost`. | `ost` |
+| Build from source | Builds the revision currently checked out. That revision can be newer than the latest release. | `target/release/ost` before installation |
 
 If you need reproducible deployments, pin a release or container tag instead of following `latest`.
 

@@ -21,7 +21,7 @@ EPG generation is disabled by default, provider guide data is unavailable, a sou
 
 ## Solution
 1. Enable EPG if you want XMLTV and restart OpenStream TV after the configuration change.
-2. If generation needs a manual retry, stop a service using the same data directory before running `openstream epg generate`.
+2. If generation needs a manual retry, stop a service using the same data directory before running `ost epg generate`.
 3. Re-import or refresh the current playlist and XMLTV URLs in your IPTV application, especially after an account/JioTV+ switch.
 4. If only one channel lacks programme data, the provider may not supply a schedule for it.
 

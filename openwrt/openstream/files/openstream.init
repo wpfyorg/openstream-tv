@@ -36,7 +36,7 @@ start_service() {
 	disable_auth=$(uci_bool disable_auth 0)
 
 	procd_open_instance
-	procd_set_param command /usr/bin/openstream --skip-update-check serve --host "$host" --port "$port"
+	procd_set_param command /usr/bin/ost --skip-update-check serve --host "$host" --port "$port"
 	if [ "$tls" -eq 1 ]; then
 		procd_append_param command --tls --tls-port "$tls_port"
 		# Pass each option through on its own: a lone cert or key must reach the

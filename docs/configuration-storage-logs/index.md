@@ -24,7 +24,7 @@ Files may include:
 If OpenStream TV is running in your terminal, inspect the output there. For a short diagnostic run you can use:
 
 ```sh
-OPENSTREAM_DEBUG=true OPENSTREAM_LOG_TO_STDOUT=true openstream serve
+OPENSTREAM_DEBUG=true OPENSTREAM_LOG_TO_STDOUT=true ost serve
 ```
 
 Reproduce the problem once, then read the messages locally before sharing. Redact cookies, tokens, access-key URLs, OTPs, device identifiers and private server addresses. `OPENSTREAM_LOG_PATH` exists in the config schema but does **not** currently implement file output.

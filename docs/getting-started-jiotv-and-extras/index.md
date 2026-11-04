@@ -19,7 +19,7 @@ OpenStream TV can hold three provider accounts. Provider eligibility and subscri
 - **JioTV+** is the optional second source. It is off until `tv_plus = true` (or `JIOTV_TVPLUS=true` / `OPENSTREAM_TVPLUS=true`) is set, and it needs its own sign-in with the JioFiber or AirFiber number, separate from JioTV.
 - **Fastway** is the optional third source. Enable it with `fastway = true` (or `OPENSTREAM_FASTWAY=true`) and connect with credentials accepted by the provider. ACT eligibility, where offered, depends on the provider and plan. Fastway supplies live TV, not the on-demand catalogue. See [Connect Fastway Live TV](../account-fastway/index.md).
 
-The installers list only the accounts the downloaded release supports and print this same hint above the account menu. The older name **Extras** may still appear in older guides and error messages. `openstream extras login` remains a command alias; `openstream tv+ login` is the current spelling.
+The installers list only the accounts the downloaded release supports and print this same hint above the account menu. The older name **Extras** may still appear in older guides and error messages. `ost extras login` remains a command alias; `ost tv+ login` is the current spelling.
 
 ## Check which source is active
 

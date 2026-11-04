@@ -28,7 +28,7 @@ Keep exact error text and HTTP status codes such as `401`, `403` or `502`. A sta
 If you normally start OpenStream TV in a terminal, stop it and run a short diagnostic session with debug output enabled. Keep your usual `serve` command, configuration and arguments so the diagnostic run uses the same host, TLS, ports and tunnel settings as the failing server:
 
 ```sh
-OPENSTREAM_DEBUG=true OPENSTREAM_LOG_TO_STDOUT=true openstream serve <your-usual-serve-arguments>
+OPENSTREAM_DEBUG=true OPENSTREAM_LOG_TO_STDOUT=true ost serve <your-usual-serve-arguments>
 ```
 
 On Windows PowerShell:
@@ -36,7 +36,7 @@ On Windows PowerShell:
 ```powershell
 $env:OPENSTREAM_DEBUG = "true"
 $env:OPENSTREAM_LOG_TO_STDOUT = "true"
-openstream serve <your-usual-serve-arguments>
+ost serve <your-usual-serve-arguments>
 ```
 
 Replace the placeholder with the arguments you normally use. Do not drop options such as `--host`, `--tls`, `--port`, `--tls-port`, `--config` or `--tunnel` just to collect logs.

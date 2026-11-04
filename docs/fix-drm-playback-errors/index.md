@@ -20,7 +20,7 @@ The page is on LAN HTTP, the browser or device lacks a working Widevine Content 
 4. Note the player error and browser/device version. Check **Settings** account status and the server's timestamped logs.
 
 ## Solution
-1. On your trusted LAN, run the server with `openstream serve --host 0.0.0.0 --tls` or configure the equivalent TLS-enabled service.
+1. On your trusted LAN, run the server with `ost serve --host 0.0.0.0 --tls` or configure the equivalent TLS-enabled service.
 2. Browse to `https://<server-address>:5443/`. A generated self-signed certificate must be trusted on that device. For routine shared access, prefer a trusted certificate.
 3. Use a browser/device with a working Widevine implementation and an account that can access the channel. A successful API capability check alone does not prove usable DRM playback.
 4. If the provider refused the stream or license, retry later or choose permitted content.

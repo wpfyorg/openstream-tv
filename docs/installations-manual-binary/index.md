@@ -41,18 +41,18 @@ Still in the Linux download directory:
 
 ```sh
 mkdir -p "$HOME/.local/bin"
-install -m 0755 "$asset" "$HOME/.local/bin/openstream"
-"$HOME/.local/bin/openstream" --help
+install -m 0755 "$asset" "$HOME/.local/bin/ost"
+"$HOME/.local/bin/ost" --help
 ```
 
-**Expected result:** the command shows `serve`, `login`, `admin`, and other available commands. Add `$HOME/.local/bin` to your shell's `PATH` if typing `openstream` alone says **command not found**, or keep using the full executable path.
+**Expected result:** the command shows `serve`, `login`, `admin`, and other available commands. Add `$HOME/.local/bin` to your shell's `PATH` if typing `ost` alone says **command not found**, or keep using the full executable path.
 
 ## 4. Set up and start OpenStream TV
 
 ```sh
-"$HOME/.local/bin/openstream" admin password
-"$HOME/.local/bin/openstream" login otp
-"$HOME/.local/bin/openstream" serve --host 127.0.0.1 --tls
+"$HOME/.local/bin/ost" admin password
+"$HOME/.local/bin/ost" login otp
+"$HOME/.local/bin/ost" serve --host 127.0.0.1 --tls
 ```
 
 Choose an admin password and complete the OTP prompts for your own JioTV account. Open **https://localhost:5443/** on that machine. Your browser may warn about the locally generated self-signed certificate. The server also listens on HTTP port 5001 for IPTV clients. To reach the interface from another device, see [network configuration](../configuration-network-security/index.md) before changing the bind address.
@@ -61,8 +61,8 @@ The executable runs while its terminal is open. See [background services](../mai
 
 ## 5. Update, remove or troubleshoot
 
-Stop the running server before updating. Run `openstream update` (or the full path to your executable), restart the server, and check that the interface opens. See [update guidance](../maintenance-update/index.md).
+Stop the running server before updating. Run `ost update` (or the full path to your executable), restart the server, and check that the interface opens. See [update guidance](../maintenance-update/index.md).
 
-To uninstall this example, stop OpenStream TV and remove **only** `$HOME/.local/bin/openstream`. Your data under `$HOME/.openstream-tv` is separate; keep it if you plan to reinstall. To erase saved accounts too, first read [safe uninstallation](../maintenance-update-uninstall/index.md).
+To uninstall this example, stop OpenStream TV and remove **only** `$HOME/.local/bin/ost`. Your data under `$HOME/.openstream-tv` is separate; keep it if you plan to reinstall. To erase saved accounts too, first read [safe uninstallation](../maintenance-update-uninstall/index.md).
 
 If the downloaded binary reports an unsupported architecture, recheck the asset name against `uname -m`. If execution is denied, check its execute permission. If the server cannot start, see [installation and startup fixes](../troubleshooting-installation-startup/index.md).

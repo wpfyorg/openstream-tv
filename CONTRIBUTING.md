@@ -22,7 +22,7 @@ npm test
 npm run build
 ```
 
-The primary executable is `openstream`. The default build includes the Svelte UI; the slim build omits it.
+The primary executable is `ost`. The default build includes the Svelte UI; the slim build omits it.
 
 For installer-related changes, also run:
 

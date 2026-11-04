@@ -84,7 +84,7 @@ chmod +x "$tmp/bin/openstream-init"
 cat >"$tmp/bin/netstat" <<'EOF'
 #!/bin/sh
 echo 'Active Internet connections (only servers)'
-echo "tcp        0      0 0.0.0.0:5001            0.0.0.0:*               LISTEN      123/${OPENSTREAM_TEST_PORT_OWNER:-openstream}"
+echo "tcp        0      0 0.0.0.0:5001            0.0.0.0:*               LISTEN      123/${OPENSTREAM_TEST_PORT_OWNER:-ost}"
 EOF
 cat >"$tmp/bin/uci" <<'EOF'
 #!/bin/sh
@@ -112,7 +112,7 @@ run_case() {
     OPENSTREAM_TEST_ASSET_NAME=$expected OPENSTREAM_TEST_LOG=$log \
     OPENSTREAM_INSTALL_DIR="$install_dir" PATH="$tmp/bin:$PATH" \
     "$@" sh "$root/scripts/install.sh" >/dev/null
-  test -x "$install_dir/openstream"
+  test -x "$install_dir/ost"
   grep -F "/$expected" "$log" >/dev/null
   printf 'installer target OK: %s\n' "$expected"
 }
@@ -133,7 +133,7 @@ legacy_log="$tmp/log-legacy-release"
 OPENSTREAM_TEST_OS=Linux OPENSTREAM_TEST_MACHINE=x86_64 OPENSTREAM_TEST_ASSET_NAME=$legacy_asset \
   OPENSTREAM_TEST_LOG="$legacy_log" OPENSTREAM_INSTALL_DIR="$tmp/install-legacy-release" PATH="$tmp/bin:$PATH" \
   sh "$root/scripts/install.sh" >/dev/null
-test -x "$tmp/install-legacy-release/openstream"
+test -x "$tmp/install-legacy-release/ost"
 grep -F "/$legacy_asset" "$legacy_log" >/dev/null
 echo "legacy release asset fallback OK"
 
@@ -172,7 +172,7 @@ if OPENSTREAM_TEST_OS=Linux OPENSTREAM_TEST_MACHINE=x86_64 OPENSTREAM_TEST_ASSET
   echo "checksum mismatch unexpectedly installed" >&2
   exit 1
 fi
-test ! -e "$tmp/bad-install/openstream"
+test ! -e "$tmp/bad-install/ost"
 echo "unsupported architecture and checksum rejection OK"
 
 cat >"$tmp/bin/apk" <<'EOF'
@@ -372,10 +372,10 @@ if grep -E "Browser UI|browser UI|admin password" "$tmp/openwrt-slim-output" | g
   echo "slim install printed browser steps" >&2
   exit 1
 fi
-grep -F "stop; while pidof openstream >/dev/null; do sleep 1; done; openstream login otp" "$tmp/openwrt-slim-output" >/dev/null
+grep -F "stop; while pidof ost >/dev/null; do sleep 1; done; ost login otp" "$tmp/openwrt-slim-output" >/dev/null
 # The admin password comes before signing in, and terminal login stops the service.
 grep -n "Set the admin password" "$tmp/openwrt-apk-output" | grep -F "1." >/dev/null
-grep -F "stop; while pidof openstream >/dev/null; do sleep 1; done; openstream login otp" "$tmp/openwrt-apk-output" >/dev/null
+grep -F "stop; while pidof ost >/dev/null; do sleep 1; done; ost login otp" "$tmp/openwrt-apk-output" >/dev/null
 if OPENSTREAM_PLATFORM=openwrt OPENSTREAM_TEST_PACKAGE_ARCH=aarch64_cortex-a72 \
   OPENSTREAM_TEST_PACKAGE_LOG="$tmp/openwrt-unsupported-package" PATH="$tmp/bin:$PATH" \
   sh "$root/scripts/install.sh" >/dev/null 2>&1; then

@@ -45,7 +45,7 @@ Settings are in `/etc/config/openstream`; application state, including credentia
 
 A Cloudflare tunnel publishes the router's OpenStream TV server on a public hostname. The access key in the playlist path and the admin password are then the only protection, and the DRM license proxy becomes reachable from the internet too. Use a long admin password, prefer the temporary URL when you only need short-lived access, and remove the tunnel when you are done. Without a tunnel, keep the service on your trusted LAN.
 
-To update, run the installer command again so the package manager updates the package. Do not use `openstream update` for a package-managed installation. To uninstall, use `apk del openstream` or `opkg remove openstream`; use `openstream-slim` if that was the installed package. Package removal preserves configuration and application data. See [OpenWrt maintenance](../maintenance-openwrt/index.md) for package-specific backup and removal details.
+To update, run the installer command again so the package manager updates the package. Do not use `ost update` for a package-managed installation. To uninstall, use `apk del openstream` or `opkg remove openstream`; use `openstream-slim` if that was the installed package. Package removal preserves configuration and application data. See [OpenWrt maintenance](../maintenance-openwrt/index.md) for package-specific backup and removal details.
 
 ## Verify and troubleshoot
 

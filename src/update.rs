@@ -1,4 +1,4 @@
-//! `openstream update`: replaces this binary with a release from GitHub.
+//! `ost update`: replaces this binary with a release from GitHub.
 //!
 //! Releases come from `OPENSTREAM_UPDATE_REPO` (default below). Each release
 //! carries one binary per build and target, named
@@ -258,7 +258,7 @@ fn replace_executable(data: &[u8]) -> anyhow::Result<std::path::PathBuf> {
         ".{}.update",
         exe.file_name()
             .and_then(|n| n.to_str())
-            .unwrap_or("openstream")
+            .unwrap_or("ost")
     ));
     std::fs::write(&tmp, data).map_err(|e| {
         anyhow::anyhow!(
@@ -325,7 +325,7 @@ fn windows_replacement_script(pid: u32, staged: &std::path::Path, exe: &std::pat
     )
 }
 
-/// `openstream update [--version vX.Y.Z]`.
+/// `ost update [--version vX.Y.Z]`.
 pub async fn run(version: Option<&str>) -> anyhow::Result<()> {
     if target_triple() == "unsupported" {
         anyhow::bail!(
@@ -338,7 +338,7 @@ pub async fn run(version: Option<&str>) -> anyhow::Result<()> {
     let release = fetch_release(&client, version).await?;
     if version.is_none() && !is_newer(&release.tag_name, VERSION) {
         println!(
-            "openstream {VERSION} is up to date (latest release: {}).",
+            "ost {VERSION} is up to date (latest release: {}).",
             release.tag_name
         );
         return Ok(());
@@ -384,7 +384,7 @@ pub async fn run(version: Option<&str>) -> anyhow::Result<()> {
             crate::autostart::restart_hint()
         );
     } else {
-        println!("Restart openstream to use it.");
+        println!("Restart ost to use it.");
     }
     Ok(())
 }
@@ -402,7 +402,7 @@ pub async fn check_quietly() {
     if let Ok(release) = fetch_release(&client, None).await {
         if is_newer(&release.tag_name, VERSION) {
             println!(
-                "Update available: {} (you have {VERSION}). Run `openstream update`.",
+                "Update available: {} (you have {VERSION}). Run `ost update`.",
                 release.tag_name
             );
         }
@@ -490,8 +490,8 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn staged_windows_replacement_waits_and_cleans_up() {
-        let staged = std::path::Path::new(r"C:\Apps\OpenStreamTV\.openstream.exe.update");
-        let exe = std::path::Path::new(r"C:\Apps\OpenStreamTV\openstream.exe");
+        let staged = std::path::Path::new(r"C:\Apps\OpenStreamTV\.ost.exe.update");
+        let exe = std::path::Path::new(r"C:\Apps\OpenStreamTV\ost.exe");
         let script = windows_replacement_script(123, staged, exe);
         let encoded = windows_replacement_script_bytes(123, staged, exe);
         assert!(encoded.starts_with(b"\xEF\xBB\xBF"));

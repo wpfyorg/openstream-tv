@@ -1,6 +1,6 @@
 //! Client for Fastway Live TV, an optional provider alongside JioTV and the
 //! extras source. Off by default (`fastway` config / `OPENSTREAM_FASTWAY`), and
-//! only usable after `openstream fastway login` or the Settings card.
+//! only usable after `ost fastway login` or the Settings card.
 //!
 //! The provider is a plain JSON API: one login token, a channel catalogue
 //! filtered by the account's subscribed list, a day-guide endpoint, and a

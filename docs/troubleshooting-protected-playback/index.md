@@ -23,7 +23,7 @@ Check the exact address in the browser. A plain `http://localhost:5001` test can
 
 ### Solution
 
-Enable TLS using `openstream serve --host 0.0.0.0 --port 5001 --tls` and open `https://<server-lan-address>:5443/`. The generated certificate is self-signed, so accept its warning only when you trust that server, or configure a trusted certificate using both `--tls-cert` and `--tls-key`. Keep IPTV clients on the HTTP playlist listener where needed.
+Enable TLS using `ost serve --host 0.0.0.0 --port 5001 --tls` and open `https://<server-lan-address>:5443/`. The generated certificate is self-signed, so accept its warning only when you trust that server, or configure a trusted certificate using both `--tls-cert` and `--tls-key`. Keep IPTV clients on the HTTP playlist listener where needed.
 
 ### Verification
 

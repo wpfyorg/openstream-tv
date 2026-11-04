@@ -46,20 +46,20 @@ If you skipped the guided setup, sign in with the command for your provider:
 
 ```sh
 # JioTV: mobile-number OTP
-openstream login otp
+ost login otp
 
 # JioTV+: eligible JioFiber or AirFiber login
-openstream tv+ login
+ost tv+ login
 
 # Fastway: prompts for the provider username and password
-openstream fastway login
+ost fastway login
 ```
 
 Then protect and start the full web build:
 
 ```sh
-openstream admin password
-openstream serve --host 0.0.0.0 --tls
+ost admin password
+ost serve --host 0.0.0.0 --tls
 ```
 
 For JioTV, enter the one-time password when prompted. Fastway instead asks for its provider username and password. The admin password protects the web interface. On the same machine, open `https://localhost:5443/` and accept the self-signed certificate warning. From another trusted LAN device, use `https://<server-ip>:5443/`. IPTV applications use the HTTP playlist on port `5001`. The `slim` build has no browser interface.
@@ -83,6 +83,6 @@ The guided setup can be scripted with environment variables, which also skip the
 
 ## Verify and troubleshoot
 
-Run `command -v openstream` and `openstream --help` to confirm the command is installed. Open the server address in a browser while the process is running. If the shell says the command is missing, check `$HOME/.local/bin` or your chosen install directory and `PATH`. If startup reports the port is busy, select an unused port with `openstream serve --port 5002`; see [startup fixes](../troubleshooting-installation-startup/index.md).
+Run `command -v ost` and `ost --help` to confirm the command is installed. Open the server address in a browser while the process is running. If the shell says the command is missing, check `$HOME/.local/bin` or your chosen install directory and `PATH`. If startup reports the port is busy, select an unused port with `ost serve --port 5002`; see [startup fixes](../troubleshooting-installation-startup/index.md).
 
-To update, use `openstream update` and restart your service. To uninstall, stop the process or service, then remove the installed executable; see [safe removal](../maintenance-update-uninstall/index.md). Preserve the data directory if you may reinstall.
+To update, use `ost update` and restart your service. To uninstall, stop the process or service, then remove the installed executable; see [safe removal](../maintenance-update-uninstall/index.md). Preserve the data directory if you may reinstall.

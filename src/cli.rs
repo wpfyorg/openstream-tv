@@ -113,17 +113,17 @@ pub fn parse() -> anyhow::Result<Args> {
                 match positionals.get(1).map(String::as_str) {
                     Some("login") => Command::ExtrasLogin,
                     Some("logout") => Command::ExtrasLogout,
-                    other => anyhow::bail!("usage: openstream tv+ login|logout (got {other:?})"),
+                    other => anyhow::bail!("usage: ost tv+ login|logout (got {other:?})"),
                 }
             }
             Some("fastway") => match positionals.get(1).map(String::as_str) {
                 Some("login") => Command::FastwayLogin,
                 Some("logout") => Command::FastwayLogout,
-                other => anyhow::bail!("usage: openstream fastway login|logout (got {other:?})"),
+                other => anyhow::bail!("usage: ost fastway login|logout (got {other:?})"),
             },
             Some("admin") => match positionals.get(1).map(String::as_str) {
                 Some("password") => Command::AdminPassword,
-                other => anyhow::bail!("usage: openstream admin password (got {other:?})"),
+                other => anyhow::bail!("usage: ost admin password (got {other:?})"),
             },
             Some("key") => match positionals.get(1).map(String::as_str) {
                 Some("rotate") => Command::KeyRotate,
@@ -135,14 +135,14 @@ pub fn parse() -> anyhow::Result<Args> {
                 Some("delete") | Some("del") | Some("d") => Command::EpgDelete,
                 Some("on") | Some("enable") => Command::EpgOn,
                 Some("off") | Some("disable") => Command::EpgOff,
-                other => anyhow::bail!("usage: openstream epg generate|delete|on|off (got {other:?})"),
+                other => anyhow::bail!("usage: ost epg generate|delete|on|off (got {other:?})"),
             },
             Some("background") | Some("bg") => match positionals.get(1).map(String::as_str) {
                 Some("start") | Some("run") | Some("r") => Command::BackgroundStart {
                     args: background_args,
                 },
                 Some("stop") | Some("k") | Some("kill") => Command::BackgroundStop,
-                other => anyhow::bail!("usage: openstream background start|stop (got {other:?})"),
+                other => anyhow::bail!("usage: ost background start|stop (got {other:?})"),
             },
             Some("update") | Some("upgrade") | Some("u") => Command::Update { version },
             Some("autostart") | Some("as") => match positionals.get(1).map(String::as_str) {
@@ -151,7 +151,7 @@ pub fn parse() -> anyhow::Result<Args> {
                 },
                 Some("remove") | Some("disable") | Some("uninstall") => Command::AutostartRemove,
                 Some(other) => anyhow::bail!(
-                    "usage: openstream autostart [--args \"...\"] | autostart remove (got {other})"
+                    "usage: ost autostart [--args \"...\"] | autostart remove (got {other})"
                 ),
             },
             Some(other) => anyhow::bail!("unknown command: {other}"),

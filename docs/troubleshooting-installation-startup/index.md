@@ -29,7 +29,7 @@ Use the installer for your platform or select a release asset that matches both 
 
 ### Verification
 
-Run `openstream --help`. It should print the command help and exit successfully. Then follow [Getting started](../getting-started-in-5-minutes/index.md) to start the server.
+Run `ost --help`. It should print the command help and exit successfully. Then follow [Getting started](../getting-started-in-5-minutes/index.md) to start the server.
 
 ### Further help
 
@@ -58,7 +58,7 @@ Remove only the incomplete download or partial file you created, then use the of
 
 ### Verification
 
-Run `openstream --help`, then consult the current [CLI options](../configuration-cli/index.md) for server flags. A successful help response confirms the executable starts; it does not confirm the server is reachable.
+Run `ost --help`, then consult the current [CLI options](../configuration-cli/index.md) for server flags. A successful help response confirms the executable starts; it does not confirm the server is reachable.
 
 ### Further help
 

@@ -21,6 +21,6 @@ For a system-wide service, choose a stable data directory and set `OPENSTREAM_PA
 
 ## Start, verify and maintain
 
-After using the [Linux installation steps](../installations-linux/index.md), run `openstream --help` to check the binary and `openstream serve --host 0.0.0.0 --tls` for a trusted LAN installation. Visit `https://<sbc-lan-address>:5443/` from another device. If the binary reports an architecture or loader error, confirm the board's CPU and operating system with `uname -m`, then choose a matching release.
+After using the [Linux installation steps](../installations-linux/index.md), run `ost --help` to check the binary and `ost serve --host 0.0.0.0 --tls` for a trusted LAN installation. Visit `https://<sbc-lan-address>:5443/` from another device. If the binary reports an architecture or loader error, confirm the board's CPU and operating system with `uname -m`, then choose a matching release.
 
-To update, stop the service, run `openstream update`, restart it and check the browser page. To remove the installation, follow [update and uninstall](../maintenance-update-uninstall/index.md). For startup and missing dependency errors, see [installation troubleshooting](../troubleshooting-installation-startup/index.md).
+To update, stop the service, run `ost update`, restart it and check the browser page. To remove the installation, follow [update and uninstall](../maintenance-update-uninstall/index.md). For startup and missing dependency errors, see [installation troubleshooting](../troubleshooting-installation-startup/index.md).

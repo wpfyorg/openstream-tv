@@ -24,16 +24,16 @@ EOF
 chmod +x "$tmp/bin/uname"
 
 # The installer downloads a release asset; here it is a script that behaves
-# like `openstream` so the sign-in dialogs can be driven end to end.
+# like `ost` so the sign-in dialogs can be driven end to end.
 cat >"$tmp/stub" <<'EOF'
 #!/bin/sh
 case "${1:-}" in
   --help)
     echo "USAGE:"
-    echo "  openstream login otp"
-    echo "  openstream tv+ login | tv+ logout"
-    echo "  openstream fastway login"
-    echo "  openstream admin password"
+    echo "  ost login otp"
+    echo "  ost tv+ login | tv+ logout"
+    echo "  ost fastway login"
+    echo "  ost admin password"
     ;;
   login)
     printf 'Enter your mobile number: +91 '
@@ -154,7 +154,7 @@ finish_flow
 
 grep -F "Signed in to JioTV" "$tmp/out" >/dev/null
 grep -F "http://192.168.1.9:5001/k/secret-key/playlist.m3u" "$tmp/out" >/dev/null
-test -x "$tmp/install/openstream"
+test -x "$tmp/install/ost"
 if [ "${OPENSTREAM_TEST_SHOW:-0}" = 1 ]; then sed 's/\r$//' "$tmp/out"; fi
 echo "onboarding default flow OK"
 
@@ -210,7 +210,7 @@ fi
 env_mode=$(stat -c '%a' "$env_file" 2>/dev/null || stat -f '%Lp' "$env_file")
 [ "$env_mode" = 600 ]
 grep -F "$env_file" "$tmp/out3" >/dev/null
-grep -F "openstream serve --host 0.0.0.0 --tls --tunnel" "$tmp/out3" >/dev/null
+grep -F "ost serve --host 0.0.0.0 --tls --tunnel" "$tmp/out3" >/dev/null
 if grep -F "Choose the connection" "$tmp/out3" >/dev/null; then
   echo "a connection picker appeared without any connections" >&2
   exit 1
@@ -221,15 +221,15 @@ echo "onboarding persists provider/tunnel settings and prints keyed playlist URL
 
 # ---- declining an update must leave the installed binary untouched --------
 mkdir -p "$tmp/install-existing"
-printf 'existing executable\n' >"$tmp/install-existing/openstream"
-chmod +x "$tmp/install-existing/openstream"
+printf 'existing executable\n' >"$tmp/install-existing/ost"
+chmod +x "$tmp/install-existing/ost"
 start_flow "$tmp/install-existing" "$tmp/out4"
 wait_for "Which build?" "$tmp/out4"; enter
 wait_for "Update it in place and keep the current account?" "$tmp/out4"
 send "$(printf '\033[B')"; enter
 wait_for "Left as it was" "$tmp/out4"
 finish_flow
-grep -F "existing executable" "$tmp/install-existing/openstream" >/dev/null
+grep -F "existing executable" "$tmp/install-existing/ost" >/dev/null
 if grep -F "Installation complete" "$tmp/out4" >/dev/null; then
   echo "declining an update continued onboarding" >&2
   exit 1
@@ -243,5 +243,5 @@ if grep -F "Which build?" "$tmp/plain" >/dev/null; then
   echo "the installer prompted without a terminal" >&2
   exit 1
 fi
-grep -F "Installed openstream (full, aarch64-apple-darwin)" "$tmp/plain" >/dev/null
+grep -F "Installed ost (full, aarch64-apple-darwin)" "$tmp/plain" >/dev/null
 echo "onboarding stays off without a terminal OK"

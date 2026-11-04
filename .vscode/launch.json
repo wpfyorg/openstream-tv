@@ -6,8 +6,8 @@
             "type": "lldb",
             "request": "launch",
             "cargo": {
-                "args": ["build", "--bin", "openstream"],
-                "filter": { "name": "openstream", "kind": "bin" }
+                "args": ["build", "--bin", "ost"],
+                "filter": { "name": "ost", "kind": "bin" }
             },
             "args": ["--skip-update-check", "serve"],
             "cwd": "${workspaceFolder}"

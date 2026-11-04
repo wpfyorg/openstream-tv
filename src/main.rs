@@ -383,7 +383,7 @@ async fn serve(
             if state.extras.connected() {
                 " (logged in)"
             } else {
-                " (run `openstream tv+ login`)"
+                " (run `ost tv+ login`)"
             }
         );
     }
@@ -393,7 +393,7 @@ async fn serve(
             if state.fastway.connected() {
                 " (logged in)"
             } else {
-                " (run `openstream fastway login`)"
+                " (run `ost fastway login`)"
             }
         );
     }
@@ -437,7 +437,7 @@ async fn serve(
             } else {
                 format!("http://{}:{}", display_host(&args.host), args.port)
             };
-            println!("Web setup: {origin}{setup} (or run: openstream admin password)");
+            println!("Web setup: {origin}{setup} (or run: ost admin password)");
         }
         playlist
     } else {
@@ -900,8 +900,8 @@ fn rotate_key(access: &access::Access) -> anyhow::Result<()> {
 
 fn print_help() {
     println!(
-        "openstream - OpenStream TV multi-provider streaming server\n\n\
-         USAGE:\n  openstream [--config PATH] [--skip-update-check] <command>\n\n\
+        "ost - OpenStream TV multi-provider streaming server\n\n\
+         USAGE:\n  ost [--config PATH] [--skip-update-check] <command>\n\n\
          COMMANDS:\n  \
          serve [--host H] [--port P] [--public] [--tls [--tls-port P] [--tls-cert F --tls-key F]] [--tunnel] [--tunnel-token T]\n  \
          \x20 --tls            also serve HTTPS (default port 5443) next to plain HTTP; browsers need\n  \

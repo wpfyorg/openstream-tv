@@ -126,7 +126,7 @@ Share image tag/variant, redacted `docker ps` port mapping, volume destination, 
 
 ### Symptoms
 
-`openstream update` fails, reports an unavailable release, or the version does not change after an update.
+`ost update` fails, reports an unavailable release, or the version does not change after an update.
 
 ### Possible causes
 
@@ -137,11 +137,11 @@ Share image tag/variant, redacted `docker ps` port mapping, volume destination, 
 
 ### Diagnosis
 
-Check the exact updater message, current `openstream --help`/version output, install method and permissions on the executable directory. Check whether the process needs a service restart. For Docker, compare the running image ID/tag with the image you pulled. On OpenWrt, identify whether the app came from `apk` or `opkg`.
+Check the exact updater message, current `ost --help`/version output, install method and permissions on the executable directory. Check whether the process needs a service restart. For Docker, compare the running image ID/tag with the image you pulled. On OpenWrt, identify whether the app came from `apk` or `opkg`.
 
 ### Solution
 
-For a manually installed binary, run `openstream update` with a user who can update that binary, then restart the service as indicated. For Docker, pull and recreate the container with the same data volume. For OpenWrt, update through the package manager rather than the built-in binary updater. Do not run platform installers over an existing managed service unless its guide directs you to.
+For a manually installed binary, run `ost update` with a user who can update that binary, then restart the service as indicated. For Docker, pull and recreate the container with the same data volume. For OpenWrt, update through the package manager rather than the built-in binary updater. Do not run platform installers over an existing managed service unless its guide directs you to.
 
 ### Verification
 

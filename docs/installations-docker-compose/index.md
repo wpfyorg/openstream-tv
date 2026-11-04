@@ -48,7 +48,7 @@ docker compose logs --tail 50 openstream
 The first-run server can provide a private web setup URL in its logs. Do not share that link: it contains an access key. You can instead set the password interactively from your Compose directory:
 
 ```sh
-docker compose exec openstream /usr/local/bin/openstream admin password
+docker compose exec openstream /usr/local/bin/ost admin password
 docker compose restart openstream
 ```
 
