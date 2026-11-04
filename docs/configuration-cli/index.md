@@ -17,6 +17,7 @@ Run `jiotv --help` to see the installed binary's command list. These commands ar
 | `jiotv tv+ login` / `jiotv tv+ logout` | Connect/disconnect the optional JioTV+ account when `tv_plus` is enabled. `jiotv extras login` is still accepted. |
 | `jiotv admin password` | Set an admin password from the CLI. |
 | `jiotv key show` / `jiotv key rotate` | Show or replace the IPTV access key. Treat its output as confidential. |
+| `jiotv epg on` / `jiotv epg off` | Permanently enable or disable automatic EPG generation for this data directory. `jiotv epg-on` / `jiotv epg-off` are aliases. Restart the service after changing it. |
 | `jiotv epg generate` / `jiotv epg delete` | Generate the current guide or remove its cache. |
 | `jiotv background start` / `jiotv background stop` | Start or stop a detached server process. |
 | `jiotv update` | Check/install a release. `--version vX.Y.Z` requests a specific release. |

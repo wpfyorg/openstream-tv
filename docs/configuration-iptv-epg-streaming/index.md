@@ -19,6 +19,8 @@ epg = true
 
 You can also start JioTV with the environment variable `JIOTV_EPG=true`. Restart the server after changing the setting. The EPG endpoint is `/epg.xml.gz`; in **Settings**, copy the **EPG** URL shown for your installation. The command `jiotv epg generate` creates a guide, and `jiotv epg delete` removes the generated cache. The programme schedule depends on account access and upstream data.
 
+For headless and slim installs, `jiotv epg on` stores a persistent EPG override in the JioTV data directory; `jiotv epg off` reverses it. The stored override takes precedence over the config-file or environment default. Restart the service after changing it. When EPG is enabled, server startup prints the EPG URL directly below the M3U playlist URL.
+
 ## M3U playlist and access key
 
 The full web interface shows playlist and EPG links in **Settings**. A protected installation uses an access key in the playlist link. Do not replace the full link with a guessed `/playlist.m3u` URL: its behavior depends on your authentication setup. Use **Copy** for the link supplied by your server.
