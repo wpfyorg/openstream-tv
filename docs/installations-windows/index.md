@@ -7,7 +7,7 @@ keywords: [Windows, PowerShell, install, Windows 11, Windows 10]
 
 # Install on Windows
 
-The PowerShell installer supports x64, x86, and ARM64 Windows. It downloads the latest matching GitHub release by default, verifies it with the release SHA-256 manifest, installs `openstream.exe` under your local Programs directory, and adds that directory to your user `PATH`. Use `-Version 1.5.0` or set `OPENSTREAM_VERSION=1.5.0` when you need to pin the installed version.
+The PowerShell installer supports x64, x86, and ARM64 Windows. It downloads the latest matching GitHub release by default, verifies it with the release SHA-256 manifest, installs `openstream.exe` under your local Programs directory, and adds that directory to your user `PATH`. Use `-Version 1.5.0` or set `$env:OPENSTREAM_VERSION = '1.5.0'` before running the installer when you need to pin the installed version.
 
 Open PowerShell and run:
 
@@ -39,16 +39,22 @@ The guided installer configures the selected account and admin password but does
 openstream serve --host 0.0.0.0 --tls
 ```
 
-If you skipped guided setup or its sign-in step failed, use the command for your provider:
+If guided setup ran, it saves the selected provider flags in your user environment. If you skipped it with `OPENSTREAM_ONBOARD=never`, set the matching provider flags in the same PowerShell session before signing in and keep that session open for `serve`:
 
 ```powershell
 # JioTV: mobile-number OTP
+$env:OPENSTREAM_TVPLUS = 'false'
+$env:OPENSTREAM_FASTWAY = 'false'
 openstream login otp
 
 # JioTV+: eligible JioFiber or AirFiber login
+$env:OPENSTREAM_TVPLUS = 'true'
+$env:OPENSTREAM_FASTWAY = 'false'
 openstream tv+ login
 
 # Fastway: prompts for the provider username and password
+$env:OPENSTREAM_TVPLUS = 'false'
+$env:OPENSTREAM_FASTWAY = 'true'
 openstream fastway login
 ```
 

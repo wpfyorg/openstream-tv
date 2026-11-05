@@ -1,5 +1,8 @@
 blank_issues_enabled: false
 contact_links:
+  - name: 🛡 Security vulnerability
+    url: https://github.com/wpfyorg/openstream-tv/security/advisories/new
+    about: Report suspected vulnerabilities privately. Do not open a public issue.
   - name: 📃 Documentation
     url: https://wpfyorg.github.io/openstream-tv/
     about: Don't know how or where to start? Check out our documentation!

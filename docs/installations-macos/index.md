@@ -38,16 +38,19 @@ curl -fsSL https://raw.githubusercontent.com/wpfyorg/openstream-tv/main/scripts/
 
 ## First run
 
-The guided setup connects the account for you. If you skipped it or the account sign-in did not complete, use the command for your provider:
+The guided setup connects the account for you. If it printed a retry command that sources `installer.env`, use that exact command so the selected provider settings are loaded. If you skipped guided setup entirely, set the matching provider flags in the same shell before signing in and keep that shell open for `serve`:
 
 ```sh
 # JioTV: mobile-number OTP
+export OPENSTREAM_TVPLUS=false OPENSTREAM_FASTWAY=false
 openstream login otp
 
 # JioTV+: eligible JioFiber or AirFiber login
+export OPENSTREAM_TVPLUS=true OPENSTREAM_FASTWAY=false
 openstream tv+ login
 
 # Fastway: prompts for the provider username and password
+export OPENSTREAM_TVPLUS=false OPENSTREAM_FASTWAY=true
 openstream fastway login
 ```
 
