@@ -404,7 +404,12 @@ try {
     }
     Copy-Item -LiteralPath $binary -Destination $destination -Force
     if (Test-Path -LiteralPath $legacyDestination) {
-        Remove-Item -LiteralPath $legacyDestination -Force
+        try {
+            Remove-Item -LiteralPath $legacyDestination -Force
+        }
+        catch {
+            Write-Warn2 "Could not remove legacy openstream.exe; it may still be in use. Continuing with ost.exe."
+        }
     }
     $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
     $entries = @($userPath -split ';' | Where-Object { $_ })
