@@ -9,6 +9,9 @@ $previousVariant = $env:OPENSTREAM_VARIANT
 try {
     $env:OPENSTREAM_ONBOARD = 'never'
     $env:OPENSTREAM_VARIANT = 'slim'
+    New-Item -ItemType Directory -Force -Path $installDir | Out-Null
+    $legacyInstalled = Join-Path $installDir 'openstream.exe'
+    Set-Content -LiteralPath $legacyInstalled -Value 'legacy executable'
     $output = & (Join-Path $PSScriptRoot '..\install.ps1') -Version '1.4.0' -InstallDir $installDir -NoTls 6>&1 | Out-String
 
     $installed = Join-Path $installDir 'ost.exe'
@@ -17,6 +20,9 @@ try {
     }
     if ($output -notmatch 'Installed ost \(slim,') {
         throw 'OPENSTREAM_VARIANT=slim did not select the slim Windows asset.'
+    }
+    if (Test-Path -LiteralPath $legacyInstalled) {
+        throw 'The Windows installer did not migrate openstream.exe to ost.exe.'
     }
 
     $help = & $installed --help 2>&1 | Out-String

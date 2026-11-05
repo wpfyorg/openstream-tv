@@ -4,6 +4,8 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::fs::OpenOptions;
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
@@ -37,28 +39,56 @@ impl Store {
     pub fn open(path_prefix: &str) -> Result<Store, StoreError> {
         std::fs::create_dir_all(path_prefix)?;
         let path = PathBuf::from(path_prefix).join("store_v4.toml");
-        let inner = if path.exists() {
-            let text = std::fs::read_to_string(&path)?;
-            toml::from_str(&text)?
+        let mut file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(&path)?;
+        file.lock()?;
+
+        let mut text = String::new();
+        file.read_to_string(&mut text)?;
+        let inner = if text.trim().is_empty() {
+            let current = FileFormat::default();
+            let encoded = toml::to_string(&current)?;
+            file.seek(SeekFrom::Start(0))?;
+            file.write_all(encoded.as_bytes())?;
+            current
         } else {
-            let f = FileFormat::default();
-            let store = Store {
-                path: path.clone(),
-                inner: Mutex::new(f),
-            };
-            store.save()?;
-            return Ok(store);
+            toml::from_str(&text)?
         };
+
         Ok(Store {
             path,
             inner: Mutex::new(inner),
         })
     }
 
-    fn save(&self) -> Result<(), StoreError> {
-        let guard = self.inner.lock().unwrap();
-        let text = toml::to_string(&*guard)?;
-        std::fs::write(&self.path, text)?;
+    fn update(&self, apply: impl FnOnce(&mut FileFormat)) -> Result<(), StoreError> {
+        let mut guard = self.inner.lock().unwrap();
+        let mut file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(&self.path)?;
+        file.lock()?;
+
+        let mut text = String::new();
+        file.read_to_string(&mut text)?;
+        let mut current = if text.trim().is_empty() {
+            FileFormat::default()
+        } else {
+            toml::from_str(&text)?
+        };
+        apply(&mut current);
+
+        let encoded = toml::to_string(&current)?;
+        file.set_len(0)?;
+        file.seek(SeekFrom::Start(0))?;
+        file.write_all(encoded.as_bytes())?;
+        *guard = current;
         Ok(())
     }
 
@@ -77,19 +107,15 @@ impl Store {
     }
 
     pub fn set(&self, key: &str, value: &str) -> Result<(), StoreError> {
-        {
-            let mut guard = self.inner.lock().unwrap();
-            guard.data.insert(key.to_string(), value.to_string());
-        }
-        self.save()
+        self.update(|current| {
+            current.data.insert(key.to_string(), value.to_string());
+        })
     }
 
     pub fn delete(&self, key: &str) -> Result<(), StoreError> {
-        {
-            let mut guard = self.inner.lock().unwrap();
-            guard.data.remove(key);
-        }
-        self.save()
+        self.update(|current| {
+            current.data.remove(key);
+        })
     }
 }
 
@@ -125,5 +151,23 @@ mod tests {
         }
         let store = Store::open(dir.path().to_str().unwrap()).unwrap();
         assert_eq!(store.get("k").unwrap(), "v");
+    }
+
+    #[test]
+    fn stale_store_write_preserves_newer_external_value() {
+        let dir = tempfile::tempdir().unwrap();
+        let prefix = dir.path().to_str().unwrap();
+        let service = Store::open(prefix).unwrap();
+        let cli = Store::open(prefix).unwrap();
+
+        cli.set("epg_enabled", "true").unwrap();
+        service.set("accessToken", "refreshed").unwrap();
+
+        let reopened = Store::open(prefix).unwrap();
+        assert_eq!(reopened.get_opt("epg_enabled").as_deref(), Some("true"));
+        assert_eq!(
+            reopened.get_opt("accessToken").as_deref(),
+            Some("refreshed")
+        );
     }
 }

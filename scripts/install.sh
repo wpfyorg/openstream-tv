@@ -85,7 +85,7 @@ checksum_has_asset() {
 size_kib() { echo $(( $(wc -c <"$1") / 1024 )); }
 
 # True when OpenStream TV listens on the TCP port. When the socket listing names the
-# owner it must be ost, so another daemon holding the port does not count;
+# owner it must match the executable installed by this package, so another daemon holding the port does not count;
 # without owner information, or without a listing tool, the port alone decides.
 port_listening() {
   if command -v netstat >/dev/null 2>&1; then listing=$(netstat -ltnp 2>/dev/null || true)
@@ -96,12 +96,12 @@ port_listening() {
   owners=$(printf '%s\n' "$listing" | grep -E "[:.]$1[[:space:]]" || true)
   [ -n "$owners" ] || return 1
   if printf '%s\n' "$owners" | grep -Eq '[0-9]+/[^ ]+|pid='; then
-    printf '%s\n' "$owners" | grep -q ost
+    printf '%s\n' "$owners" | grep -q "${openwrt_process:-ost}"
   fi
 }
 
 # Process IDs of running OpenStream TV servers (empty when pidof is unavailable).
-ost_pids() { pidof ost 2>/dev/null || true; }
+openstream_pids() { pidof "${openwrt_process:-ost}" 2>/dev/null || true; }
 
 # Stop the service and wait until the process has really exited: procd only
 # signals it on stop, so a lingering old process could otherwise be mistaken for
@@ -110,7 +110,7 @@ stop_service() {
   "$init_script" stop || return 1
   waited=0
   while [ "$waited" -lt "$ready_timeout" ]; do
-    if [ -z "$(ost_pids)" ] && ! "$init_script" running >/dev/null 2>&1; then return 0; fi
+    if [ -z "$(openstream_pids)" ] && ! "$init_script" running >/dev/null 2>&1; then return 0; fi
     waited=$((waited + 1))
     sleep 1
   done
@@ -711,11 +711,11 @@ ob_restart_existing_service() {
   ob_stopped_service=
 }
 
-ob_ost_process_running() {
+ob_openstream_process_running() {
   if command -v pgrep >/dev/null 2>&1; then
-    pgrep -x ost >/dev/null 2>&1
+    pgrep -x ost >/dev/null 2>&1 || pgrep -x openstream >/dev/null 2>&1
   elif command -v pidof >/dev/null 2>&1; then
-    [ -n "$(pidof ost 2>/dev/null || true)" ]
+    [ -n "$(pidof ost 2>/dev/null || true)$(pidof openstream 2>/dev/null || true)" ]
   else
     return 1
   fi
@@ -723,7 +723,10 @@ ob_ost_process_running() {
 
 ob_stop_existing_service() {
   ob_stopped_service=
-  command -v systemctl >/dev/null 2>&1 || return 0
+  if ! command -v systemctl >/dev/null 2>&1; then
+    ob_openstream_process_running && return 1
+    return 0
+  fi
   if systemctl is-active --quiet openstream 2>/dev/null; then
     ob_stopped_service=system
     systemctl stop openstream || return 1
@@ -733,19 +736,64 @@ ob_stop_existing_service() {
   else
     # Do not sign in while an unmanaged/foreground server may still write its
     # in-memory store over the credentials being updated by this installer.
-    ob_ost_process_running && return 1
+    ob_openstream_process_running && return 1
     return 0
   fi
   ob_waited=0
   while [ "$ob_waited" -lt "$ready_timeout" ]; do
     case "$ob_stopped_service" in
-      system) systemctl is-active --quiet openstream 2>/dev/null || { ob_ost_process_running || return 0; } ;;
-      user) systemctl --user is-active --quiet openstream 2>/dev/null || { ob_ost_process_running || return 0; } ;;
+      system) systemctl is-active --quiet openstream 2>/dev/null || { ob_openstream_process_running || return 0; } ;;
+      user) systemctl --user is-active --quiet openstream 2>/dev/null || { ob_openstream_process_running || return 0; } ;;
     esac
     ob_waited=$((ob_waited + 1))
     sleep 1
   done
   return 1
+}
+
+ob_systemd_quote_arg() {
+  case "$1" in
+    ''|*[!A-Za-z0-9_./:=@,+-]*)
+      escaped=$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g; s/%/%%/g; s/\$/$$/g')
+      printf '"%s"' "$escaped"
+      ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+
+ob_migrate_legacy_service_exec() {
+  new_bin=$1
+  [ -d /run/systemd/system ] || return 0
+  if [ "$(id -u 2>/dev/null || echo 1)" = 0 ]; then
+    unit=/etc/systemd/system/openstream.service
+    user_service=0
+  else
+    config_home=${XDG_CONFIG_HOME:-${HOME:-}/.config}
+    unit=$config_home/systemd/user/openstream.service
+    user_service=1
+  fi
+  [ -f "$unit" ] || return 0
+  grep -F 'Description=OpenStream TV' "$unit" >/dev/null 2>&1 || return 1
+  grep -F -- '--skip-update-check' "$unit" >/dev/null 2>&1 || return 1
+
+  quoted_new=$(ob_systemd_quote_arg "$new_bin")
+  unit_tmp="${unit}.ost-migrate.$$"
+  changed=0
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      ExecStart=*' --skip-update-check'*)
+        rest=${line#* --skip-update-check}
+        printf 'ExecStart=%s --skip-update-check%s\n' "$quoted_new" "$rest"
+        changed=1
+        ;;
+      *) printf '%s\n' "$line" ;;
+    esac
+  done <"$unit" >"$unit_tmp" || { rm -f "$unit_tmp"; return 1; }
+  [ "$changed" = 1 ] || { rm -f "$unit_tmp"; return 1; }
+  mv "$unit_tmp" "$unit" || return 1
+  if [ "$user_service" = 1 ]; then systemctl --user daemon-reload
+  else systemctl daemon-reload
+  fi
 }
 
 ob_summary() {
@@ -898,6 +946,14 @@ if [ "$openwrt" = true ]; then
     if opkg status "$other_package" 2>/dev/null | grep -q '^Status: .* installed$'; then opkg remove "$other_package"; fi
     opkg install "$tmp/$asset"
   fi
+  openwrt_bin=${OPENSTREAM_TEST_OPENWRT_BIN:-}
+  if [ -z "$openwrt_bin" ]; then
+    if [ -x /usr/bin/ost ]; then openwrt_bin=/usr/bin/ost
+    elif [ -x /usr/bin/openstream ]; then openwrt_bin=/usr/bin/openstream
+    else openwrt_bin=/usr/bin/ost
+    fi
+  fi
+  openwrt_process=${openwrt_bin##*/}
   say "Enabling the service at boot"
   "$init_script" enable
 
@@ -909,13 +965,13 @@ if [ "$openwrt" = true ]; then
       ui_fail "Could not stop the existing service; account setup was not started"
       exit 1
     fi
-    ob_choose_provider /usr/bin/ost
+    ob_choose_provider "$openwrt_bin"
     ob_choose_host
     ob_choose_tunnel
-    if ob_credentials /usr/bin/ost; then ob_creds_done=1; else
+    if ob_credentials "$openwrt_bin"; then ob_creds_done=1; else
       ui_fail "The install is complete but the account is not connected"
     fi
-    ob_admin_password /usr/bin/ost
+    ob_admin_password "$openwrt_bin"
     ob_write_uci
   fi
 
@@ -979,7 +1035,7 @@ if [ "$openwrt" = true ]; then
   if [ "${ob_creds_done:-0}" = 1 ]; then
     ob_service=1
     [ "$running" = true ] || ob_service=0
-    ob_summary /usr/bin/ost
+    ob_summary "$openwrt_bin"
     [ "$stop_failed" != true ] || exit 1
     [ "$start_service" = 0 ] || [ "$disabled" = true ] || [ "$running" = true ] || exit 1
     exit 0
@@ -1015,13 +1071,13 @@ if [ "$openwrt" = true ]; then
   fi
   if [ "$variant" = slim ]; then
     echo "  $step. Sign in to JioTV from the terminal (you enter the OTP yourself). Stop the service first so it cannot overwrite the login:"
-    echo "       $init_script stop; while pidof ost >/dev/null; do sleep 1; done; ost login otp; $init_script start"
+    echo "       $init_script stop; while pidof $openwrt_process >/dev/null; do sleep 1; done; $openwrt_bin login otp; $init_script start"
   else
-    echo "  $step. Set the admin password: ost admin password"
+    echo "  $step. Set the admin password: $openwrt_bin admin password"
     step=$((step + 1))
     echo "  $step. Open the browser UI, log in with that password, then sign in to JioTV (you enter the OTP yourself)."
     echo "  To sign in to JioTV from the terminal instead, stop the service first so it cannot overwrite the login:"
-    echo "    $init_script stop; while pidof ost >/dev/null; do sleep 1; done; ost login otp; $init_script start"
+    echo "    $init_script stop; while pidof $openwrt_process >/dev/null; do sleep 1; done; $openwrt_bin login otp; $init_script start"
   fi
   echo
   echo "Service control: $init_script start|stop|restart    Logs: logread -e openstream"
@@ -1090,7 +1146,13 @@ else install_dir=${HOME:-}/.local/bin
 fi
 [ -n "$install_dir" ] || { echo "HOME is unset; set OPENSTREAM_INSTALL_DIR" >&2; exit 1; }
 was_installed=false
+legacy_bin="$install_dir/openstream"
+legacy_installed=false
 [ -x "$install_dir/ost" ] && was_installed=true
+if [ -x "$legacy_bin" ]; then
+  was_installed=true
+  legacy_installed=true
+fi
 ob_existing_update=false
 if [ "$was_installed" = true ] && onboard_enabled; then
   ui_step "OpenStream TV is already installed here"
@@ -1107,6 +1169,19 @@ fi
 mkdir -p "$install_dir"
 if command -v install >/dev/null 2>&1; then install -m 0755 "$tmp/$asset" "$install_dir/ost"
 else cp "$tmp/$asset" "$install_dir/ost" && chmod 0755 "$install_dir/ost"
+fi
+if [ "$legacy_installed" = true ]; then
+  if [ "$termux" = true ]; then
+    # Existing Termux startup lines may still point at the old filename. Keep
+    # that path on upgraded installs until ost autostart rewrites the marker.
+    if command -v install >/dev/null 2>&1; then install -m 0755 "$tmp/$asset" "$legacy_bin"
+    else cp "$tmp/$asset" "$legacy_bin" && chmod 0755 "$legacy_bin"
+    fi
+  elif ob_migrate_legacy_service_exec "$install_dir/ost"; then
+    rm -f "$legacy_bin"
+  else
+    ui_warn "Could not migrate the existing OpenStream TV service path; kept $legacy_bin so the service still starts"
+  fi
 fi
 echo "Installed ost ($variant, $target) to $install_dir/ost"
 case ":${PATH:-}:" in *":$install_dir:"*) ;; *) echo "Add $install_dir to PATH to run ost directly." ;; esac

@@ -236,6 +236,23 @@ if grep -F "Installation complete" "$tmp/out4" >/dev/null; then
 fi
 echo "declining an update leaves the installed binary untouched OK"
 
+# ---- an openstream-era install is recognized and migrated without redoing login
+mkdir -p "$tmp/install-legacy"
+printf 'legacy executable\n' >"$tmp/install-legacy/openstream"
+chmod +x "$tmp/install-legacy/openstream"
+start_flow "$tmp/install-legacy" "$tmp/out5"
+wait_for "Which build?" "$tmp/out5"; enter
+wait_for "Update it in place and keep the current account?" "$tmp/out5"; enter
+wait_for "existing account settings were kept" "$tmp/out5"
+finish_flow
+test -x "$tmp/install-legacy/ost"
+test ! -e "$tmp/install-legacy/openstream"
+if grep -F "Which account are you setting up?" "$tmp/out5" >/dev/null; then
+  echo "a migrated openstream install repeated account setup" >&2
+  exit 1
+fi
+echo "legacy openstream install migrates to ost without redoing account setup OK"
+
 # ---- no terminal: the plain install must not prompt ----------------------
 OPENSTREAM_INSTALL_DIR="$tmp/install-plain" PATH="$tmp/bin:$PATH" \
   OPENSTREAM_ONBOARD=always sh "$root/scripts/install.sh" >"$tmp/plain" 2>&1

@@ -372,10 +372,17 @@ if grep -E "Browser UI|browser UI|admin password" "$tmp/openwrt-slim-output" | g
   echo "slim install printed browser steps" >&2
   exit 1
 fi
-grep -F "stop; while pidof ost >/dev/null; do sleep 1; done; ost login otp" "$tmp/openwrt-slim-output" >/dev/null
+grep -F "stop; while pidof ost >/dev/null; do sleep 1; done; /usr/bin/ost login otp" "$tmp/openwrt-slim-output" >/dev/null
 # The admin password comes before signing in, and terminal login stops the service.
 grep -n "Set the admin password" "$tmp/openwrt-apk-output" | grep -F "1." >/dev/null
-grep -F "stop; while pidof ost >/dev/null; do sleep 1; done; ost login otp" "$tmp/openwrt-apk-output" >/dev/null
+grep -F "stop; while pidof ost >/dev/null; do sleep 1; done; /usr/bin/ost login otp" "$tmp/openwrt-apk-output" >/dev/null
+OPENSTREAM_PLATFORM=openwrt OPENSTREAM_TEST_OPENWRT_BIN=/usr/bin/openstream OPENSTREAM_TEST_PORT_OWNER=openstream OPENSTREAM_TEST_OS=Linux OPENSTREAM_TEST_MACHINE=aarch64 OPENSTREAM_TEST_PACKAGE_ARCH=aarch64 \
+  OPENSTREAM_TEST_ASSET_NAME=$openwrt_aarch64_apk OPENSTREAM_TEST_LOG="$tmp/openwrt-pinned-downloads" \
+  OPENSTREAM_TEST_PACKAGE_LOG="$tmp/openwrt-pinned-package" OPENSTREAM_INIT_SCRIPT="$tmp/bin/openstream-init" \
+  PATH="$tmp/bin:$PATH" sh "$root/scripts/install.sh" >"$tmp/openwrt-pinned-output"
+grep -F "while pidof openstream >/dev/null; do sleep 1; done; /usr/bin/openstream login otp" "$tmp/openwrt-pinned-output" >/dev/null
+grep -F "Set the admin password: /usr/bin/openstream admin password" "$tmp/openwrt-pinned-output" >/dev/null
+grep -F "is installed and running" "$tmp/openwrt-pinned-output" >/dev/null
 if OPENSTREAM_PLATFORM=openwrt OPENSTREAM_TEST_PACKAGE_ARCH=aarch64_cortex-a72 \
   OPENSTREAM_TEST_PACKAGE_LOG="$tmp/openwrt-unsupported-package" PATH="$tmp/bin:$PATH" \
   sh "$root/scripts/install.sh" >/dev/null 2>&1; then

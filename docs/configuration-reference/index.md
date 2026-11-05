@@ -35,7 +35,7 @@ Save, start with `ost --config ./openstream.toml serve`, then open `http://local
 
 | TOML key | Environment variable(s) | Default | Purpose and accepted values |
 | --- | --- | --- | --- |
-| `epg` | `JIOTV_EPG`, `OPENSTREAM_EPG` | `false` | Boolean. Generate/refresh the XMLTV guide. |
+| `epg` | `JIOTV_EPG`, `OPENSTREAM_EPG` | `false` | Boolean. Generate/refresh the XMLTV guide. A persisted `ost epg on`/`ost epg off` override takes precedence until changed again. |
 | `debug` | `JIOTV_DEBUG`, `OPENSTREAM_DEBUG` | `false` | Boolean. Show more diagnostic output. |
 | `disable_ts_handler` | `JIOTV_DISABLE_TS_HANDLER`, `OPENSTREAM_DISABLE_TS_HANDLER` | `false` | Boolean. Avoid local TS/AAC segment proxying when supported; change only when diagnosing HLS. |
 | `disable_logout` | `JIOTV_DISABLE_LOGOUT`, `OPENSTREAM_DISABLE_LOGOUT` | `false` | Boolean. Hide/disable JioTV logout when true. |
@@ -53,7 +53,7 @@ Save, start with `ost --config ./openstream.toml serve`, then open `http://local
 | `default_categories` | `JIOTV_DEFAULT_CATEGORIES`, `OPENSTREAM_DEFAULT_CATEGORIES` | `[]` | Integer category IDs; environment form is comma-separated. |
 | `default_languages` | `JIOTV_DEFAULT_LANGUAGES`, `OPENSTREAM_DEFAULT_LANGUAGES` | `[]` | Integer language IDs; environment form is comma-separated. |
 
-Boolean environment values must be `true` or `false` in lowercase (as Rust's parser expects). Use either the `JIOTV_*` environment variable or its documented `OPENSTREAM_*` alias where listed; the `OPENSTREAM_*` value takes precedence when both are set. Example: `OPENSTREAM_EPG=true ost serve`. Integer-list settings use `JIOTV_DEFAULT_LANGUAGES=1,6`.
+Boolean environment values must be `true` or `false` in lowercase (as Rust's parser expects). Use either the `JIOTV_*` environment variable or its documented `OPENSTREAM_*` alias where listed; the `OPENSTREAM_*` value takes precedence when both are set. Example: `OPENSTREAM_EPG=true ost serve`. If `ost epg off` has stored an override, that environment variable alone does not re-enable EPG; run `ost epg on` to replace the persisted override. Integer-list settings use `JIOTV_DEFAULT_LANGUAGES=1,6`.
 
 The TOML key is `tv_plus`; `JIOTV_TVPLUS` and `OPENSTREAM_TVPLUS` are accepted, with `OPENSTREAM_TVPLUS` taking precedence. The previous TOML key `extras` and legacy `JIOTV_EXTRAS` variable are also accepted. Both `JIOTV_*` and `OPENSTREAM_*` aliases are accepted for tunnel and update tokens.
 

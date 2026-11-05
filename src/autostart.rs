@@ -177,12 +177,17 @@ fn termux_start_line(exe: &Path, env: &Path, serve_args: &str) -> String {
 }
 
 fn termux_rc_contents(existing: &str, start_line: &str) -> (String, bool) {
-    let already_set_up =
-        existing.contains(TERMUX_MARKER) || existing.contains(LEGACY_TERMUX_MARKER);
+    let already_set_up = existing.contains(TERMUX_MARKER)
+        || existing.contains(LEGACY_OPENSTREAM_TERMUX_MARKER)
+        || existing.contains(LEGACY_TERMUX_MARKER);
     let mut contents = if already_set_up {
         existing
             .lines()
-            .filter(|line| !line.contains(TERMUX_MARKER) && !line.contains(LEGACY_TERMUX_MARKER))
+            .filter(|line| {
+                !line.contains(TERMUX_MARKER)
+                    && !line.contains(LEGACY_OPENSTREAM_TERMUX_MARKER)
+                    && !line.contains(LEGACY_TERMUX_MARKER)
+            })
             .map(|line| format!("{line}\n"))
             .collect()
     } else {
@@ -290,6 +295,7 @@ pub fn remove() -> anyhow::Result<()> {
 }
 
 const TERMUX_MARKER: &str = "# ost autostart";
+const LEGACY_OPENSTREAM_TERMUX_MARKER: &str = "# openstream autostart";
 const LEGACY_TERMUX_MARKER: &str = "# jiotv autostart";
 
 fn termux_rc() -> anyhow::Result<PathBuf> {
@@ -330,7 +336,11 @@ fn remove_termux() -> anyhow::Result<()> {
     let existing = std::fs::read_to_string(&rc).unwrap_or_default();
     let kept: String = existing
         .lines()
-        .filter(|l| !l.contains(TERMUX_MARKER) && !l.contains(LEGACY_TERMUX_MARKER))
+        .filter(|l| {
+            !l.contains(TERMUX_MARKER)
+                && !l.contains(LEGACY_OPENSTREAM_TERMUX_MARKER)
+                && !l.contains(LEGACY_TERMUX_MARKER)
+        })
         .map(|l| format!("{l}\n"))
         .collect();
     std::fs::write(&rc, kept)?;
@@ -420,6 +430,15 @@ mod tests {
     #[test]
     fn termux_autostart_replaces_stale_arguments() {
         let old = "alias ll='ls -l'\n/home/jiotv background start --args '--host 0.0.0.0' # jiotv autostart\n";
+        let new = ". '/home/.config/openstream/openstream.env'; /home/ost background start --args '--host 0.0.0.0 --tunnel' # ost autostart\n";
+        let (contents, was_set_up) = termux_rc_contents(old, new);
+        assert!(was_set_up);
+        assert_eq!(contents, "alias ll='ls -l'\n".to_string() + new);
+    }
+
+    #[test]
+    fn termux_autostart_replaces_openstream_marker() {
+        let old = "alias ll='ls -l'\n/home/openstream background start --args '--host 0.0.0.0' # openstream autostart\n";
         let new = ". '/home/.config/openstream/openstream.env'; /home/ost background start --args '--host 0.0.0.0 --tunnel' # ost autostart\n";
         let (contents, was_set_up) = termux_rc_contents(old, new);
         assert!(was_set_up);

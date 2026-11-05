@@ -390,7 +390,8 @@ try {
 
     New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
     $destination = Join-Path $InstallDir 'ost.exe'
-    $alreadyInstalled = Test-Path -LiteralPath $destination
+    $legacyDestination = Join-Path $InstallDir 'openstream.exe'
+    $alreadyInstalled = (Test-Path -LiteralPath $destination) -or (Test-Path -LiteralPath $legacyDestination)
     $keepExistingAccount = $false
     if ($Interactive -and $alreadyInstalled) {
         Write-Step 'OpenStream TV is already installed here'
@@ -402,6 +403,9 @@ try {
         $keepExistingAccount = $true
     }
     Copy-Item -LiteralPath $binary -Destination $destination -Force
+    if (Test-Path -LiteralPath $legacyDestination) {
+        Remove-Item -LiteralPath $legacyDestination -Force
+    }
     $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
     $entries = @($userPath -split ';' | Where-Object { $_ })
     if (-not ($entries | Where-Object { $_.TrimEnd('\') -ieq $InstallDir.TrimEnd('\') })) {
