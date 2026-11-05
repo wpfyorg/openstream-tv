@@ -644,9 +644,7 @@ mod tests {
         let segment = std::fs::read(&segment_path).unwrap();
 
         let upstream = MockServer::start().await;
-        let manifest = format!(
-            "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:2\n#EXTINF:2.0,\nfixture.ts\n#EXT-X-ENDLIST\n"
-        );
+        let manifest = "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:2\n#EXTINF:2.0,\nfixture.ts\n#EXT-X-ENDLIST\n".to_string();
         Mock::given(method("GET"))
             .and(path("/fixture.m3u8"))
             .respond_with(
