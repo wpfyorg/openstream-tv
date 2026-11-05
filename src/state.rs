@@ -57,6 +57,8 @@ pub struct AppState {
     /// The ports `serve` listens on, recorded once the listeners are chosen so
     /// the UI can offer the plain-HTTP playlist origin from an HTTPS page.
     pub listen: std::sync::OnceLock<ListenPorts>,
+    /// HTTPS origin learned from the cloudflared process or saved guided setup.
+    pub tunnel_origin: std::sync::OnceLock<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -262,6 +264,7 @@ mod tests {
             public_ip: Arc::new(crate::unlock::PublicIp::new(reqwest::Client::new())),
             unlock_limiter: Arc::new(crate::unlock::AttemptLimiter::default()),
             listen: Default::default(),
+            tunnel_origin: Default::default(),
         })
     }
 

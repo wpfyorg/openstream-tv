@@ -14,6 +14,7 @@ mod fastway;
 mod fastway_state;
 mod keyed_locks;
 mod login;
+mod public_origin;
 mod secureurl;
 mod server;
 mod state;
@@ -23,6 +24,7 @@ mod television;
 mod tls;
 mod token_refresh;
 mod tunnel;
+mod tunnel_setup;
 mod unlock;
 mod update;
 mod vod;
@@ -95,6 +97,30 @@ fn main() -> anyhow::Result<()> {
             autostart::install(&serve_args, args.config.as_deref(), &path_prefix)
         }
         cli::Command::AutostartRemove => autostart::remove(),
+        cli::Command::TunnelSetup {
+            domain,
+            subdomain,
+            port,
+        } => {
+            if !access.has_password() && cfg!(feature = "full") {
+                anyhow::bail!(
+                    "set an admin password with 'ost admin password' before publishing OpenStream TV"
+                );
+            }
+            let api_token = std::env::var("CLOUDFLARE_API_TOKEN").map_err(|_| {
+                anyhow::anyhow!(
+                    "set CLOUDFLARE_API_TOKEN with a scoped Cloudflare API token before setup"
+                )
+            })?;
+            let port: u16 = port.parse()?;
+            runtime.block_on(tunnel_setup::setup(
+                &api_token,
+                &domain,
+                &subdomain,
+                port,
+                &path_prefix,
+            ))
+        }
         cli::Command::Help => unreachable!(),
     }
 }
@@ -585,7 +611,6 @@ async fn serve(
             .flatten();
         let _ = state.listen.set(state::ListenPorts { http, tls });
     }
-    let service = server::GatedService::new(state);
 
     let tls = if args.tls {
         if args.tls_port == args.port {
@@ -621,14 +646,65 @@ async fn serve(
     if args.tunnel {
         let data_dir = std::path::PathBuf::from(&path_prefix);
         let cloudflared = tunnel::ensure_cloudflared(&data_dir).await?;
-        if let Some(token) = &args.tunnel_token {
+        if args.tunnel_quick && args.tunnel_saved {
+            anyhow::bail!("--tunnel-quick and --tunnel-saved are mutually exclusive");
+        }
+        let load_saved_tunnel = should_load_saved_tunnel(
+            args.tunnel_quick,
+            args.tunnel_saved,
+            args.tunnel_token.is_some(),
+        );
+        let saved = if load_saved_tunnel {
+            tunnel_setup::load_token(&path_prefix)?
+        } else {
+            None
+        };
+        let using_saved_token = !args.tunnel_quick
+            && (args.tunnel_saved || args.tunnel_token.is_none())
+            && saved.is_some();
+        let token = if args.tunnel_quick {
+            None
+        } else if args.tunnel_saved {
+            Some(saved.ok_or_else(|| {
+                anyhow::anyhow!("no API-managed tunnel saved; run 'ost tunnel setup'")
+            })?)
+        } else {
+            args.tunnel_token.clone().or(saved)
+        };
+        if let Some(token) = &token {
+            if using_saved_token {
+                validate_saved_tunnel_listener(listener.local_addr()?)?;
+                let saved_port = tunnel_setup::load_port(&path_prefix)?.ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "saved tunnel has no configured port; run 'ost tunnel setup' again"
+                    )
+                })?;
+                let listener_port: u16 = args.port.parse()?;
+                anyhow::ensure!(
+                    listener_port != 0,
+                    "tunnels require a fixed nonzero listener port"
+                );
+                anyhow::ensure!(
+                    listener_port == saved_port,
+                    "saved tunnel targets port {saved_port}, but server is configured for port {listener_port}"
+                );
+            }
             let t = tunnel::Tunnel::spawn_named(&cloudflared, token).await?;
             tunnel_handle = Some(t);
+            if using_saved_token {
+                if let Some(origin) = tunnel_setup::load_origin(&path_prefix)? {
+                    let _ = state.tunnel_origin.set(origin.clone());
+                    println!("Public tunnel origin: {origin}");
+                }
+            }
             println!("Named tunnel running (see the Cloudflare dashboard for its hostname).");
         } else {
-            let port: u16 = args.port.parse().unwrap_or(5001);
+            let port: u16 = args.port.parse()?;
+            anyhow::ensure!(port != 0, "tunnels require a fixed nonzero listener port");
             let (t, url) = tunnel::Tunnel::spawn_quick(&cloudflared, port).await?;
             tunnel_handle = Some(t);
+            let origin = public_origin::validate(&url)?;
+            let _ = state.tunnel_origin.set(origin);
             let key_playlist = access
                 .playlist_path()
                 .unwrap_or_else(|_| "/playlist.m3u".to_string());
@@ -636,6 +712,7 @@ async fn serve(
         }
     }
 
+    let service = server::GatedService::new(state);
     tracing::info!("listening");
     let (stop_tx, stop_rx) = tokio::sync::watch::channel(false);
     let signal_tx = stop_tx.clone();
@@ -667,6 +744,24 @@ async fn serve(
         t.kill().await;
     }
     serve_result.map_err(Into::into)
+}
+
+fn should_load_saved_tunnel(tunnel_quick: bool, tunnel_saved: bool, explicit_token: bool) -> bool {
+    !tunnel_quick && (tunnel_saved || !explicit_token)
+}
+
+fn validate_saved_tunnel_listener(address: std::net::SocketAddr) -> anyhow::Result<()> {
+    let supported = matches!(
+        address,
+        std::net::SocketAddr::V4(address)
+            if address.ip() == &std::net::Ipv4Addr::LOCALHOST
+                || address.ip().is_unspecified()
+    );
+    anyhow::ensure!(
+        supported,
+        "saved tunnels use IPv4 ingress; bind with --host 127.0.0.1 or --host 0.0.0.0"
+    );
+    Ok(())
 }
 
 fn build_app_state(
@@ -729,6 +824,7 @@ fn build_app_state(
         public_ip: Arc::new(unlock::PublicIp::new(http)),
         unlock_limiter: Arc::new(unlock::AttemptLimiter::default()),
         listen: Default::default(),
+        tunnel_origin: Default::default(),
     }))
 }
 
@@ -1031,7 +1127,7 @@ fn print_help() {
         "ost - OpenStream TV multi-provider streaming server\n\n\
          USAGE:\n  ost [--config PATH] [--skip-update-check] <command>\n\n\
          COMMANDS:\n  \
-         serve [--host H] [--port P] [--public] [--tls [--tls-port P] [--tls-cert F --tls-key F]] [--tunnel] [--tunnel-token T]\n  \
+         serve [--host H] [--port P] [--public] [--tls [--tls-port P] [--tls-cert F --tls-key F]] [--tunnel] [--tunnel-quick|--tunnel-saved] [--tunnel-token T]\n  \
          \x20 --tls            also serve HTTPS (default port 5443) next to plain HTTP; browsers need\n  \
          \x20                  HTTPS for DRM/encrypted-HLS playback, IPTV apps can keep using HTTP\n  \
          \x20 --tls-port P     HTTPS port (default 5443)\n  \
@@ -1045,7 +1141,8 @@ fn print_help() {
          key show | key rotate\n  \
          background start [--args \"...\"] | background stop\n  \
          update [--version vX.Y.Z]      (needs OPENSTREAM_UPDATE_TOKEN for a private repo)\n  \
-         autostart [--args \"...\"] | autostart remove   (systemd service; Termux: shell rc)\n"
+         autostart [--args \"...\"] | autostart remove   (systemd service; Termux: shell rc)\n  \
+         tunnel setup --domain example.com --subdomain tv [--port 5001]\n"
     );
 }
 
@@ -1239,6 +1336,30 @@ mod tests {
         }
         for local in ["localhost", "127.0.0.1", "192.168.1.10"] {
             assert!(!is_wildcard_host(local));
+        }
+    }
+
+    #[test]
+    fn explicit_tunnel_token_skips_saved_state_unless_requested() {
+        assert!(!should_load_saved_tunnel(false, false, true));
+        assert!(should_load_saved_tunnel(false, true, true));
+        assert!(should_load_saved_tunnel(false, false, false));
+        assert!(!should_load_saved_tunnel(true, false, false));
+    }
+
+    #[test]
+    fn saved_tunnel_requires_exact_supported_ipv4_bind_address() {
+        for address in ["127.0.0.1:5001", "0.0.0.0:5001"] {
+            validate_saved_tunnel_listener(address.parse().unwrap()).unwrap();
+        }
+        for address in [
+            "127.0.0.2:5001",
+            "192.168.1.10:5001",
+            "[::]:5001",
+            "[::1]:5001",
+        ] {
+            let error = validate_saved_tunnel_listener(address.parse().unwrap()).unwrap_err();
+            assert!(error.to_string().contains("--host 127.0.0.1"));
         }
     }
 }

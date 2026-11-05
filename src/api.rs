@@ -173,7 +173,7 @@ pub async fn account_password(
             return err(
                 StatusCode::TOO_MANY_REQUESTS,
                 "too many wrong passwords, try again later",
-            )
+            );
         }
         Err(_) => return err(StatusCode::UNAUTHORIZED, "the current password is wrong"),
     }
@@ -193,7 +193,7 @@ pub async fn status(State(state): State<SharedState>) -> Response {
                 return err(
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "cannot read the access key",
-                )
+                );
             }
         }
     };
@@ -218,6 +218,11 @@ pub async fn status(State(state): State<SharedState>) -> Response {
         "epgPath": epg_path,
         "httpPort": state.listen.get().map(|l| l.http),
         "tlsPort": state.listen.get().and_then(|l| l.tls),
+        "publicOrigin": if state.config.public_origin.is_empty() {
+            state.tunnel_origin.get().map(String::as_str)
+        } else {
+            Some(state.config.public_origin.as_str())
+        },
         "epg": state.config.epg,
         "drm": state.config.drm,
         "logoutDisabled": state.config.disable_logout,
@@ -321,13 +326,13 @@ pub async fn jiotv_verify_otp(
     {
         Ok(Some(c)) => c,
         Ok(None) => {
-            return Json(json!({"status": "failed", "message": "Invalid OTP"})).into_response()
+            return Json(json!({"status": "failed", "message": "Invalid OTP"})).into_response();
         }
         Err(e) => {
             return err(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!("Could not verify the OTP: {e}"),
-            )
+            );
         }
     };
     if crate::login::save(&state.store, &creds, crate::login::TOUCH_ALL).is_err() {
@@ -751,6 +756,7 @@ mod tests {
             public_ip: Arc::new(crate::unlock::PublicIp::new(reqwest::Client::new())),
             unlock_limiter: Arc::new(crate::unlock::AttemptLimiter::default()),
             listen: Default::default(),
+            tunnel_origin: Default::default(),
         })
     }
 

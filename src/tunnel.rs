@@ -121,6 +121,7 @@ impl Tunnel {
         local_port: u16,
     ) -> anyhow::Result<(Tunnel, String)> {
         let mut child = Command::new(cloudflared)
+            .kill_on_drop(true)
             .args([
                 "tunnel",
                 "--no-autoupdate",
@@ -132,28 +133,57 @@ impl Tunnel {
             .spawn()?;
 
         let stderr = child.stderr.take().expect("piped stderr");
-        let url = wait_for_url(stderr).await?;
-        Ok((Tunnel { child }, url))
+        match wait_for_url(stderr).await {
+            Ok(url) => Ok((Tunnel { child }, url)),
+            Err(error) => {
+                stop_child(&mut child).await;
+                Err(error)
+            }
+        }
     }
 
     /// Runs a named tunnel using a token (`--tunnel-token` / `OPENSTREAM_TUNNEL_TOKEN`).
     pub async fn spawn_named(cloudflared: &Path, token: &str) -> anyhow::Result<Tunnel> {
-        let child = Command::new(cloudflared)
-            .args(["tunnel", "run", "--token", token])
+        let mut child = Command::new(cloudflared)
+            .kill_on_drop(true)
+            .args(["tunnel", "run"])
+            // Keep connector credentials out of the child command line and
+            // process listings. cloudflared reads TUNNEL_TOKEN natively.
+            .env("TUNNEL_TOKEN", token)
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()?;
+        // Catch invalid tokens and immediate connector failures before the
+        // caller reports the tunnel as running. Never surface child output:
+        // it may contain sensitive connector details.
+        match tokio::time::timeout(tokio::time::Duration::from_millis(300), child.wait()).await {
+            Ok(Ok(status)) => anyhow::bail!("cloudflared exited during startup ({status})"),
+            Ok(Err(_)) => anyhow::bail!("could not check cloudflared startup status"),
+            Err(_) => {}
+        }
         Ok(Tunnel { child })
     }
 
     pub async fn kill(mut self) {
-        let _ = self.child.kill().await;
+        stop_child(&mut self.child).await;
     }
 }
 
+async fn stop_child(child: &mut Child) {
+    let _ = child.kill().await;
+    let _ = child.wait().await;
+}
+
 async fn wait_for_url(stderr: tokio::process::ChildStderr) -> anyhow::Result<String> {
+    wait_for_url_timeout(stderr, tokio::time::Duration::from_secs(30)).await
+}
+
+async fn wait_for_url_timeout(
+    stderr: tokio::process::ChildStderr,
+    timeout: tokio::time::Duration,
+) -> anyhow::Result<String> {
     let mut lines = BufReader::new(stderr).lines();
-    let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(30);
+    let deadline = tokio::time::Instant::now() + timeout;
     loop {
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
         if remaining.is_zero() {
@@ -174,8 +204,12 @@ fn extract_trycloudflare_url(line: &str) -> Option<String> {
     let rest = &line[idx..];
     let end = rest.find(char::is_whitespace).unwrap_or(rest.len());
     let candidate = &rest[..end];
-    if candidate.contains("trycloudflare.com") {
-        Some(candidate.trim_end_matches(['.', ',', ')']).to_string())
+    let candidate = candidate.trim_end_matches(['.', ',', ')']);
+    let origin = crate::public_origin::validate(candidate).ok()?;
+    let parsed = url::Url::parse(&origin).ok()?;
+    let host = parsed.host_str()?;
+    if host.ends_with(".trycloudflare.com") {
+        Some(origin)
     } else {
         None
     }
@@ -184,6 +218,83 @@ fn extract_trycloudflare_url(line: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    fn stub(contents: &str) -> (tempfile::TempDir, PathBuf) {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("cloudflared-stub");
+        std::fs::write(&path, format!("#!/bin/sh\n{contents}\n")).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        (dir, path)
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn quick_start_failure_kills_and_reaps_child() {
+        let (_dir, path) = stub("sleep 30");
+        let mut child = Command::new(&path)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let stderr = child.stderr.take().unwrap();
+        let error = wait_for_url_timeout(stderr, tokio::time::Duration::from_millis(30))
+            .await
+            .unwrap_err();
+        stop_child(&mut child).await;
+        assert!(error.to_string().contains("elapsed") || error.to_string().contains("exited"));
+        assert!(child.try_wait().unwrap().is_some());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn named_start_detects_early_exit_without_exposing_output() {
+        let error = match Tunnel::spawn_named(Path::new("/usr/bin/false"), "test-secret").await {
+            Ok(_) => panic!("expected the stub to exit during startup"),
+            Err(error) => error,
+        };
+        assert!(error.to_string().contains("startup"));
+        assert!(!error.to_string().contains("secret"));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn dropping_named_tunnel_stops_connector() {
+        let (_dir, path) = stub("exec sleep 30");
+        let tunnel = Tunnel::spawn_named(&path, "test-token").await.unwrap();
+        let pid = tunnel.child.id().unwrap();
+        drop(tunnel);
+        for _ in 0..50 {
+            let alive = std::process::Command::new("kill")
+                .args(["-0", &pid.to_string()])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .unwrap()
+                .success();
+            if !alive {
+                return;
+            }
+            tokio::time::sleep(tokio::time::Duration::from_millis(20)).await;
+        }
+        panic!("dropped tunnel connector remained alive");
+    }
+
+    #[test]
+    fn rejects_unrelated_quick_tunnel_hosts() {
+        for value in [
+            "https://evil-trycloudflare.com",
+            "https://trycloudflare.com.evil.example",
+            "https://evil.example/?next=trycloudflare.com",
+            "https://user@valid.trycloudflare.com",
+        ] {
+            assert!(
+                extract_trycloudflare_url(value).is_none(),
+                "accepted {value}"
+            );
+        }
+    }
 
     #[test]
     fn extracts_url_from_a_log_line() {
