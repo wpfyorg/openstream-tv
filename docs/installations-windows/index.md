@@ -33,7 +33,7 @@ $env:OPENSTREAM_TUNNEL = 'none'
 
 `$env:OPENSTREAM_ONBOARD = 'never'` keeps the plain non-interactive install. Redirected output (CI, scheduled tasks) skips the flow automatically.
 
-The guided installer configures the selected account and admin password but does not keep the server running. After successful guided setup, start the server:
+The guided installer configures the selected account and admin password but does not keep the server running. After successful guided setup, reuse the exact `Start it with:` command printed by the installer. It includes the selected provider settings and, when you chose a temporary or named Cloudflare tunnel, the required `--tunnel` option. If you selected LAN-only access, the equivalent start command is:
 
 ```powershell
 openstream serve --host 0.0.0.0 --tls
