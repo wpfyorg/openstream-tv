@@ -57,6 +57,9 @@ public final class MainActivity extends Activity {
     private static final String LOCAL_ADB_HOST = "127.0.0.1";
     private static final int LOCAL_ADB_PORT = 5555;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private final Handler serverPollHandler = new Handler(Looper.getMainLooper());
+    private final Object serverPollLock = new Object();
+    private volatile boolean activityDestroyed;
     private volatile IAdbPairingService pairingService;
     private volatile ServiceConnection pairingConnection;
     private volatile boolean pairingBound;
@@ -710,7 +713,23 @@ public final class MainActivity extends Activity {
     private boolean isServiceRunning() { android.app.ActivityManager m = (android.app.ActivityManager)getSystemService(ACTIVITY_SERVICE); for (android.app.ActivityManager.RunningServiceInfo i:m.getRunningServices(Integer.MAX_VALUE)) if (ServerService.class.getName().equals(i.service.getClassName())) return true; return false; }
     private void showPlaylistUrl() { runOnUiThread(() -> playlist.setText(PlaylistDisplay.masked(playlistUrl))); }
     private void refreshUrl() { io.execute(() -> { try { String path = runKeyShow(); playlistUrl=PlaylistLink.loopbackUrl(path); boolean running=serverHealthy(); showPlaylistUrl(); say(running ? "Server is running on this device. Log in to load channels." : "Server is stopped. Start it to log in and stream."); } catch (Exception e) { android.util.Log.e("JioTVGo", "Cannot initialize local playlist", e); say("Could not read playlist key. Check the bundled server and imported config."); } }); }
-    private void pollServer(int attempt) { io.execute(() -> { boolean running=false; try { String path=runKeyShow(); playlistUrl=PlaylistLink.loopbackUrl(path); showPlaylistUrl(); running=serverHealthy(); } catch(Exception ignored) {} if(running) { say("Server is running. Log in to load channels."); return; } if(attempt<12) { new android.os.Handler(getMainLooper()).postDelayed(() -> pollServer(attempt+1),750); } else say("Server did not become ready. Check port 5001, config, and the APK ABI."); }); }
+    private void pollServer(int attempt) {
+        synchronized (serverPollLock) {
+            if (activityDestroyed || io.isShutdown()) return;
+            io.execute(() -> {
+                if (activityDestroyed) return;
+                boolean running=false;
+                try { String path=runKeyShow(); playlistUrl=PlaylistLink.loopbackUrl(path); showPlaylistUrl(); running=serverHealthy(); } catch(Exception ignored) {}
+                if (activityDestroyed) return;
+                if(running) { say("Server is running. Log in to load channels."); return; }
+                if(attempt<12) {
+                    synchronized (serverPollLock) {
+                        if (!activityDestroyed) serverPollHandler.postDelayed(() -> pollServer(attempt+1),750);
+                    }
+                } else say("Server did not become ready. Check port 5001, config, and the APK ABI.");
+            });
+        }
+    }
     private boolean serverHealthy() throws Exception { HttpURLConnection c=(HttpURLConnection)new URL("http://127.0.0.1:5001"+keyedPrefix+"api/status").openConnection(); c.setConnectTimeout(1200); c.setReadTimeout(1800); c.setRequestMethod("GET"); try { int code=c.getResponseCode(); if(code!=200) return false; ByteArrayOutputStream out=new ByteArrayOutputStream(); try(InputStream in=c.getInputStream()){ byte[] buf=new byte[1024]; int n; while((n=in.read(buf))!=-1) out.write(buf,0,n); } return new JSONObject(out.toString("UTF-8")).has("jiotv"); } catch (ConnectException e) { return false; } finally { c.disconnect(); } }
     private String runKeyShow() throws Exception { File binary=new File(getApplicationInfo().nativeLibraryDir,"libjiotv_exec.so"); java.util.List<String> command=new java.util.ArrayList<>(); command.add(binary.getAbsolutePath()); command.add("--skip-update-check"); File config=new File(getFilesDir(),"config.toml"); if(config.isFile()) { command.add("--config"); command.add(config.getAbsolutePath()); } command.add("key"); command.add("show"); ProcessBuilder b=new ProcessBuilder(command); b.directory(getFilesDir()); b.redirectErrorStream(true); b.environment().put("JIOTV_PATH_PREFIX",new File(getFilesDir(),"data").getAbsolutePath()); b.environment().put("HOME",getFilesDir().getAbsolutePath()); Process p=b.start(); ByteArrayOutputStream out=new ByteArrayOutputStream(); byte[] buf=new byte[256]; int n; while((n=p.getInputStream().read(buf))!=-1) out.write(buf,0,n); if(p.waitFor()!=0) throw new IOException("key command failed"); String result=out.toString("UTF-8").trim(); keyedPrefix=PlaylistLink.keyedPrefix(result); return result; }
 
@@ -972,6 +991,10 @@ public final class MainActivity extends Activity {
         runOnUiThread(() -> service.setText("Stop local server"));
     }
     @Override protected void onDestroy() {
+        synchronized (serverPollLock) {
+            activityDestroyed = true;
+            serverPollHandler.removeCallbacksAndMessages(null);
+        }
         cancelPairingProcess();
         cancelAdbSetup();
         Shizuku.removeRequestPermissionResultListener(shizukuPermissionListener);
