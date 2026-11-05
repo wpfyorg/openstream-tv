@@ -7,7 +7,7 @@ keywords: [Docker, container, GHCR, linux, arm64, persistent volume]
 
 # Install with Docker
 
-The published image supports Linux `amd64`, `arm64`, ARMv7 and 386. Docker selects the matching architecture. The default image is `full`; the `slim` tag omits the browser interface.
+The published image supports Linux `amd64`, `arm64`, ARMv7 and 386. Docker selects the matching architecture. The `latest` tag tracks the current full image and `slim` tracks the current slim image. For a fixed release, use a versioned tag such as `1.5.0` for full or `1.5.0-slim` for slim.
 
 Create and start a container with a persistent named volume:
 

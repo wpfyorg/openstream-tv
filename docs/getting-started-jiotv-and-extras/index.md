@@ -1,23 +1,23 @@
 ---
 title: JioTV, JioTV+ and Fastway: Which Account Do You Need?
-description: Understand the three accounts, which network each one needs, and what content they unlock.
+description: Understand the three provider accounts, their prerequisites, and which OpenStream TV features use them.
 category: Getting Started
 keywords: [JioTV, JioTV+, Fastway, TV+, provider, subscription, channels, on demand]
 ---
 
 # JioTV, JioTV+ and Fastway: Which Account Do You Need?
 
-The server can hold three accounts. Your network decides which one you have:
+OpenStream TV can hold three provider accounts. Provider eligibility and subscriptions decide what each account can use:
 
 | Account | Needs | Gives you |
 | --- | --- | --- |
-| **JioTV** | Any network | Live television and programme information |
-| **JioTV+** | A JioFiber or AirFiber login (Jio network) | JioTV+ channels, movies and shows |
-| **Fastway** | A Fastway subscription, or an ACT connection | Live TV from Fastway |
+| **JioTV** | A JioTV account that can complete the mobile-number OTP flow | Live television and programme information |
+| **JioTV+** | An eligible JioFiber or AirFiber login | JioTV+ channels plus supported on-demand catalogues |
+| **Fastway** | Fastway credentials accepted by the provider | Fastway live TV only |
 
-- **JioTV** is the one to start with. It is the only account that works on any network, so it is enough for a new installation.
+- **JioTV** is the default provider flow. OpenStream TV does not add a fixed-line-network gate to this login, but the provider still decides account and content availability.
 - **JioTV+** is the optional second source. It is off until `tv_plus = true` (or `JIOTV_TVPLUS=true` / `OPENSTREAM_TVPLUS=true`) is set, and it needs its own sign-in with the JioFiber or AirFiber number, separate from JioTV.
-- **Fastway** is the optional third source. It is only offered when the installed release supports it; enable it with `fastway = true` (or `OPENSTREAM_FASTWAY=true`) and connect with its own Fastway username and password. See [Connect Fastway Live TV](../account-fastway/index.md).
+- **Fastway** is the optional third source. Enable it with `fastway = true` (or `OPENSTREAM_FASTWAY=true`) and connect with credentials accepted by the provider. ACT eligibility, where offered, depends on the provider and plan. Fastway supplies live TV, not the on-demand catalogue. See [Connect Fastway Live TV](../account-fastway/index.md).
 
 The installers list only the accounts the downloaded release supports and print this same hint above the account menu. The older name **Extras** may still appear in older guides and error messages. `openstream extras login` remains a command alias; `openstream tv+ login` is the current spelling.
 
@@ -28,9 +28,9 @@ The installers list only the accounts the downloaded release supports and print 
 3. If the server has JioTV+ enabled, the **JioTV+** card shows whether that account is connected. A connected account adds content and a small active icon in the header.
 4. Open **Channels**. Use **JioTV+ only** if you want to inspect the optional source. If JioTV+ is disconnected, its content might be unavailable.
 
-![Real Settings screen showing a disconnected JioTV account. JioTV+ is disabled in this example.](../images/settings-no-account.png)
+![Settings showing a disconnected JioTV card and a connected JioTV+ card](../images/settings-jiotv-plus.png)
 
-The screenshot is from a clean installation with no account connected. Your screen may include more account controls when JioTV+ or Fastway is enabled. The existence of a channel tile never guarantees permission to play it.
+The screenshot is from a disposable v1.5.0 server with JioTV+ connected and JioTV disconnected. Fastway is disabled in this capture. The existence of a channel tile never guarantees permission to play it.
 
 ## Understand labels and restrictions
 

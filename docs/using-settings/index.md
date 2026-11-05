@@ -9,9 +9,9 @@ keywords: [settings, admin password, playlist, EPG, access key, accounts]
 
 Open **Settings** from the top navigation. The page shows IPTV URLs, account connections and the admin password form.
 
-![Settings on a local server showing playlist URLs and disconnected account cards](../images/settings-no-account.png)
+![Settings showing local playlist and EPG fields, a disconnected JioTV card and connected JioTV+](../images/settings-jiotv-plus.png)
 
-This example has no provider account connected. Your account status and private URLs will differ.
+This disposable v1.5.0 example has JioTV+ connected and JioTV disconnected. The displayed URLs point only to the local test server; your account status and private URLs will differ.
 
 ## Accounts
 
@@ -21,7 +21,7 @@ You can [switch JioTV accounts](../account-switch-jiotv/index.md) by logging out
 
 ## Playlist and guide links
 
-Copy the **Playlist** URL into a compatible IPTV app. Copy **EPG** for the programme guide when EPG is enabled. **Make a new key** invalidates the old playlist URL, so update every IPTV app afterward. See [IPTV playlists and XMLTV](../using-iptv-playlists/index.md).
+Copy the **Playlist** URL into a compatible IPTV app. Copy **EPG** for the programme guide when EPG is enabled. On a protected server these URLs contain the `/k/<key>/` access-key path even if the input field is visually clipped. **Make a new key** invalidates old key-scoped playlist and stream links, so update every IPTV app afterward. When authentication is deliberately disabled, Settings uses unkeyed `/playlist.m3u` and `/epg.xml.gz` paths and key rotation is unavailable. See [IPTV playlists and XMLTV](../using-iptv-playlists/index.md).
 
 ## Change the admin password
 

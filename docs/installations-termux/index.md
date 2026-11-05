@@ -7,7 +7,7 @@ keywords: [Android, Termux, phone, tablet, aarch64, ARMv7]
 
 # Install on Android with Termux
 
-Install Termux from a trusted distribution source and open its terminal. The OpenStream TV installer detects Termux and chooses a supported Android target. Supported targets are aarch64, ARMv7, and x86_64.
+Install Termux from a trusted distribution source and open its terminal. The OpenStream TV installer detects Termux and chooses a supported Android target. It downloads the latest matching GitHub release by default; set `OPENSTREAM_VERSION` to a release such as `1.5.0` to pin it. Supported targets are aarch64, ARMv7, and x86_64.
 
 ```sh
 pkg update
@@ -17,10 +17,25 @@ curl -fsSL https://raw.githubusercontent.com/wpfyorg/openstream-tv/main/scripts/
 
 The binary is installed in Termux's `$PREFIX/bin`. The installer also runs the guided setup in the Termux terminal: build (`full` or `slim`), account (JioTV, JioTV+, or Fastway when the release supports it), the address other devices will use, an optional Cloudflare tunnel, and the account sign-in. Arrow keys select and Enter confirms.
 
-To start and sign in later instead, or if you skipped the questions with `OPENSTREAM_ONBOARD=never`:
+Guided setup writes the selected provider settings to `installer.env`, but those values are not automatically loaded back into the Termux shell that launched the installer. Before a later manual sign-in or `serve`, source the generated environment file (or reuse the exact `Start it with:` command printed by the installer, which already sources it). Configuring autostart only affects future startup and does not load those settings into the current shell. If you skipped the questions with `OPENSTREAM_ONBOARD=never`, set the matching provider flags in the same Termux shell before signing in and keep that shell open for `serve`:
 
 ```sh
+# JioTV: mobile-number OTP
+export OPENSTREAM_TVPLUS=false OPENSTREAM_FASTWAY=false
 openstream login otp
+
+# JioTV+: eligible JioFiber or AirFiber login
+export OPENSTREAM_TVPLUS=true OPENSTREAM_FASTWAY=false
+openstream tv+ login
+
+# Fastway: prompts for the provider username and password
+export OPENSTREAM_TVPLUS=false OPENSTREAM_FASTWAY=true
+openstream fastway login
+```
+
+Then protect and start the full web build. If guided setup ran, source `installer.env` first or reuse the installer's printed start command so the selected provider settings are present:
+
+```sh
 openstream admin password
 openstream serve --host 0.0.0.0 --tls
 ```
@@ -33,7 +48,7 @@ openstream autostart
 
 If you configure a named tunnel when setting up autostart manually, include its serve flags: `openstream autostart --args "--tls --tunnel"`. Autostart saves the current `OPENSTREAM_*` values privately and refreshes its startup command when you run it again with different flags.
 
-Remove that startup entry with `openstream autostart remove`. Update with `openstream update`. See [Update and uninstall](../maintenance-update-uninstall/index.md) and [data, backups and logs](../configuration-storage-logs/index.md).
+Remove that startup entry with `openstream autostart remove`. Update with `openstream update`. See [How to Update OpenStream TV](../maintenance-update/index.md), [Uninstall OpenStream TV Safely](../maintenance-update-uninstall/index.md), and [data, backups and logs](../configuration-storage-logs/index.md).
 
 ## Verify and troubleshoot
 

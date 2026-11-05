@@ -27,7 +27,9 @@ If OpenStream TV is running in your terminal, inspect the output there. For a sh
 OPENSTREAM_DEBUG=true OPENSTREAM_LOG_TO_STDOUT=true openstream serve
 ```
 
-Read the messages locally before sharing. Redact cookies, tokens, access-key URLs, OTPs, device identifiers and private server addresses. `OPENSTREAM_LOG_PATH` exists in the config schema but does **not** currently implement file output.
+Reproduce the problem once, then read the messages locally before sharing. Redact cookies, tokens, access-key URLs, OTPs, device identifiers and private server addresses. `OPENSTREAM_LOG_PATH` exists in the config schema but does **not** currently implement file output.
+
+For platform-specific log commands, a report template, and the complete sanitization checklist, see [Collect logs and report a problem safely](../troubleshooting-reporting-logs/index.md).
 
 For systemd or a container, see [background services](../maintenance-background-service/index.md) and [Docker maintenance](../maintenance-docker/index.md).
 

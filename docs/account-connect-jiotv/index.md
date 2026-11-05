@@ -9,7 +9,7 @@ keywords: [JioTV, account, OTP, mobile number, sign in]
 
 The JioTV account supplies channels from your account. It is separate from the admin password you use to open this server.
 
-![JioTV connection card in Settings before an account is connected](../images/settings-no-account.png)
+![Settings showing the JioTV mobile-number sign-in card while JioTV+ is connected separately](../images/settings-jiotv-plus.png)
 
 1. Sign in to the web interface with the server's admin password.
 2. Open **Settings** and find the **JioTV** card.

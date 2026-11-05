@@ -37,9 +37,9 @@ The setup page asks you to choose and repeat an **admin password** with at least
 
 **Important:** If you opened just `/` before setting a password, the page tells you to use the **Web setup** link from the terminal or run `openstream admin password` on the server.
 
-![Setup notice at the normal OpenStream TV web address before an admin password is configured](../images/first-launch-setup.png)
+![OpenStream TV first-launch form asking for an admin password and confirmation](../images/first-launch-setup.png)
 
-The screenshot shows the **setup notice**, not the password-entry form. Use the private **Web setup** link from the terminal to open that form.
+The screenshot shows the actual v1.5.0 password-entry form reached through the private **Web setup** link. The link is secret because it contains the access key.
 
 ## 4. Connect your JioTV account
 
@@ -59,7 +59,9 @@ See [Connect your account](../account-connect-jiotv/index.md) if you need help.
 3. Select a channel tile. The live player opens.
 4. Use the player controls for pause/resume, volume, quality or full screen as supported.
 
-![Channels page on a clean server before a TV account is connected](../images/channels-no-account.png)
+![OpenStream TV Channels page with a connected JioTV+ catalogue, search and filters](../images/channels-jiotv-plus.png)
+
+The screenshot is from a v1.5.0 JioTV+ session. It proves the current layout and catalogue rendering only; it does not prove that every listed channel will play for every account.
 
 If there are no channels, return to **Settings** and check connection status. A subscription notice means the content may require a plan; DRM playback may require HTTPS. See [Fix channels that do not play](../troubleshooting-channels-and-playback/index.md).
 

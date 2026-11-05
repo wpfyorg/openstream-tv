@@ -14,9 +14,9 @@ This guide requires the **full** build, which includes the browser interface. Th
 3. Enter a password of eight or more characters, repeat it, then select **Set password**.
 4. Return to the interface and verify that **Channels**, **On demand**, and **Settings** appear after sign-in.
 
-![OpenStream TV notice when the server has no admin password and the plain web address is opened](../images/first-launch-setup.png)
+![OpenStream TV first-launch form asking for an admin password and confirmation](../images/first-launch-setup.png)
 
-This screenshot shows the **notice at the normal web address** before an admin password exists. Open the private **Web setup** URL printed in the terminal to reach the password form described in step 3.
+This screenshot is the current v1.5.0 **Web setup** form from a fresh local data directory. The setup URL itself contains the server access key, so the browser address bar is intentionally not shown.
 
 If you do not have the setup link, you can run `openstream admin password` in the server's terminal and set the password there. Store it safely. For a remote device, make sure you are opening the OpenStream TV host, not your viewing device's own localhost.
 

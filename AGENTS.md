@@ -63,6 +63,19 @@ Use focused `cargo test <name>` runs while iterating, then run the relevant full
 - Runtime credentials/data belong in the resolved OpenStream data directory, normally `$HOME/.openstream-tv` or `/etc/openstream` on OpenWrt. Legacy directories may be read for migration compatibility.
 - Never commit `.env` files, credentials, tokens, generated runtime state, logs, private playlist URLs, or user data.
 
+## Diagnostic Evidence and Sanitization
+
+- Ask for the minimum evidence needed: version/build, OS/architecture, install method, provider/client, exact failure time/timezone, reproduction steps, scope, and a short log excerpt around one fresh reproduction.
+- Never ask users to paste full credential-bearing state or configuration files such as `store_v4.toml`, the OpenStream data directory, `/etc/config/openstream`, `.env` files, generated service environment files, browser profiles/storage, or TLS private keys.
+- Never ask for or expose OTPs, passwords, cookies, authorization headers, access/refresh/SSO/session/tunnel tokens, provider account identifiers, device credentials, private hostnames, or playlist/access-key URLs.
+- When preparing an issue, report, fixture, handoff, or saved diagnostic excerpt, inspect and sanitize it before writing or presenting it. Do not claim a capture is safe unless it was actually inspected.
+- Preserve diagnostic fidelity after redaction: keep timestamps, HTTP status codes, component names, non-secret request paths, stack/error text, and ordering.
+- Use stable typed placeholders so repeated values stay correlatable: the same token becomes `<TOKEN_1>`, the same account ID becomes `<ACCOUNT_ID_1>`, and the same private host becomes `<PRIVATE_HOST_1>`. Strip secret query parameters instead of replacing the entire useful path when possible.
+- If a value may grant access to an account, stream, device, server, or private network and its sensitivity is uncertain, redact it.
+- Do not commit raw logs, HAR captures, packet captures, screenshots with secrets, or copied runtime state. Keep diagnostic artifacts outside the repository unless they are deliberately sanitized test fixtures.
+- The user must enter every OTP themselves. Agents may describe where to enter it but must not request, relay, store, or reuse the OTP.
+- User-facing collection and redaction instructions live in `docs/troubleshooting-reporting-logs/index.md`.
+
 ## Important Files
 
 - `Cargo.toml` — Rust package, executable, feature definitions.

@@ -11,7 +11,7 @@ keywords: [live TV, channels, filters, player, programme guide, EPG]
 
 1. Select **Channels** in the top navigation.
 2. Type part of a channel name in **Search channels**, or choose a **Category** or **Language**.
-3. Turn on **HD** to show HD channels, **JioTV+ only** to show that source, or **Show unavailable** to include channels not playable for the current account.
+3. Turn on **HD** to show HD channels, **JioTV+ only** or **Fastway only** to narrow by source when those sources are present, or **Show unavailable** to include channels not playable for the current account.
 4. Select a channel tile.
 
 Your filters are saved in this browser. **Expected result:** the channel opens in the live player. A dimmed tile or subscription label means the current account may not be able to play it.
@@ -19,6 +19,10 @@ Your filters are saved in this browser. **Expected result:** the channel opens i
 ## Use the player and guide
 
 The player offers pause/resume, mute, playback quality (**Auto**, **High**, **Medium**, **Low**), picture-in-picture when your browser supports it, stream restart and fullscreen. The selected quality is remembered in this browser. The player also shows the current programme when guide data is available, followed by upcoming programme details below the video.
+
+![OpenStream TV live player with quality controls and the current programme guide](../images/player-guide-jiotv-plus.png)
+
+This v1.5.0 capture uses a JioTV+ channel and verifies the current player/guide layout. Playback for the tested JioTV+ channel was later verified manually. That single successful test does not establish that every channel will play for every account.
 
 **Expected result:** playback starts and programme details appear when the channel provides guide data. Quality choices are requests; the available stream may limit the result.
 

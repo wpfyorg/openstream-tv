@@ -21,9 +21,9 @@ You can also start OpenStream TV with the environment variable `OPENSTREAM_EPG=t
 
 ## M3U playlist and access key
 
-The full web interface shows playlist and EPG links in **Settings**. A protected installation uses an access key in the playlist link. Do not replace the full link with a guessed `/playlist.m3u` URL: its behavior depends on your authentication setup. Use **Copy** for the link supplied by your server.
+The full web interface shows playlist and EPG links in **Settings**. A protected installation uses `/k/<key>/playlist.m3u` and `/k/<key>/epg.xml.gz`. If authentication is deliberately disabled, the paths are `/playlist.m3u` and `/epg.xml.gz` and access-key rotation is unavailable. Do not replace the full link with a guessed path; use **Copy** for the link supplied by your server.
 
-![Settings shows the M3U and EPG locations and warns that the playlist must stay private.](../images/settings-no-account.png)
+![Settings shows the M3U and EPG locations and warns that the playlist must stay private](../images/settings-jiotv-plus.png)
 
 If you choose **Make a new key**, clients with old links stop working. Copy the new URL to every IPTV app. The key belongs only to your local server; it does not change your provider subscription.
 

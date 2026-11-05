@@ -13,6 +13,8 @@ Use this method if you want to inspect the download and install the executable y
 
 Visit the [OpenStream TV GitHub releases](https://github.com/wpfyorg/openstream-tv/releases/latest) and choose the asset matching **both** your operating system and CPU. Asset names begin with `openstream-full-` or `openstream-slim-`. Use **full** for the web interface; **slim** runs without it for IPTV clients. The release workflow builds Linux (x86_64, aarch64, ARMv7, i686), macOS (Apple silicon and Intel), Windows (x64, x86, ARM64), and Termux (aarch64, ARMv7, x86_64) variants. OpenWrt users should generally install the appropriate [package](../installations-openwrt/index.md).
 
+The example below follows the latest release. To pin a release, download the same asset and `SHA256SUMS` from `https://github.com/wpfyorg/openstream-tv/releases/download/v<version>/`, replacing `<version>` with the release you selected.
+
 For example, a typical **64-bit Intel/AMD Linux** machine uses `openstream-full-x86_64-unknown-linux-musl`. The commands below are **for this Linux target only**. Do not use that binary on Windows, macOS, ARM or Android.
 
 ## 2. Download and verify the Linux example

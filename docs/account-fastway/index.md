@@ -7,7 +7,7 @@ keywords: [Fastway, provider, account, DASH, Widevine, PallyCon, channels]
 
 # Connect Fastway Live TV
 
-**Fastway** is an optional third-party live-TV source. It is separate from the JioTV account and from JioTV+ (formerly called Extras), and it is disabled by default. A Fastway subscription is required; the server never grants or bypasses provider entitlements.
+**Fastway** is an optional third-party live-TV source. It is separate from the JioTV account and from JioTV+ (formerly called Extras), and it is disabled by default. You need credentials that Fastway accepts for live-TV service; the server never grants or bypasses provider entitlements. ACT eligibility, where offered by the provider, depends on that provider and plan.
 
 ## Enable Fastway
 
@@ -44,6 +44,12 @@ openstream fastway logout
 
 The password is kept locally because Fastway has no refresh-token endpoint; the server signs in again with the saved credentials when the provider rejects an expired access token. Do not share the data directory or its store file.
 
+## Security limitation in v1.5.0
+
+The shipped Fastway client uses a plain-HTTP provider API (`fwlivetvapp.netplus.co.in:8080`) and a plain-HTTP PallyCon license endpoint. That means the Fastway username/password exchange, provider tokens and DRM-license traffic are not protected by TLS on those upstream hops. Local `openstream serve --tls` protects the browser-to-OpenStream connection only; it does not change Fastway's upstream URLs.
+
+Avoid using Fastway over networks you do not trust, protect the local data directory, and do not expose Fastway credentials or provider tokens in logs or support requests. This is a transport limitation of the v1.5.0 integration, not a DRM bypass feature.
+
 ## What changes while Fastway is connected
 
 - Fastway channels replace the JioTV catalogue in **Channels**, the M3U playlist and the XMLTV guide. Local custom channels remain available.
@@ -64,4 +70,4 @@ Select **Disconnect** on the Fastway card, or run `openstream fastway logout`. D
 - **The card is missing:** confirm `fastway = true` or `OPENSTREAM_FASTWAY=true` is active for the running process, then restart.
 - **Connect fails:** check the username and password with Fastway. The server reports the provider's message; it does not reveal whether the account has a subscription.
 - **Channels are missing after connecting:** refresh the channel list. Only subscribed channels are shown, and the provider catalogue request may have failed temporarily.
-- **Playback or license errors:** see [Fix DRM and Widevine playback errors](../fix-drm-playback-errors/index.md) and [Protected playback](../troubleshooting-protected-playback/index.md).
+- **Playback or license errors:** see [Fastway troubleshooting](../troubleshooting-fastway/index.md) first, then [Protected playback](../troubleshooting-protected-playback/index.md) for browser/Widevine checks.

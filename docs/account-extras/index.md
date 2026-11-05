@@ -9,12 +9,14 @@ keywords: [JioTV+, account, OTP, JioTV+ channels, TV+]
 
 **JioTV+** is an optional second source. It appears in Settings when `tv_plus` is enabled and the account has not been locked. A **Lock** selection is saved and overrides the server setting across restarts; unlock JioTV+ from **Channels** with the account's unlock code. It requires a separate registered mobile number and an eligible plan.
 
+![Settings showing JioTV+ connected on OpenStream TV v1.5.0](../images/settings-jiotv-plus.png)
+
 1. Open **Settings** and find **JioTV+ channels**.
 2. Enter the registered 10-digit mobile number and select **Continue**.
 3. If asked, choose the matching connection from the list, then select **Send OTP**.
 4. Enter the OTP and select **Connect**.
 5. Check that the card says **Connected**. The header also shows a JioTV+ indicator while the source is enabled and connected.
-6. Return to **Channels**. Use **JioTV+ channels only** to narrow the list if both sources are present.
+6. Return to **Channels**. Use **JioTV+ only** to narrow the list when more than one source is visible.
 
 **Expected result:** channels supplied by the connected source appear when available. A channel can still require a plan or be unavailable for playback.
 

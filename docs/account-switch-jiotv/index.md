@@ -19,9 +19,9 @@ The server currently uses **one active JioTV provider account** at a time. There
 
 **Expected result:** Settings reports **Logged in** for the new provider account. The available channels and programme guide may change based on that account's plan. Existing playlist links may need refreshing after an account change.
 
-The account card shown below is from a clean server before login. It illustrates where the sign-in form appears; it does **not** show a completed switch.
+The current Settings view below shows the JioTV sign-in form while JioTV+ is connected separately. It illustrates where to enter the replacement JioTV account; it does **not** show a completed switch.
 
-![JioTV sign-in card in Settings on a server without a connected account](../images/settings-no-account.png)
+![Settings with the JioTV sign-in card available while JioTV+ remains connected](../images/settings-jiotv-plus.png)
 
 ## Switch using the CLI
 

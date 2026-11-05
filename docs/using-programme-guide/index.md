@@ -7,7 +7,9 @@ keywords: [programme guide, program guide, EPG, schedule, now playing, upcoming,
 
 # Read the Programme Guide
 
-JioTV shows programme information for a channel when the provider returns a schedule. You can check what is on now and what comes next without leaving the live player.
+OpenStream TV shows programme information for a channel when the active provider returns a schedule. You can check what is on now and what comes next without leaving the live player.
+
+![Programme guide beside the live player for a JioTV+ channel](../images/player-guide-jiotv-plus.png)
 
 1. Open **Channels** and select an available channel.
 2. Find the **Program guide** section beside or below the player, depending on your screen size.
