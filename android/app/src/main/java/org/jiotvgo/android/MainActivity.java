@@ -720,11 +720,10 @@ public final class MainActivity extends Activity {
                     if (verifyRequest) {
                         if (response.optBoolean("status", false)) say("JioTV+ login complete. Playlist is ready.");
                         else say(response.optString("message", "JioTV+ OTP verification failed."));
-                    } else if (response.optBoolean("status", false)) {
-                        say("JioTV+ OTP sent. Enter it above.");
                     } else {
                         org.json.JSONArray connections = response.optJSONArray("connections");
                         if (connections != null && connections.length() > 0) runOnUiThread(() -> showTvPlusConnectionChooser(n, connections));
+                        else if (response.optBoolean("status", false)) say("JioTV+ OTP sent. Enter it above.");
                         else say(response.optString("message", "JioTV+ OTP could not be sent."));
                     }
                 } else if(verifyRequest && "success".equals(response.optString("status"))) say("JioTV login complete. Playlist is ready.");
