@@ -71,6 +71,17 @@ pub fn restart_hint() -> String {
     }
 }
 
+/// Restarts the systemd-managed OpenStream TV service when this installation
+/// owns one. Returns false when no managed service is installed.
+pub fn restart_if_installed() -> anyhow::Result<bool> {
+    if !installed() {
+        return Ok(false);
+    }
+    let p = paths()?;
+    systemctl(p.user, &["restart", SERVICE])?;
+    Ok(true)
+}
+
 /// Quotes one ExecStart argument for systemd.
 fn quote(arg: &str) -> String {
     if !arg.is_empty()
