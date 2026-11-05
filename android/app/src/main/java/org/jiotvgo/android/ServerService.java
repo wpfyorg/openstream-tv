@@ -41,10 +41,10 @@ public final class ServerService extends Service {
             pb.redirectOutput(new File("/dev/null"));
             pb.redirectError(new File("/dev/null"));
             Map<String, String> env = pb.environment();
-            env.put("JIOTV_PATH_PREFIX", new File(getFilesDir(), "data").getAbsolutePath());
+            env.put("OPENSTREAM_PATH_PREFIX", new File(getFilesDir(), "data").getAbsolutePath());
             env.put("HOME", getFilesDir().getAbsolutePath());
-            env.put("JIOTV_FASTWAY", "false");
-            env.put("JIOTV_TVPLUS", "true");
+            env.put("OPENSTREAM_FASTWAY", "false");
+            env.put("OPENSTREAM_TVPLUS", "true");
             process = pb.start();
             updateNotification("Local server: 127.0.0.1:5001");
         } catch (Exception e) {
