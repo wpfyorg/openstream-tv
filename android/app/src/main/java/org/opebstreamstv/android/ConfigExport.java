@@ -9,7 +9,7 @@ import java.io.OutputStream;
 final class ConfigExport {
     static final String DEFAULT_TOML =
             "# OpenStream TV configuration. Values match the Rust runtime defaults.\n" +
-            "epg = false\n" +
+            "epg = true\n" +
             "debug = false\n" +
             "disable_ts_handler = false\n" +
             "disable_logout = false\n" +

@@ -24,11 +24,10 @@ const CACHE_MAX_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 pub const STORE_KEY_ENABLED: &str = "epg_enabled";
 
 pub fn enabled_with_override(config_enabled: bool, stored: Option<&str>) -> bool {
-    match stored {
-        Some("true") => true,
-        Some("false") => false,
-        _ => config_enabled,
+    if config_enabled {
+        return true;
     }
+    matches!(stored, Some("true"))
 }
 
 #[derive(Default)]
@@ -753,10 +752,16 @@ mod tests {
     use std::collections::HashMap;
 
     #[test]
-    fn stored_enabled_override_wins_over_config() {
-        assert!(enabled_with_override(false, Some("true")));
-        assert!(!enabled_with_override(true, Some("false")));
+    fn config_enable_cannot_be_disabled_by_persisted_override() {
+        assert!(enabled_with_override(true, Some("false")));
+        assert!(enabled_with_override(true, Some("invalid")));
         assert!(enabled_with_override(true, None));
+    }
+
+    #[test]
+    fn persisted_enable_can_enable_config_disabled_epg() {
+        assert!(enabled_with_override(false, Some("true")));
+        assert!(!enabled_with_override(false, Some("false")));
         assert!(!enabled_with_override(false, Some("invalid")));
     }
 

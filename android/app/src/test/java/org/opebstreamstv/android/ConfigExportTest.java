@@ -26,6 +26,7 @@ public class ConfigExportTest {
             ByteArrayOutputStream output = new ByteArrayOutputStream();
             ConfigExport.write(absent, output);
             String text = output.toString("UTF-8");
+            assertTrue(text.contains("epg = true"));
             assertTrue(text.contains("title = \"OpenStream TV\""));
             assertTrue(text.contains("drm = true"));
             assertTrue(text.contains("tv_plus = false"));
