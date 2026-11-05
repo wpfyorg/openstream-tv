@@ -146,7 +146,7 @@ public final class MainActivity extends Activity {
         television = (getResources().getConfiguration().uiMode & Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION;
         int inset = dp(television ? 32 : 24);
         ScrollView scroll = new ScrollView(this); scroll.setFillViewport(true); scroll.setDescendantFocusability(ViewGroup.FOCUS_AFTER_DESCENDANTS); scroll.setSmoothScrollingEnabled(true); LinearLayout root = new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL); root.setPadding(inset, dp(television ? 16 : 20), inset, dp(television ? 16 : 20)); root.setFocusableInTouchMode(!television); scroll.addView(root); scroll.setBackgroundColor(0xff101827); if (television) { root.setFocusable(false); scroll.setFocusable(false); }
-        addText(root, "JioTV Go", television ? 28 : 28, 0xff43d9b0); status = addText(root, "Starting…", television ? 15 : 15, 0xffc5d0dd);
+        addText(root, "Openstream TV Slim", television ? 28 : 28, 0xff43d9b0); status = addText(root, "Starting…", television ? 15 : 15, 0xffc5d0dd);
         LinearLayout columns = new LinearLayout(this);
         columns.setOrientation(television ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL);
         root.addView(columns, spacedParams(0, 0));

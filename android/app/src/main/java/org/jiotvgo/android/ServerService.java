@@ -71,7 +71,7 @@ public final class ServerService extends Service {
         PendingIntent open = PendingIntent.getActivity(this, 0, new Intent(this, MainActivity.class), PendingIntent.FLAG_UPDATE_CURRENT | (Build.VERSION.SDK_INT >= 23 ? PendingIntent.FLAG_IMMUTABLE : 0));
         Notification.Builder builder = Build.VERSION.SDK_INT >= 26 ? new Notification.Builder(this, "jiotv_server") : new Notification.Builder(this);
         return builder
-                .setContentTitle("JioTV Go").setContentText(text).setSmallIcon(android.R.drawable.stat_sys_download_done).setContentIntent(open).setOngoing(true).build();
+                .setContentTitle("Openstream TV Slim").setContentText(text).setSmallIcon(android.R.drawable.stat_sys_download_done).setContentIntent(open).setOngoing(true).build();
     }
     private void updateNotification(String text) { getSystemService(NotificationManager.class).notify(41, notification(text)); }
     @Override public void onDestroy() { stopServer(); super.onDestroy(); }
