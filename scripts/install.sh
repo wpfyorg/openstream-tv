@@ -96,7 +96,19 @@ port_listening() {
   owners=$(printf '%s\n' "$listing" | grep -E "[:.]$1[[:space:]]" || true)
   [ -n "$owners" ] || return 1
   if printf '%s\n' "$owners" | grep -Eq '[0-9]+/[^ ]+|pid='; then
-    printf '%s\n' "$owners" | grep -q "${openwrt_process:-ost}"
+    printf '%s\n' "$owners" | awk -v process="${openwrt_process:-ost}" '
+      {
+        for (i = 1; i <= NF; i++) {
+          if ($i ~ /^[0-9]+\//) {
+            owner = $i
+            sub(/^[0-9]+\//, "", owner)
+            if (owner == process) found = 1
+          }
+        }
+        if (index($0, "\"" process "\"") > 0) found = 1
+      }
+      END { exit(found ? 0 : 1) }
+    '
   fi
 }
 
@@ -763,8 +775,12 @@ ob_systemd_quote_arg() {
 
 ob_migrate_legacy_service_exec() {
   new_bin=$1
-  [ -d /run/systemd/system ] || return 0
-  if [ "$(id -u 2>/dev/null || echo 1)" = 0 ]; then
+  if [ -n "${OPENSTREAM_TEST_SYSTEMD_UNIT:-}" ]; then
+    unit=$OPENSTREAM_TEST_SYSTEMD_UNIT
+    user_service=1
+  elif [ ! -d /run/systemd/system ]; then
+    return 0
+  elif [ "$(id -u 2>/dev/null || echo 1)" = 0 ]; then
     unit=/etc/systemd/system/openstream.service
     user_service=0
   else
@@ -777,14 +793,22 @@ ob_migrate_legacy_service_exec() {
   grep -F -- '--skip-update-check' "$unit" >/dev/null 2>&1 || return 1
 
   quoted_new=$(ob_systemd_quote_arg "$new_bin")
+  old_bin=${new_bin%/*}/openstream
+  quoted_old=$(ob_systemd_quote_arg "$old_bin")
+  exec_prefix="ExecStart=$quoted_old"
   unit_tmp="${unit}.ost-migrate.$$"
   changed=0
   while IFS= read -r line || [ -n "$line" ]; do
     case "$line" in
-      ExecStart=*' --skip-update-check'*)
-        rest=${line#* --skip-update-check}
-        printf 'ExecStart=%s --skip-update-check%s\n' "$quoted_new" "$rest"
-        changed=1
+      "$exec_prefix "*)
+        rest=${line#"$exec_prefix"}
+        case "$rest" in
+          *' --skip-update-check '*|*' --skip-update-check')
+            printf 'ExecStart=%s%s\n' "$quoted_new" "$rest"
+            changed=1
+            ;;
+          *) printf '%s\n' "$line" ;;
+        esac
         ;;
       *) printf '%s\n' "$line" ;;
     esac

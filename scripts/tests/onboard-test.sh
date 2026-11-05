@@ -240,13 +240,41 @@ echo "declining an update leaves the installed binary untouched OK"
 mkdir -p "$tmp/install-legacy"
 printf 'legacy executable\n' >"$tmp/install-legacy/openstream"
 chmod +x "$tmp/install-legacy/openstream"
+mkdir -p "$tmp/install-legacy/home/.config/systemd/user"
+legacy_unit="$tmp/install-legacy/home/.config/systemd/user/openstream.service"
+cat >"$legacy_unit" <<EOF
+[Unit]
+Description=OpenStream TV
+
+[Service]
+ExecStart=$tmp/install-legacy/openstream --config /path/x.toml --skip-update-check serve
+EOF
+cat >"$tmp/bin/systemctl" <<'EOF'
+#!/bin/sh
+case "$*" in
+  'is-active --quiet openstream'|'--user is-active --quiet openstream') exit 1 ;;
+  '--user daemon-reload'|'daemon-reload') exit 0 ;;
+esac
+exit 0
+EOF
+chmod +x "$tmp/bin/systemctl"
+OPENSTREAM_TEST_SYSTEMD_UNIT=$legacy_unit
+export OPENSTREAM_TEST_SYSTEMD_UNIT
 start_flow "$tmp/install-legacy" "$tmp/out5"
 wait_for "Which build?" "$tmp/out5"; enter
 wait_for "Update it in place and keep the current account?" "$tmp/out5"; enter
 wait_for "existing account settings were kept" "$tmp/out5"
 finish_flow
+unset OPENSTREAM_TEST_SYSTEMD_UNIT
+rm "$tmp/bin/systemctl"
 test -x "$tmp/install-legacy/ost"
-test ! -e "$tmp/install-legacy/openstream"
+if [ -e "$tmp/install-legacy/openstream" ]; then
+  echo "legacy executable was not removed after service migration" >&2
+  sed 's/\r$//' "$tmp/out5" >&2
+  cat "$legacy_unit" >&2
+  exit 1
+fi
+grep -F "ExecStart=$tmp/install-legacy/ost --config /path/x.toml --skip-update-check serve" "$legacy_unit" >/dev/null
 if grep -F "Which account are you setting up?" "$tmp/out5" >/dev/null; then
   echo "a migrated openstream install repeated account setup" >&2
   exit 1
