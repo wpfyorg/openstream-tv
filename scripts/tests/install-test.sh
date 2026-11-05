@@ -342,19 +342,19 @@ if OPENSTREAM_PLATFORM=openwrt OPENSTREAM_TEST_PORT_OWNER=postfix OPENSTREAM_REA
   exit 1
 fi
 grep -F "not listening yet" "$tmp/openwrt-owner-substring-output" >/dev/null
-# ss reports process owners as quoted names inside users:((...)); accept the exact name.
-mv "$tmp/bin/netstat" "$tmp/bin/netstat.saved"
-cat >"$tmp/bin/ss" <<'EOF'
+# ss reports process owners as quoted names inside users:((...)); feed that
+# format through the mocked socket listing without exposing host networking tools.
+cp "$tmp/bin/netstat" "$tmp/bin/netstat.saved"
+cat >"$tmp/bin/netstat" <<'EOF'
 #!/bin/sh
 echo 'LISTEN 0 128 0.0.0.0:5001 0.0.0.0:* users:(("ost",pid=123,fd=7))'
 EOF
-chmod +x "$tmp/bin/ss"
+chmod +x "$tmp/bin/netstat"
 OPENSTREAM_PLATFORM=openwrt OPENSTREAM_TEST_OS=Linux OPENSTREAM_TEST_MACHINE=aarch64 OPENSTREAM_TEST_PACKAGE_ARCH=aarch64 \
   OPENSTREAM_TEST_ASSET_NAME=$openwrt_aarch64_apk OPENSTREAM_TEST_LOG="$tmp/openwrt-ss-owner-downloads" \
   OPENSTREAM_TEST_PACKAGE_LOG="$tmp/openwrt-ss-owner-package" OPENSTREAM_INIT_SCRIPT="$tmp/bin/openstream-init" \
   PATH="$tmp/bin:$PATH" sh "$root/scripts/install.sh" >"$tmp/openwrt-ss-owner-output"
 grep -F "is installed and running" "$tmp/openwrt-ss-owner-output" >/dev/null
-rm "$tmp/bin/ss"
 mv "$tmp/bin/netstat.saved" "$tmp/bin/netstat"
 # The enable hint must also start the service.
 grep -F "uci commit openstream && " "$tmp/openwrt-disabled-output" | grep -F "start" >/dev/null
