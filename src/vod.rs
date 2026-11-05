@@ -453,12 +453,15 @@ pub async fn vod_playlist_handler(
             "The active account changed while this request was running; retry",
         );
     }
-    let scheme = if https.is_some() { "https" } else { "http" };
-    let base = headers
-        .get(header::HOST)
-        .and_then(|v| v.to_str().ok())
-        .map(|h| format!("{scheme}://{h}"))
-        .unwrap_or_default();
+    let base = crate::public_origin::for_request(
+        https.is_some(),
+        &headers,
+        if state.config.public_origin.is_empty() {
+            state.tunnel_origin.get().map(String::as_str)
+        } else {
+            Some(&state.config.public_origin)
+        },
+    );
     let entries_xml = template.replace(BASE_PLACEHOLDER, &base);
 
     Response::builder()

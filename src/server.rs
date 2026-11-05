@@ -21,12 +21,12 @@
 
 use crate::api::KeyPrefix;
 use crate::state::AppState;
+use axum::Router;
 use axum::body::Body;
 use axum::extract::{Query, Request, State};
-use axum::http::{header, StatusCode};
+use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
-use axum::Router;
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::future::Future;
@@ -276,7 +276,7 @@ async fn route_request(state: Arc<AppState>, router: &mut Router, mut req: Reque
             Ok(k) => k,
             Err(_) => {
                 return (StatusCode::INTERNAL_SERVER_ERROR, "access key unavailable")
-                    .into_response()
+                    .into_response();
             }
         };
         use subtle::ConstantTimeEq;
@@ -355,7 +355,7 @@ async fn channels_or_playlist(
         return axum::Json(channels).into_response();
     }
 
-    let host_url = base_url(&https, &prefix, &headers);
+    let host_url = base_url(&state, &https, &prefix, &headers);
     let empty = String::new();
     let opts = crate::television::PlaylistOptions {
         host_url: &host_url,
@@ -383,21 +383,24 @@ async fn channels_or_playlist(
 }
 
 fn base_url(
+    state: &AppState,
     https: &Option<axum::Extension<crate::tls::Https>>,
     prefix: &Option<axum::Extension<KeyPrefix>>,
     headers: &axum::http::HeaderMap,
 ) -> String {
-    // The scheme is a property of the listener the request arrived on (the
-    // `Https` extension is set by the TLS accept loop), never of a header a
-    // client or proxy could supply. Behind `--tunnel` or a reverse proxy the
-    // connection to this server is plain HTTP, so links stay http://.
-    let scheme = if https.is_some() { "https" } else { "http" };
-    let host = headers
-        .get(header::HOST)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("localhost");
-    let p = prefix.as_ref().map(|e| e.0 .0.clone()).unwrap_or_default();
-    format!("{scheme}://{host}{p}")
+    // The configured origin is administrator-controlled. Forwarded headers are
+    // untrusted; only an exact Host match can select the external HTTPS origin.
+    let origin = crate::public_origin::for_request(
+        https.is_some(),
+        headers,
+        if state.config.public_origin.is_empty() {
+            state.tunnel_origin.get().map(String::as_str)
+        } else {
+            Some(&state.config.public_origin)
+        },
+    );
+    let p = prefix.as_ref().map(|e| e.0.0.clone()).unwrap_or_default();
+    format!("{origin}{p}")
 }
 
 #[derive(serde::Deserialize)]
@@ -500,6 +503,7 @@ mod tests {
             public_ip: Arc::new(crate::unlock::PublicIp::new(reqwest::Client::new())),
             unlock_limiter: Arc::new(crate::unlock::AttemptLimiter::default()),
             listen: Default::default(),
+            tunnel_origin: Default::default(),
         })
     }
 
@@ -534,6 +538,225 @@ mod tests {
             }]);
     }
 
+    /// Exercise the same keyed requests an IPTV client makes after fetching
+    /// the playlist from an HTTP listener behind an HTTPS proxy. The offline
+    /// upstream is intentionally unreachable; a route may fail playback, but
+    /// must never redirect to repair an incorrectly generated HTTP URL.
+    #[tokio::test]
+    async fn cloudflare_iptv_playlist_epg_stream_and_drm_chain() {
+        let mut state = test_state();
+        Arc::get_mut(&mut state).unwrap().config.public_origin =
+            "https://tv.example.com".to_string();
+        prime_tv_channel(&state, "154");
+        state.tv.set_channels_for_test(vec![
+            crate::television::Channel {
+                id: "154".into(),
+                name: "Protected".into(),
+                ..Default::default()
+            },
+            crate::television::Channel {
+                id: "999999".into(),
+                name: "Free".into(),
+                ..Default::default()
+            },
+        ]);
+        state.drm_channels.write().unwrap().insert("154".into());
+        let key = state.access.key().unwrap();
+        let playlist_path = format!("/k/{key}/channels?type=m3u");
+
+        async fn client_get(state: Arc<AppState>, path: &str, host: &str) -> Response {
+            let mut svc = GatedService::new(state);
+            let req = Request::builder()
+                .uri(path)
+                .header(header::HOST, host)
+                .header("x-forwarded-proto", "https")
+                .header("forwarded", "proto=https;host=attacker.example")
+                .body(Body::empty())
+                .unwrap();
+            svc.ready().await.unwrap();
+            svc.call(req).await.unwrap()
+        }
+
+        let playlist = client_get(state.clone(), &playlist_path, "tv.example.com").await;
+        assert_eq!(playlist.status(), StatusCode::OK);
+        let m3u = body_text(playlist).await;
+        let base = format!("https://tv.example.com/k/{key}");
+        for item in [
+            format!("x-tvg-url=\"{base}/epg.xml.gz\""),
+            format!("{base}/live/mpd/154"),
+            format!("{base}/live/key/154"),
+            format!("{base}/live/999999.m3u8"),
+        ] {
+            assert!(m3u.contains(&item), "missing {item} from {m3u}");
+        }
+        assert!(
+            !m3u.contains("http://tv.example.com"),
+            "mixed-content URL in {m3u}"
+        );
+
+        // Simulated IPTV client requests each absolute URL's path using the
+        // proxy's public Host; the router must accept every keyed endpoint.
+        for path in [
+            format!("/k/{key}/epg.xml.gz"),
+            format!("/k/{key}/live/mpd/154"),
+            format!("/k/{key}/live/key/154"),
+            format!("/k/{key}/live/999999.m3u8"),
+        ] {
+            let response = client_get(state.clone(), &path, "tv.example.com").await;
+            assert_ne!(response.status(), StatusCode::MOVED_PERMANENTLY, "{path}");
+            assert_ne!(response.status(), StatusCode::NOT_FOUND, "{path}");
+        }
+
+        let lan = client_get(state.clone(), &playlist_path, "192.168.1.10:5001").await;
+        assert_eq!(lan.status(), StatusCode::OK);
+        let lan_m3u = body_text(lan).await;
+        assert!(lan_m3u.contains(&format!("http://192.168.1.10:5001/k/{key}/live/mpd/154")));
+        assert!(!lan_m3u.contains("https://tv.example.com"));
+    }
+
+    /// Fetch an OpenStream-generated keyed playlist over TLS, then let ffprobe
+    /// follow its live route through a controlled HLS origin and decode a
+    /// generated MPEG-TS fixture. This verifies the playable playlist path,
+    /// unlike the separate DRM route-shape assertions above.
+    #[ignore = "requires ffmpeg and ffprobe binaries"]
+    #[tokio::test]
+    async fn https_generated_iptv_playlist_decodes_fixture_stream() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let temp = tempfile::tempdir().unwrap();
+        let segment_path = temp.path().join("fixture.ts");
+        let ffmpeg = std::process::Command::new("ffmpeg")
+            .args([
+                "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i",
+                "testsrc=size=160x90:rate=10", "-t", "2", "-an", "-c:v", "mpeg2video",
+                "-f", "mpegts",
+            ])
+            .arg(&segment_path)
+            .output()
+            .expect("ffmpeg must be installed to create the deterministic media fixture");
+        assert!(ffmpeg.status.success(), "ffmpeg fixture generation failed: {}", String::from_utf8_lossy(&ffmpeg.stderr));
+        let segment = std::fs::read(&segment_path).unwrap();
+
+        let upstream = MockServer::start().await;
+        let manifest = format!(
+            "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:2\n#EXTINF:2.0,\nfixture.ts\n#EXT-X-ENDLIST\n"
+        );
+        Mock::given(method("GET"))
+            .and(path("/fixture.m3u8"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("Content-Type", "application/vnd.apple.mpegurl")
+                    .set_body_string(manifest),
+            )
+            .expect(1)
+            .mount(&upstream)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/fixture.ts"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("Content-Type", "video/mp2t")
+                    .set_body_bytes(segment),
+            )
+            .expect(1)
+            .mount(&upstream)
+            .await;
+
+        let mut state = test_state();
+        prime_tv_channel(&state, "154");
+        let custom_path = temp.path().join("custom-channels.json");
+        std::fs::write(
+            &custom_path,
+            serde_json::json!({"channels": [{
+                "id": "fixture-iptv",
+                "name": "Fixture IPTV",
+                "url": format!("{}/fixture.m3u8", upstream.uri())
+            }]})
+            .to_string(),
+        )
+        .unwrap();
+        state
+            .custom_channels
+            .load(custom_path.to_str().unwrap())
+            .unwrap();
+
+        let key = state.access.key().unwrap();
+        let tls_dir = temp.path().join("tls");
+        let material = crate::tls::load_or_create(
+            "",
+            "",
+            tls_dir.to_str().unwrap(),
+            "127.0.0.1",
+        )
+        .unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        Arc::get_mut(&mut state).unwrap().config.public_origin =
+            format!("https://127.0.0.1:{port}");
+        let (stop_tx, stop_rx) = tokio::sync::watch::channel(false);
+        let svc = GatedService::new(state.clone());
+        let task = tokio::spawn(crate::tls::serve(
+            listener,
+            material.config,
+            // Model TLS termination at the edge proxy: the public playlist is
+            // HTTPS while the connection reaching this service is HTTP.
+            move |peer| connection_service(svc.clone(), peer, false),
+            stop_rx,
+        ));
+
+        let cert = std::fs::read(tls_dir.join("tls/cert.pem")).unwrap();
+        let client = reqwest::Client::builder()
+            .add_root_certificate(reqwest::Certificate::from_pem(&cert).unwrap())
+            .build()
+            .unwrap();
+        let playlist_url = format!("https://127.0.0.1:{port}/k/{key}/channels?type=m3u");
+        let response = client.get(&playlist_url).send().await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let playlist = response.text().await.unwrap();
+        let stream_url = playlist
+            .lines()
+            .find(|line| line.contains("/live/fixture-iptv.m3u8"))
+            .expect("generated playlist must contain fixture channel")
+            .to_string();
+        assert!(stream_url.starts_with(&format!("https://127.0.0.1:{port}/k/{key}/")));
+
+        let ffprobe = tokio::process::Command::new("ffprobe")
+            .args([
+                "-v", "error", "-tls_verify", "1", "-ca_file",
+            ])
+            .arg(tls_dir.join("tls/cert.pem"))
+            .args([
+                "-show_entries",
+                "stream=codec_name,codec_type,width,height", "-of", "json",
+            ])
+            .arg(&stream_url)
+            .output();
+        let ffprobe = tokio::time::timeout(std::time::Duration::from_secs(30), ffprobe)
+            .await
+            .expect("ffprobe timed out while fetching the generated playlist")
+            .expect("ffprobe must be installed to verify IPTV playback");
+        assert!(ffprobe.status.success(), "ffprobe failed: {}", String::from_utf8_lossy(&ffprobe.stderr));
+        let probe: serde_json::Value = serde_json::from_slice(&ffprobe.stdout).unwrap();
+        let video = probe["streams"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|stream| stream["codec_type"] == "video")
+            .expect("ffprobe must decode a video stream");
+        assert_eq!(video["codec_name"], "mpeg2video");
+        assert_eq!(video["width"], 160);
+        assert_eq!(video["height"], 90);
+
+        upstream.verify().await;
+        stop_tx.send(true).unwrap();
+        drop(client);
+        tokio::time::timeout(std::time::Duration::from_secs(10), task)
+            .await
+            .unwrap()
+            .unwrap();
+    }
+
     #[tokio::test]
     async fn https_listener_serves_the_same_router_and_renders_https_links() {
         let state = test_state();
@@ -541,8 +764,8 @@ mod tests {
         let key = state.access.key().unwrap();
 
         let dir = tempfile::tempdir().unwrap();
-        let material = crate::tls::load_or_create("", "", dir.path().to_str().unwrap(), "127.0.0.1")
-            .unwrap();
+        let material =
+            crate::tls::load_or_create("", "", dir.path().to_str().unwrap(), "127.0.0.1").unwrap();
         let cert_pem = std::fs::read(dir.path().join("tls/cert.pem")).unwrap();
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -565,7 +788,9 @@ mod tests {
         // A garbage connection must not break the accept loop.
         {
             use tokio::io::AsyncWriteExt;
-            let mut raw = tokio::net::TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+            let mut raw = tokio::net::TcpStream::connect(("127.0.0.1", port))
+                .await
+                .unwrap();
             raw.write_all(b"GET / HTTP/1.1\r\n\r\n").await.unwrap();
         }
 
@@ -621,7 +846,10 @@ mod tests {
             let resp = send(state.clone(), uri).await;
             assert_ne!(resp.status(), StatusCode::NOT_FOUND, "{uri}");
             let text = body_text(resp).await;
-            assert!(!text.contains("not available for the active account"), "{uri}: {text}");
+            assert!(
+                !text.contains("not available for the active account"),
+                "{uri}: {text}"
+            );
         }
     }
 

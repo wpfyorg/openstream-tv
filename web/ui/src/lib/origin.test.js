@@ -27,3 +27,9 @@ test("recognizes the default HTTPS port, which browsers report as empty", () => 
   assert.equal(plainHttpOrigin(new URL("https://192.168.1.10/"), { httpPort: 5001, tlsPort: 443 }), "http://192.168.1.10:5001");
   assert.equal(plainHttpOrigin(new URL("https://192.168.1.10/"), status), "https://192.168.1.10");
 });
+
+test("keeps public HTTPS even when the local TLS port is 443", () => {
+  const publicStatus = { httpPort: 5001, tlsPort: 443, publicOrigin: "https://tv.example.com" };
+  assert.equal(plainHttpOrigin(new URL("https://tv.example.com/"), publicStatus), "https://tv.example.com");
+  assert.equal(plainHttpOrigin(new URL("https://192.168.1.10/"), publicStatus), "http://192.168.1.10:5001");
+});

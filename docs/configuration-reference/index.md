@@ -24,6 +24,8 @@ tv_plus = false
 disable_auth = false
 debug = false
 log_to_stdout = true
+# Set only if an HTTPS reverse proxy or named tunnel publishes this hostname.
+# public_origin = "https://tv.example.com"
 default_categories = []
 default_languages = []
 ```
@@ -44,6 +46,7 @@ Save, start with `jiotv --config ./jiotv_go.toml serve`, then open `http://local
 | `title` | `JIOTV_TITLE` | `"JioTV Go"` | Display title; any TOML string. |
 | `disable_url_encryption` | `JIOTV_DISABLE_URL_ENCRYPTION` | `false` | Boolean. Disable encryption of local proxy parameters. Leave false. |
 | `proxy` | `JIOTV_PROXY` | `""` | Optional outgoing proxy URL. |
+| `public_origin` | `JIOTV_PUBLIC_ORIGIN` | `""` | Trusted external HTTPS origin (for example `https://tv.example.com`). Must have no path, credentials, query or fragment. Used when the request's Host matches. LAN HTTP and direct TLS remain unchanged. |
 | `path_prefix` | `JIOTV_PATH_PREFIX` | `""` | Directory for JioTV state. Empty uses the runtime's resolved default. |
 | `log_path` | `JIOTV_LOG_PATH` | `""` | Reserved in this build; do not rely on file logging. |
 | `log_to_stdout` | `JIOTV_LOG_TO_STDOUT` | `true` | Boolean. Emit logs to process output. |

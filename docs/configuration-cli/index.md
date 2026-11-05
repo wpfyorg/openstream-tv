@@ -22,6 +22,7 @@ Run `jiotv --help` to see the installed binary's command list. These commands ar
 | `jiotv background start` / `jiotv background stop` | Start or stop a detached server process. |
 | `jiotv update` | Check/install a release. `--version vX.Y.Z` requests a specific release. |
 | `jiotv autostart` / `jiotv autostart remove` | Install/remove supported startup integration (systemd; Termux shell startup). |
+| `jiotv tunnel setup --domain example.com --subdomain tv [--port 5001]` | Guided Cloudflare API tunnel creation with a scoped `CLOUDFLARE_API_TOKEN`. Saves the connector token and hostname privately. |
 
 All commands accept `--config PATH`. `--skip-update-check` suppresses the startup version check.
 
@@ -36,9 +37,13 @@ All commands accept `--config PATH`. `--skip-update-check` suppresses the startu
 | `--tls-port` | `5443` | HTTPS listener port; different from HTTP. |
 | `--tls-cert` / `--tls-key` | generated cert | Supply both PEM files with `--tls`. |
 | `--tunnel` | off | Start a Cloudflare tunnel where supported. |
+| `--tunnel-quick` | off | Start a temporary Cloudflare tunnel and use its detected public HTTPS origin. |
+| `--tunnel-saved` | off | Use the token and hostname saved by `jiotv tunnel setup`. |
 | `--tunnel-token` | unset | Named tunnel token; keep private. |
 
 `--tunnel-token` is visible in the process list. Prefer `JIOTV_TUNNEL_TOKEN`, which the guided installer and OpenWrt service use. `jiotv autostart` records current `JIOTV_*` variables in a private environment file for systemd and Termux autostart. On other systems, persist settings in a user-owned environment file or set them in the shell that starts the server.
+
+For manually managed proxy hostnames or named tunnels, set `JIOTV_PUBLIC_ORIGIN=https://tv.example.com` (or `public_origin = "https://tv.example.com"` in TOML). This keeps M3U stream, EPG and DRM license links HTTPS when the public hostname requests them. The saved and quick tunnel modes set the public origin automatically.
 
 Example: `jiotv serve --host 127.0.0.1 --port 5001 --tls`. This serves HTTP on 5001 and HTTPS on 5443. When no certificate files are supplied, the server generates a self-signed certificate; browsers may show a warning until you trust it.
 

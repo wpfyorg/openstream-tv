@@ -805,6 +805,7 @@ mod tests {
             public_ip: Arc::new(crate::unlock::PublicIp::new(http)),
             unlock_limiter: Arc::new(crate::unlock::AttemptLimiter::default()),
             listen: Default::default(),
+            tunnel_origin: Default::default(),
         })
     }
 
