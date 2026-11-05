@@ -408,7 +408,7 @@ try {
             Remove-Item -LiteralPath $legacyDestination -Force
         }
         catch {
-            Write-Warn2 "Could not remove legacy openstream.exe; it may still be in use. Continuing with ost.exe."
+            Write-Warn2 "Could not remove legacy openstream.exe: $($_.Exception.Message) Stop the old server, remove openstream.exe, then start ost."
         }
     }
     $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
@@ -425,7 +425,7 @@ try {
     if ($Interactive) {
         if ($keepExistingAccount) {
             Write-Ok 'Updated the binary; existing account and environment settings were kept'
-            Write-Host "  Start it with: $serveLine"
+            Write-Host "  Restart the server with: $serveLine"
             return
         }
 

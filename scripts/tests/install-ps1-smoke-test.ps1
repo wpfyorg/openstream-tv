@@ -42,7 +42,7 @@ try {
         [System.IO.FileShare]::Read
     )
     $lockedOutput = & (Join-Path $PSScriptRoot '..\install.ps1') -Version '1.4.0' -InstallDir $lockedInstallDir -NoTls 6>&1 | Out-String
-    if ($lockedOutput -notmatch 'Could not remove legacy openstream\.exe; it may still be in use') {
+    if ($lockedOutput -notmatch 'Could not remove legacy openstream\.exe: .+ Stop the old server, remove openstream\.exe, then start ost\.') {
         throw 'The Windows installer did not warn when legacy executable cleanup failed.'
     }
     if (-not (Test-Path -LiteralPath (Join-Path $lockedInstallDir 'ost.exe') -PathType Leaf)) {
