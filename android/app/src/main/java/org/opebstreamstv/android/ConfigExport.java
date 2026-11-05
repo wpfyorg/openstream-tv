@@ -1,4 +1,4 @@
-package org.jiotvgo.android;
+package org.opebstreamstv.android;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -8,7 +8,7 @@ import java.io.OutputStream;
 
 final class ConfigExport {
     static final String DEFAULT_TOML =
-            "# JioTV Go configuration. Values match the Rust runtime defaults.\n" +
+            "# OpenStream TV configuration. Values match the Rust runtime defaults.\n" +
             "epg = false\n" +
             "debug = false\n" +
             "disable_ts_handler = false\n" +
@@ -16,7 +16,7 @@ final class ConfigExport {
             "drm = true\n" +
             "tv_plus = false\n" +
             "disable_auth = false\n" +
-            "title = \"JioTV Go\"\n" +
+            "title = \"OpenStream TV\"\n" +
             "disable_url_encryption = false\n" +
             "proxy = \"\"\n" +
             "public_origin = \"\"\n" +

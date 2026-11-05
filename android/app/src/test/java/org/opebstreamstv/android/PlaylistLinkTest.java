@@ -1,4 +1,4 @@
-package org.jiotvgo.android;
+package org.opebstreamstv.android;
 
 import org.junit.Test;
 import static org.junit.Assert.*;

@@ -1,4 +1,4 @@
-package org.jiotvgo.android;
+package org.opebstreamstv.android;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -31,8 +31,8 @@ final class StoreBackup {
             String line;
             while ((line = reader.readLine()) != null) {
                 String trimmed = line.trim();
-                if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
-                    inData = "[data]".equals(trimmed);
+                if (trimmed.matches("\\[\\[?[^\\]]+\\]\\]?\\s*(?:#.*)?")) {
+                    inData = trimmed.matches("\\[\\s*(?:data|\"data\"|'data')\\s*\\]\\s*(?:#.*)?");
                 } else if (inData && trimmed.matches("(?:access_key|\"access_key\"|'access_key')\\s*=.*")) {
                     return true;
                 }

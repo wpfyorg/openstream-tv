@@ -1,4 +1,4 @@
-package org.jiotvgo.android;
+package org.opebstreamstv.android;
 
 final class PlaylistLink {
     private PlaylistLink() {}

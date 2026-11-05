@@ -18,7 +18,7 @@ build_one() {
   local target="$1" abi="$2"
   cargo ndk --target "$target" --platform "$API" --manifest-path "$ROOT/Cargo.toml" build --release --locked --no-default-features --features slim
   mkdir -p "$ANDROID_DIR/app/src/main/jniLibs/$abi"
-  install -m 755 "$ROOT/target/$target/release/ost" "$ANDROID_DIR/app/src/main/jniLibs/$abi/libjiotv_exec.so"
+  install -m 755 "$ROOT/target/$target/release/ost" "$ANDROID_DIR/app/src/main/jniLibs/$abi/libopenstream_exec.so"
 }
 
 build_one aarch64-linux-android arm64-v8a

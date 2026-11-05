@@ -1,4 +1,4 @@
-package org.jiotvgo.android;
+package org.opebstreamstv.android;
 
 import android.app.Service;
 import android.content.Intent;

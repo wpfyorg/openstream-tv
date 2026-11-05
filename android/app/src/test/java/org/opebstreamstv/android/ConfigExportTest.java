@@ -1,4 +1,4 @@
-package org.jiotvgo.android;
+package org.opebstreamstv.android;
 
 import org.junit.Test;
 import java.io.ByteArrayOutputStream;
@@ -26,7 +26,7 @@ public class ConfigExportTest {
             ByteArrayOutputStream output = new ByteArrayOutputStream();
             ConfigExport.write(absent, output);
             String text = output.toString("UTF-8");
-            assertTrue(text.contains("title = \"JioTV Go\""));
+            assertTrue(text.contains("title = \"OpenStream TV\""));
             assertTrue(text.contains("drm = true"));
             assertTrue(text.contains("tv_plus = false"));
             assertTrue(text.contains("default_categories = []"));

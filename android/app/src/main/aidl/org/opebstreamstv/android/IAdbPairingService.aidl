@@ -1,4 +1,4 @@
-package org.jiotvgo.android;
+package org.opebstreamstv.android;
 
 interface IAdbPairingService {
     boolean pair(String host, int port, String pairingCode);

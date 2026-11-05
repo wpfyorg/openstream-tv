@@ -1,4 +1,4 @@
-package org.jiotvgo.android;
+package org.opebstreamstv.android;
 
 import android.Manifest;
 import android.app.*;
@@ -230,7 +230,7 @@ public final class MainActivity extends Activity {
         if (wireless) { form.addView(pairPort); form.addView(pairCode); form.addView(connectPort); }
         form.addView(tcpPort);
         TextView note = new TextView(this); note.setText(wireless ? "Enable Developer options and Wireless debugging first. Pairing uses its own temporary port, then connect using the separate debugging port. Approve any Android authorization prompt on this device." : "Enable Developer options and TCP debugging first. Enter the endpoint exposed by the device; port 5555 is not assumed. Approve Android’s USB debugging authorization prompt on this device."); note.setTextColor(0xffc5d0dd); form.addView(note);
-        AlertDialog.Builder dialog = new AlertDialog.Builder(this).setTitle("Manual ADB startup permission setup").setMessage("Local ADB at 127.0.0.1:5555 was unavailable or pairing is required. ADB will grant only JioTV Go’s startup-screen permission and disconnect after setup.").setView(form)
+        AlertDialog.Builder dialog = new AlertDialog.Builder(this).setTitle("Manual ADB startup permission setup").setMessage("Local ADB at 127.0.0.1:5555 was unavailable or pairing is required. ADB will grant only Openstream TV Slim’s startup-screen permission and disconnect after setup.").setView(form)
             .setNegativeButton("Cancel", (d,w) -> say("ADB setup cancelled."));
         if (wireless) dialog.setNeutralButton("Pair and grant", null);
         dialog.setPositiveButton(wireless ? "TCP ADB grant" : "Connect and grant", null);
@@ -253,7 +253,7 @@ public final class MainActivity extends Activity {
         alert.setOnDismissListener(d -> restoreTvReturnFocus());
         alert.show();
     }
-    private EditText setupField(String hint, String value) { EditText e = new EditText(this); e.setId(View.generateViewId()); e.setSingleLine(true); e.setHint(hint); e.setText(value); e.setTextColor(0xffffffff); e.setHintTextColor(0xff91a0b3); e.setInputType(hint.toLowerCase().contains("port") ? 2 : android.text.InputType.TYPE_CLASS_TEXT); if (television) { e.setTextSize(18); e.setPadding(dp(14), dp(10), dp(14), dp(10)); e.setBackgroundResource(org.jiotvgo.android.R.drawable.tv_field_background); } return e; }
+    private EditText setupField(String hint, String value) { EditText e = new EditText(this); e.setId(View.generateViewId()); e.setSingleLine(true); e.setHint(hint); e.setText(value); e.setTextColor(0xffffffff); e.setHintTextColor(0xff91a0b3); e.setInputType(hint.toLowerCase().contains("port") ? 2 : android.text.InputType.TYPE_CLASS_TEXT); if (television) { e.setTextSize(18); e.setPadding(dp(14), dp(10), dp(14), dp(10)); e.setBackgroundResource(org.opebstreamstv.android.R.drawable.tv_field_background); } return e; }
     private void runLocalAdbSetup() {
         runAdbSetup(LOCAL_ADB_HOST, LOCAL_ADB_PORT, "", 0, false, true);
     }
@@ -411,7 +411,7 @@ public final class MainActivity extends Activity {
         shizukuTeardownExpected = teardownExpected;
         shizukuConnection = new ServiceConnection() {
             @Override public void onServiceConnected(ComponentName n, IBinder binder) {
-                io.execute(() -> { try { Parcel data=Parcel.obtain(), reply=Parcel.obtain(); data.writeInterfaceToken("org.jiotvgo.android.IStartupPermissionService"); binder.transact(IBinder.FIRST_CALL_TRANSACTION,data,reply,0); reply.readException(); boolean ok=reply.readInt()!=0; data.recycle(); reply.recycle(); runOnUiThread(() -> { say(ok && android.provider.Settings.canDrawOverlays(MainActivity.this) ? "Startup-screen permission verified through Shizuku." : "Shizuku grant failed or Android still reports permission denied."); refreshPermissionButtons(); }); }
+                io.execute(() -> { try { Parcel data=Parcel.obtain(), reply=Parcel.obtain(); data.writeInterfaceToken("org.opebstreamstv.android.IStartupPermissionService"); binder.transact(IBinder.FIRST_CALL_TRANSACTION,data,reply,0); reply.readException(); boolean ok=reply.readInt()!=0; data.recycle(); reply.recycle(); runOnUiThread(() -> { say(ok && android.provider.Settings.canDrawOverlays(MainActivity.this) ? "Startup-screen permission verified through Shizuku." : "Shizuku grant failed or Android still reports permission denied."); refreshPermissionButtons(); }); }
                     catch(Exception e) { say("Shizuku stopped or grant failed. Restart it and retry."); } finally { teardownExpected.set(true); Shizuku.unbindUserService(shizukuArgs, shizukuConnection, true); } });
             }
             @Override public void onServiceDisconnected(ComponentName n) { if (!teardownExpected.get()) say("Shizuku disconnected. Retry setup."); }
@@ -607,7 +607,7 @@ public final class MainActivity extends Activity {
         requestTvFocus(target);
     }
     private LinearLayout column() { LinearLayout c = new LinearLayout(this); c.setOrientation(LinearLayout.VERTICAL); c.setPadding(television ? dp(14) : 0, television ? dp(10) : 0, television ? dp(14) : 0, television ? dp(10) : 0); return c; }
-    private RadioButton providerChoice(String label, boolean checked) { RadioButton b = new RadioButton(this); b.setId(View.generateViewId()); b.setText(label); b.setTextColor(0xfff4f8fc); b.setTextSize(television ? 15 : 14); b.setChecked(checked); b.setFocusable(true); b.setFocusableInTouchMode(false); if (television) { b.setMinHeight(dp(54)); b.setPadding(dp(12), dp(8), dp(12), dp(8)); b.setBackgroundResource(org.jiotvgo.android.R.drawable.tv_field_background); } return b; }
+    private RadioButton providerChoice(String label, boolean checked) { RadioButton b = new RadioButton(this); b.setId(View.generateViewId()); b.setText(label); b.setTextColor(0xfff4f8fc); b.setTextSize(television ? 15 : 14); b.setChecked(checked); b.setFocusable(true); b.setFocusableInTouchMode(false); if (television) { b.setMinHeight(dp(54)); b.setPadding(dp(12), dp(8), dp(12), dp(8)); b.setBackgroundResource(org.opebstreamstv.android.R.drawable.tv_field_background); } return b; }
     private void pickFile(String type, int request) {
         rememberTvReturnFocus(request == PICK_CONFIG ? importConfigButton : importStoreButton);
         if (television && Build.VERSION.SDK_INT <= 32) {
@@ -697,8 +697,8 @@ public final class MainActivity extends Activity {
     private int dp(int value) { return Math.round(value * getResources().getDisplayMetrics().density); }
     private LinearLayout.LayoutParams spacedParams(int top, int bottom) { LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2); lp.topMargin = dp(top); lp.bottomMargin = dp(bottom); return lp; }
     private TextView addText(LinearLayout p, String s, int size, int color) { TextView t = new TextView(this); t.setText(s); t.setTextSize(size); t.setTextColor(color); t.setPadding(0, dp(television ? 3 : 10), 0, dp(television ? 3 : 10)); p.addView(t, spacedParams(television ? 1 : 4, television ? 1 : 4)); return t; }
-    private EditText field(LinearLayout p, String hint) { EditText e = new EditText(this); e.setId(View.generateViewId()); e.setSingleLine(true); e.setHint(hint); e.setTextColor(0xffffffff); e.setHintTextColor(0xff91a0b3); e.setTextSize(television ? 20 : 16); e.setPadding(dp(16), dp(television ? 14 : 8), dp(16), dp(television ? 14 : 8)); e.setBackgroundResource(org.jiotvgo.android.R.drawable.tv_field_background); p.addView(e, spacedParams(television ? 8 : 4, television ? 8 : 4)); return e; }
-    private Button button(LinearLayout p, String label) { Button b = new Button(this); b.setId(View.generateViewId()); b.setText(label); b.setAllCaps(false); b.setTextSize(television ? 18 : 14); b.setTextColor(getResources().getColorStateList(org.jiotvgo.android.R.color.tv_button_text)); b.setMinHeight(dp(television ? 64 : 48)); b.setPadding(dp(20), dp(television ? 12 : 8), dp(20), dp(television ? 12 : 8)); b.setBackgroundResource(org.jiotvgo.android.R.drawable.tv_button_background); b.setFocusable(true); b.setFocusableInTouchMode(false); LinearLayout.LayoutParams lp = p.getOrientation() == LinearLayout.HORIZONTAL ? new LinearLayout.LayoutParams(0, -2, 1) : spacedParams(television ? 8 : 4, television ? 8 : 4); if (p.getOrientation() == LinearLayout.HORIZONTAL) { lp.leftMargin = dp(4); lp.rightMargin = dp(4); } p.addView(b, lp); return b; }
+    private EditText field(LinearLayout p, String hint) { EditText e = new EditText(this); e.setId(View.generateViewId()); e.setSingleLine(true); e.setHint(hint); e.setTextColor(0xffffffff); e.setHintTextColor(0xff91a0b3); e.setTextSize(television ? 20 : 16); e.setPadding(dp(16), dp(television ? 14 : 8), dp(16), dp(television ? 14 : 8)); e.setBackgroundResource(org.opebstreamstv.android.R.drawable.tv_field_background); p.addView(e, spacedParams(television ? 8 : 4, television ? 8 : 4)); return e; }
+    private Button button(LinearLayout p, String label) { Button b = new Button(this); b.setId(View.generateViewId()); b.setText(label); b.setAllCaps(false); b.setTextSize(television ? 18 : 14); b.setTextColor(getResources().getColorStateList(org.opebstreamstv.android.R.color.tv_button_text)); b.setMinHeight(dp(television ? 64 : 48)); b.setPadding(dp(20), dp(television ? 12 : 8), dp(20), dp(television ? 12 : 8)); b.setBackgroundResource(org.opebstreamstv.android.R.drawable.tv_button_background); b.setFocusable(true); b.setFocusableInTouchMode(false); LinearLayout.LayoutParams lp = p.getOrientation() == LinearLayout.HORIZONTAL ? new LinearLayout.LayoutParams(0, -2, 1) : spacedParams(television ? 8 : 4, television ? 8 : 4); if (p.getOrientation() == LinearLayout.HORIZONTAL) { lp.leftMargin = dp(4); lp.rightMargin = dp(4); } p.addView(b, lp); return b; }
     private void say(String s) { runOnUiThread(() -> { if (status != null) status.setText(s); }); }
     private final Shizuku.OnRequestPermissionResultListener shizukuPermissionListener = (requestCode, result) -> {
         if (requestCode != SHIZUKU_PERMISSION) return;
@@ -731,7 +731,7 @@ public final class MainActivity extends Activity {
         }
     }
     private boolean serverHealthy() throws Exception { HttpURLConnection c=(HttpURLConnection)new URL("http://127.0.0.1:5001"+keyedPrefix+"api/status").openConnection(); c.setConnectTimeout(1200); c.setReadTimeout(1800); c.setRequestMethod("GET"); try { int code=c.getResponseCode(); if(code!=200) return false; ByteArrayOutputStream out=new ByteArrayOutputStream(); try(InputStream in=c.getInputStream()){ byte[] buf=new byte[1024]; int n; while((n=in.read(buf))!=-1) out.write(buf,0,n); } return new JSONObject(out.toString("UTF-8")).has("jiotv"); } catch (ConnectException e) { return false; } finally { c.disconnect(); } }
-    private String runKeyShow() throws Exception { File binary=new File(getApplicationInfo().nativeLibraryDir,"libjiotv_exec.so"); java.util.List<String> command=new java.util.ArrayList<>(); command.add(binary.getAbsolutePath()); command.add("--skip-update-check"); File config=new File(getFilesDir(),"config.toml"); if(config.isFile()) { command.add("--config"); command.add(config.getAbsolutePath()); } command.add("key"); command.add("show"); ProcessBuilder b=new ProcessBuilder(command); b.directory(getFilesDir()); b.redirectErrorStream(true); b.environment().put("JIOTV_PATH_PREFIX",new File(getFilesDir(),"data").getAbsolutePath()); b.environment().put("HOME",getFilesDir().getAbsolutePath()); Process p=b.start(); ByteArrayOutputStream out=new ByteArrayOutputStream(); byte[] buf=new byte[256]; int n; while((n=p.getInputStream().read(buf))!=-1) out.write(buf,0,n); if(p.waitFor()!=0) throw new IOException("key command failed"); String result=out.toString("UTF-8").trim(); keyedPrefix=PlaylistLink.keyedPrefix(result); return result; }
+    private String runKeyShow() throws Exception { File binary=new File(getApplicationInfo().nativeLibraryDir,"libopenstream_exec.so"); java.util.List<String> command=new java.util.ArrayList<>(); command.add(binary.getAbsolutePath()); command.add("--skip-update-check"); File config=new File(getFilesDir(),"config.toml"); if(config.isFile()) { command.add("--config"); command.add(config.getAbsolutePath()); } command.add("key"); command.add("show"); ProcessBuilder b=new ProcessBuilder(command); b.directory(getFilesDir()); b.redirectErrorStream(true); b.environment().put("JIOTV_PATH_PREFIX",new File(getFilesDir(),"data").getAbsolutePath()); b.environment().put("HOME",getFilesDir().getAbsolutePath()); Process p=b.start(); ByteArrayOutputStream out=new ByteArrayOutputStream(); byte[] buf=new byte[256]; int n; while((n=p.getInputStream().read(buf))!=-1) out.write(buf,0,n); if(p.waitFor()!=0) throw new IOException("key command failed"); String result=out.toString("UTF-8").trim(); keyedPrefix=PlaylistLink.keyedPrefix(result); return result; }
 
     private void otpRequest(boolean verifyRequest) {
         String n=number.getText().toString().trim(), code=otp.getText().toString().trim(); if(n.isEmpty() || (verifyRequest && code.isEmpty())) { say("Enter your mobile number" + (verifyRequest ? " and OTP." : ".")); return; }
@@ -899,7 +899,7 @@ public final class MainActivity extends Activity {
             }
             if (!validationData.mkdir()) throw new IOException("Cannot create validation directory");
             ProcessBuilder pb = new ProcessBuilder(
-                    new File(getApplicationInfo().nativeLibraryDir, "libjiotv_exec.so").getAbsolutePath(),
+                    new File(getApplicationInfo().nativeLibraryDir, "libopenstream_exec.so").getAbsolutePath(),
                     "--skip-update-check", "--config", staged.getAbsolutePath(), "key", "show");
             pb.directory(getFilesDir());
             pb.redirectOutput(new File("/dev/null"));
@@ -947,7 +947,7 @@ public final class MainActivity extends Activity {
             if (!validationData.mkdir()) throw new IOException("Cannot create validation directory");
             File candidate = new File(validationData, "store_v4.toml");
             try (InputStream in = new FileInputStream(staged)) { StoreBackup.copyBounded(in, candidate, 2 * 1024 * 1024); }
-            ProcessBuilder pb = new ProcessBuilder(new File(getApplicationInfo().nativeLibraryDir, "libjiotv_exec.so").getAbsolutePath(), "--skip-update-check", "key", "show");
+            ProcessBuilder pb = new ProcessBuilder(new File(getApplicationInfo().nativeLibraryDir, "libopenstream_exec.so").getAbsolutePath(), "--skip-update-check", "key", "show");
             pb.directory(validationData);
             pb.redirectOutput(new File("/dev/null"));
             pb.redirectError(new File("/dev/null"));

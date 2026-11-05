@@ -1,4 +1,4 @@
-package org.jiotvgo.android;
+package org.opebstreamstv.android;
 
 import android.app.Activity;
 import android.app.AlertDialog;

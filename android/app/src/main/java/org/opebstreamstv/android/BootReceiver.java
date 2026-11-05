@@ -1,4 +1,4 @@
-package org.jiotvgo.android;
+package org.opebstreamstv.android;
 
 import android.content.BroadcastReceiver;
 import android.content.Context;

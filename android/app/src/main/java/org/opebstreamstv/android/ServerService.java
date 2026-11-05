@@ -1,4 +1,4 @@
-package org.jiotvgo.android;
+package org.opebstreamstv.android;
 
 import android.app.*;
 import android.content.Context;
@@ -10,9 +10,9 @@ import java.io.File;
 import java.util.Map;
 
 public final class ServerService extends Service {
-    static final String ACTION_START = "org.jiotvgo.android.START";
-    static final String ACTION_STOP = "org.jiotvgo.android.STOP";
-    static final String ACTION_STOPPED = "org.jiotvgo.android.STOPPED";
+    static final String ACTION_START = "org.opebstreamstv.android.START";
+    static final String ACTION_STOP = "org.opebstreamstv.android.STOP";
+    static final String ACTION_STOPPED = "org.opebstreamstv.android.STOPPED";
     private static final String PREFS = "server_autostart";
     private static final String PREF_ENABLED = "enabled";
     private Process process;
@@ -36,7 +36,7 @@ public final class ServerService extends Service {
             File dir = getFilesDir();
             File config = new File(dir, "config.toml");
             if (!config.exists() && !config.createNewFile()) throw new IOException("Cannot initialize config");
-            ProcessBuilder pb = new ProcessBuilder(new File(getApplicationInfo().nativeLibraryDir, "libjiotv_exec.so").getAbsolutePath(), "--skip-update-check", "--config", config.getAbsolutePath(), "serve", "--host", "127.0.0.1", "--port", "5001");
+            ProcessBuilder pb = new ProcessBuilder(new File(getApplicationInfo().nativeLibraryDir, "libopenstream_exec.so").getAbsolutePath(), "--skip-update-check", "--config", config.getAbsolutePath(), "serve", "--host", "127.0.0.1", "--port", "5001");
             pb.directory(dir);
             pb.redirectOutput(new File("/dev/null"));
             pb.redirectError(new File("/dev/null"));
@@ -48,7 +48,7 @@ public final class ServerService extends Service {
             process = pb.start();
             updateNotification("Local server: 127.0.0.1:5001");
         } catch (Exception e) {
-            updateNotification("Could not start server. Open JioTV Go for details.");
+            updateNotification("Could not start server. Open Openstream TV Slim for details.");
             stopSelf();
         }
     }

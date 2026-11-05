@@ -1,4 +1,4 @@
-package org.jiotvgo.android;
+package org.opebstreamstv.android;
 
 import android.os.Binder;
 import android.os.Parcel;
@@ -10,7 +10,7 @@ import java.util.concurrent.TimeUnit;
 public final class StartupPermissionUserService extends Binder {
     private static final String TAG = "JioTVStartupSetup";
     public boolean grantStartupScreenPermission() throws RemoteException {
-        ProcessBuilder builder = new ProcessBuilder("appops", "set", "org.jiotvgo.android", "SYSTEM_ALERT_WINDOW", "allow");
+        ProcessBuilder builder = new ProcessBuilder("appops", "set", "org.opebstreamstv.android", "SYSTEM_ALERT_WINDOW", "allow");
         builder.redirectOutput(new java.io.File("/dev/null"));
         builder.redirectError(new java.io.File("/dev/null"));
         java.lang.Process process = null;
@@ -27,7 +27,7 @@ public final class StartupPermissionUserService extends Binder {
             System.exit(0);
             return true;
         }
-        if (code == FIRST_CALL_TRANSACTION) { data.enforceInterface("org.jiotvgo.android.IStartupPermissionService"); boolean granted=grantStartupScreenPermission(); reply.writeNoException(); reply.writeInt(granted?1:0); return true; }
+        if (code == FIRST_CALL_TRANSACTION) { data.enforceInterface("org.opebstreamstv.android.IStartupPermissionService"); boolean granted=grantStartupScreenPermission(); reply.writeNoException(); reply.writeInt(granted?1:0); return true; }
         return super.onTransact(code,data,reply,flags);
     }
 }

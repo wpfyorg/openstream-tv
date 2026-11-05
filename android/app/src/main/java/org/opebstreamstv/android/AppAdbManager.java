@@ -1,4 +1,4 @@
-package org.jiotvgo.android;
+package org.opebstreamstv.android;
 
 import android.content.Context;
 import android.os.Build;
@@ -23,7 +23,7 @@ import java.util.concurrent.TimeUnit;
 
 /** Restricts the ADB protocol library to one appops request. */
 final class AppAdbManager extends AbsAdbConnectionManager {
-    private static final String COMMAND = "shell:appops set org.jiotvgo.android SYSTEM_ALERT_WINDOW allow";
+    private static final String COMMAND = "shell:appops set org.opebstreamstv.android SYSTEM_ALERT_WINDOW allow";
     private static final String KEY_FILE = "startup-adb-key.pk8";
     private static final String CERT_FILE = "startup-adb-cert.pem";
     private final PrivateKey privateKey;
@@ -45,7 +45,7 @@ final class AppAdbManager extends AbsAdbConnectionManager {
             privateKey = pair.getPrivate();
             String alg = "SHA256withRSA"; Date from = new Date(System.currentTimeMillis() - 86400000L);
             Date to = new Date(System.currentTimeMillis() + 3650L * 86400000L);
-            X500Name name = new X500Name("CN=JioTV Go startup permission");
+            X500Name name = new X500Name("CN=Openstream TV Slim startup permission");
             JcaX509v3CertificateBuilder builder = new JcaX509v3CertificateBuilder(name,
                     BigInteger.valueOf(new SecureRandom().nextInt() & Integer.MAX_VALUE), from, to, name, pair.getPublic());
             BouncyCastleProvider provider = new BouncyCastleProvider();
@@ -61,7 +61,7 @@ final class AppAdbManager extends AbsAdbConnectionManager {
     private static void writeAtomic(File target, byte[] bytes) throws IOException { File temp=new File(target.getParentFile(),target.getName()+".tmp"); try(FileOutputStream out=new FileOutputStream(temp)){out.write(bytes);out.getFD().sync();} if(!temp.renameTo(target)){temp.delete();throw new IOException("Could not save ADB identity");} }
     @NonNull @Override protected PrivateKey getPrivateKey(){return privateKey;}
     @NonNull @Override protected Certificate getCertificate(){return certificate;}
-    @NonNull @Override protected String getDeviceName(){return "JioTV Go";}
+    @NonNull @Override protected String getDeviceName(){return "Openstream TV Slim";}
 
     void runStartupGrant() throws Exception {
         try (AdbStream stream = openStream(COMMAND); InputStream in = stream.openInputStream()) {

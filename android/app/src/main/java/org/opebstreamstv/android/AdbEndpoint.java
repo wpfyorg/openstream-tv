@@ -1,4 +1,4 @@
-package org.jiotvgo.android;
+package org.opebstreamstv.android;
 
 /** Validation shared by the ADB setup UI before opening a network connection. */
 final class AdbEndpoint {
