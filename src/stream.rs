@@ -1740,6 +1740,7 @@ mod tests {
             public_ip: Arc::new(crate::unlock::PublicIp::new(reqwest::Client::new())),
             unlock_limiter: Arc::new(crate::unlock::AttemptLimiter::default()),
             listen: Default::default(),
+            tunnel_origin: Default::default(),
         };
         use wiremock::matchers::{header, method, path};
         use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -2260,6 +2261,7 @@ mod tests {
             public_ip: Arc::new(crate::unlock::PublicIp::new(reqwest::Client::new())),
             unlock_limiter: Arc::new(crate::unlock::AttemptLimiter::default()),
             listen: Default::default(),
+            tunnel_origin: Default::default(),
         };
         let body = "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=800000\nchild.m3u8\n";
         let out = render_replace(

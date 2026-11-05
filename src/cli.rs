@@ -15,11 +15,22 @@ pub enum Command {
     EpgDelete,
     EpgOn,
     EpgOff,
-    BackgroundStart { args: String },
+    BackgroundStart {
+        args: String,
+    },
     BackgroundStop,
-    Update { version: Option<String> },
-    Autostart { args: String },
+    Update {
+        version: Option<String>,
+    },
+    Autostart {
+        args: String,
+    },
     AutostartRemove,
+    TunnelSetup {
+        domain: String,
+        subdomain: String,
+        port: String,
+    },
     Help,
 }
 
@@ -33,6 +44,8 @@ pub struct ServeArgs {
     pub tls_key: String,
     pub tunnel: bool,
     pub tunnel_token: Option<String>,
+    pub tunnel_quick: bool,
+    pub tunnel_saved: bool,
 }
 
 impl Default for ServeArgs {
@@ -49,6 +62,8 @@ impl Default for ServeArgs {
             tunnel_token: std::env::var("OPENSTREAM_TUNNEL_TOKEN")
                 .or_else(|_| std::env::var("JIOTV_TUNNEL_TOKEN"))
                 .ok(),
+            tunnel_quick: false,
+            tunnel_saved: false,
         }
     }
 }
@@ -67,6 +82,8 @@ pub fn parse() -> anyhow::Result<Args> {
     let mut serve = ServeArgs::default();
     let mut background_args = String::new();
     let mut version = None;
+    let mut domain = String::new();
+    let mut subdomain = String::new();
 
     let mut parser = lexopt::Parser::from_env();
     let mut positionals: Vec<String> = Vec::new();
@@ -83,6 +100,10 @@ pub fn parse() -> anyhow::Result<Args> {
             Long("tls-key") => serve.tls_key = parser.value()?.parse()?,
             Long("tunnel") => serve.tunnel = true,
             Long("tunnel-token") => serve.tunnel_token = Some(parser.value()?.parse()?),
+            Long("tunnel-quick") => serve.tunnel_quick = true,
+            Long("tunnel-saved") => serve.tunnel_saved = true,
+            Long("domain") => domain = parser.value()?.parse()?,
+            Long("subdomain") => subdomain = parser.value()?.parse()?,
             Long("args") | Short('a') => background_args = parser.value()?.parse()?,
             Long("version") => version = Some(parser.value()?.parse()?),
             Long("help") | Short('h') => {
@@ -145,6 +166,16 @@ pub fn parse() -> anyhow::Result<Args> {
                 other => anyhow::bail!("usage: ost background start|stop (got {other:?})"),
             },
             Some("update") | Some("upgrade") | Some("u") => Command::Update { version },
+            Some("tunnel") => match positionals.get(1).map(String::as_str) {
+                Some("setup") => Command::TunnelSetup {
+                    domain,
+                    subdomain,
+                    port: serve.port,
+                },
+                other => anyhow::bail!(
+                    "usage: ost tunnel setup --domain example.com --subdomain tv [--port 5001] (got {other:?})"
+                ),
+            },
             Some("autostart") | Some("as") => match positionals.get(1).map(String::as_str) {
                 None | Some("install") | Some("enable") => Command::Autostart {
                     args: background_args,

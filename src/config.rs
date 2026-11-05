@@ -25,6 +25,8 @@ pub struct Config {
     pub title: String,
     pub disable_url_encryption: bool,
     pub proxy: String,
+    /// HTTPS origin published by a known reverse proxy or named tunnel.
+    pub public_origin: String,
     pub path_prefix: String,
     pub log_path: String,
     #[serde(default = "default_true")]
@@ -52,6 +54,7 @@ impl Default for Config {
             title: "OpenStream TV".to_string(),
             disable_url_encryption: false,
             proxy: String::new(),
+            public_origin: String::new(),
             path_prefix: String::new(),
             log_path: String::new(),
             log_to_stdout: true,
@@ -79,6 +82,9 @@ impl Config {
                 .map_err(|e| anyhow::anyhow!("parsing config file {path}: {e}"))?;
         }
         cfg.apply_env();
+        if !cfg.public_origin.is_empty() {
+            cfg.public_origin = crate::public_origin::validate(&cfg.public_origin)?;
+        }
         Ok(cfg)
     }
 
@@ -139,6 +145,7 @@ impl Config {
             "OPENSTREAM_DISABLE_URL_ENCRYPTION"
         );
         env_str!(proxy, "JIOTV_PROXY", "OPENSTREAM_PROXY");
+        env_str!(public_origin, "JIOTV_PUBLIC_ORIGIN", "OPENSTREAM_PUBLIC_ORIGIN");
         env_str!(path_prefix, "JIOTV_PATH_PREFIX", "OPENSTREAM_PATH_PREFIX");
         env_str!(log_path, "JIOTV_LOG_PATH", "OPENSTREAM_LOG_PATH");
         env_bool!(
@@ -245,6 +252,32 @@ mod tests {
         assert!(cfg.extras);
         std::env::remove_var("OPENSTREAM_TVPLUS");
         std::env::remove_var("JIOTV_TVPLUS");
+    }
+
+    #[test]
+    fn public_origin_is_validated_from_env_and_toml() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("jiotv_go.toml");
+        std::fs::write(&path, "public_origin = \"https://tv.example.com:443/\"\n").unwrap();
+        assert_eq!(
+            Config::load(Some(path.to_str().unwrap()))
+                .unwrap()
+                .public_origin,
+            "https://tv.example.com"
+        );
+        std::env::set_var("JIOTV_PUBLIC_ORIGIN", "https://legacy.example:8443");
+        std::env::set_var("OPENSTREAM_PUBLIC_ORIGIN", "https://other.example:8443");
+        assert_eq!(
+            Config::load(Some(path.to_str().unwrap()))
+                .unwrap()
+                .public_origin,
+            "https://other.example:8443"
+        );
+        std::env::set_var("OPENSTREAM_PUBLIC_ORIGIN", "http://unsafe.example");
+        assert!(Config::load(Some(path.to_str().unwrap())).is_err());
+        std::env::remove_var("OPENSTREAM_PUBLIC_ORIGIN");
+        std::env::remove_var("JIOTV_PUBLIC_ORIGIN");
     }
 
     #[test]

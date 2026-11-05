@@ -3,6 +3,9 @@
 // offered on the plain-HTTP origin. Anywhere else (plain HTTP, or a tunnel/proxy
 // origin that is not the local TLS port) the page's own origin is the right one.
 export function plainHttpOrigin(loc, status) {
+  // A tunnel may use the same HTTPS port as the local TLS listener.
+  // Never downgrade the administrator-configured public origin.
+  if (loc.origin === status?.publicOrigin) return loc.origin;
   const http = status?.httpPort;
   const tls = status?.tlsPort;
   // Browsers report an empty port for the scheme's default (443 for HTTPS).
