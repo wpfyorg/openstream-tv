@@ -84,7 +84,7 @@ chmod +x "$tmp/bin/openstream-init"
 cat >"$tmp/bin/netstat" <<'EOF'
 #!/bin/sh
 echo 'Active Internet connections (only servers)'
-echo "tcp        0      0 0.0.0.0:5001            0.0.0.0:*               LISTEN      123/${OPENSTREAM_TEST_PORT_OWNER:-openstream}"
+echo "tcp        0      0 0.0.0.0:5001            0.0.0.0:*               LISTEN      123/${OPENSTREAM_TEST_PORT_OWNER:-ost}"
 EOF
 cat >"$tmp/bin/uci" <<'EOF'
 #!/bin/sh
@@ -112,7 +112,7 @@ run_case() {
     OPENSTREAM_TEST_ASSET_NAME=$expected OPENSTREAM_TEST_LOG=$log \
     OPENSTREAM_INSTALL_DIR="$install_dir" PATH="$tmp/bin:$PATH" \
     "$@" sh "$root/scripts/install.sh" >/dev/null
-  test -x "$install_dir/openstream"
+  test -x "$install_dir/ost"
   grep -F "/$expected" "$log" >/dev/null
   printf 'installer target OK: %s\n' "$expected"
 }
@@ -133,7 +133,7 @@ legacy_log="$tmp/log-legacy-release"
 OPENSTREAM_TEST_OS=Linux OPENSTREAM_TEST_MACHINE=x86_64 OPENSTREAM_TEST_ASSET_NAME=$legacy_asset \
   OPENSTREAM_TEST_LOG="$legacy_log" OPENSTREAM_INSTALL_DIR="$tmp/install-legacy-release" PATH="$tmp/bin:$PATH" \
   sh "$root/scripts/install.sh" >/dev/null
-test -x "$tmp/install-legacy-release/openstream"
+test -x "$tmp/install-legacy-release/ost"
 grep -F "/$legacy_asset" "$legacy_log" >/dev/null
 echo "legacy release asset fallback OK"
 
@@ -172,7 +172,7 @@ if OPENSTREAM_TEST_OS=Linux OPENSTREAM_TEST_MACHINE=x86_64 OPENSTREAM_TEST_ASSET
   echo "checksum mismatch unexpectedly installed" >&2
   exit 1
 fi
-test ! -e "$tmp/bad-install/openstream"
+test ! -e "$tmp/bad-install/ost"
 echo "unsupported architecture and checksum rejection OK"
 
 cat >"$tmp/bin/apk" <<'EOF'
@@ -333,6 +333,29 @@ if OPENSTREAM_PLATFORM=openwrt OPENSTREAM_TEST_PORT_OWNER=uhttpd OPENSTREAM_READ
   exit 1
 fi
 grep -F "not listening yet" "$tmp/openwrt-owner-output" >/dev/null
+# A process name that merely contains "ost" is not accepted as the owner.
+if OPENSTREAM_PLATFORM=openwrt OPENSTREAM_TEST_PORT_OWNER=postfix OPENSTREAM_READY_TIMEOUT=1 OPENSTREAM_TEST_OS=Linux OPENSTREAM_TEST_MACHINE=aarch64 OPENSTREAM_TEST_PACKAGE_ARCH=aarch64 \
+  OPENSTREAM_TEST_ASSET_NAME=$openwrt_aarch64_apk OPENSTREAM_TEST_LOG="$tmp/openwrt-owner-substring-downloads" \
+  OPENSTREAM_TEST_PACKAGE_LOG="$tmp/openwrt-owner-substring-package" OPENSTREAM_INIT_SCRIPT="$tmp/bin/openstream-init" \
+  PATH="$tmp/bin:$PATH" sh "$root/scripts/install.sh" >"$tmp/openwrt-owner-substring-output" 2>/dev/null; then
+  echo "a substring process-name match was reported as OpenStream TV running" >&2
+  exit 1
+fi
+grep -F "not listening yet" "$tmp/openwrt-owner-substring-output" >/dev/null
+# ss reports process owners as quoted names inside users:((...)); accept the exact name.
+mv "$tmp/bin/netstat" "$tmp/bin/netstat.saved"
+cat >"$tmp/bin/ss" <<'EOF'
+#!/bin/sh
+echo 'LISTEN 0 128 0.0.0.0:5001 0.0.0.0:* users:(("ost",pid=123,fd=7))'
+EOF
+chmod +x "$tmp/bin/ss"
+OPENSTREAM_PLATFORM=openwrt OPENSTREAM_TEST_OS=Linux OPENSTREAM_TEST_MACHINE=aarch64 OPENSTREAM_TEST_PACKAGE_ARCH=aarch64 \
+  OPENSTREAM_TEST_ASSET_NAME=$openwrt_aarch64_apk OPENSTREAM_TEST_LOG="$tmp/openwrt-ss-owner-downloads" \
+  OPENSTREAM_TEST_PACKAGE_LOG="$tmp/openwrt-ss-owner-package" OPENSTREAM_INIT_SCRIPT="$tmp/bin/openstream-init" \
+  PATH="$tmp/bin:$PATH" sh "$root/scripts/install.sh" >"$tmp/openwrt-ss-owner-output"
+grep -F "is installed and running" "$tmp/openwrt-ss-owner-output" >/dev/null
+rm "$tmp/bin/ss"
+mv "$tmp/bin/netstat.saved" "$tmp/bin/netstat"
 # The enable hint must also start the service.
 grep -F "uci commit openstream && " "$tmp/openwrt-disabled-output" | grep -F "start" >/dev/null
 # Every uci spelling of false turns the HTTPS address off, as the init script does.
@@ -372,10 +395,17 @@ if grep -E "Browser UI|browser UI|admin password" "$tmp/openwrt-slim-output" | g
   echo "slim install printed browser steps" >&2
   exit 1
 fi
-grep -F "stop; while pidof openstream >/dev/null; do sleep 1; done; openstream login otp" "$tmp/openwrt-slim-output" >/dev/null
+grep -F "stop; while pidof ost >/dev/null; do sleep 1; done; /usr/bin/ost login otp" "$tmp/openwrt-slim-output" >/dev/null
 # The admin password comes before signing in, and terminal login stops the service.
 grep -n "Set the admin password" "$tmp/openwrt-apk-output" | grep -F "1." >/dev/null
-grep -F "stop; while pidof openstream >/dev/null; do sleep 1; done; openstream login otp" "$tmp/openwrt-apk-output" >/dev/null
+grep -F "stop; while pidof ost >/dev/null; do sleep 1; done; /usr/bin/ost login otp" "$tmp/openwrt-apk-output" >/dev/null
+OPENSTREAM_PLATFORM=openwrt OPENSTREAM_TEST_OPENWRT_BIN=/usr/bin/openstream OPENSTREAM_TEST_PORT_OWNER=openstream OPENSTREAM_TEST_OS=Linux OPENSTREAM_TEST_MACHINE=aarch64 OPENSTREAM_TEST_PACKAGE_ARCH=aarch64 \
+  OPENSTREAM_TEST_ASSET_NAME=$openwrt_aarch64_apk OPENSTREAM_TEST_LOG="$tmp/openwrt-pinned-downloads" \
+  OPENSTREAM_TEST_PACKAGE_LOG="$tmp/openwrt-pinned-package" OPENSTREAM_INIT_SCRIPT="$tmp/bin/openstream-init" \
+  PATH="$tmp/bin:$PATH" sh "$root/scripts/install.sh" >"$tmp/openwrt-pinned-output"
+grep -F "while pidof openstream >/dev/null; do sleep 1; done; /usr/bin/openstream login otp" "$tmp/openwrt-pinned-output" >/dev/null
+grep -F "Set the admin password: /usr/bin/openstream admin password" "$tmp/openwrt-pinned-output" >/dev/null
+grep -F "is installed and running" "$tmp/openwrt-pinned-output" >/dev/null
 if OPENSTREAM_PLATFORM=openwrt OPENSTREAM_TEST_PACKAGE_ARCH=aarch64_cortex-a72 \
   OPENSTREAM_TEST_PACKAGE_LOG="$tmp/openwrt-unsupported-package" PATH="$tmp/bin:$PATH" \
   sh "$root/scripts/install.sh" >/dev/null 2>&1; then

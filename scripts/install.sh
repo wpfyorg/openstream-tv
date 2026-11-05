@@ -85,7 +85,7 @@ checksum_has_asset() {
 size_kib() { echo $(( $(wc -c <"$1") / 1024 )); }
 
 # True when OpenStream TV listens on the TCP port. When the socket listing names the
-# owner it must be openstream, so another daemon holding the port does not count;
+# owner it must match the executable installed by this package, so another daemon holding the port does not count;
 # without owner information, or without a listing tool, the port alone decides.
 port_listening() {
   if command -v netstat >/dev/null 2>&1; then listing=$(netstat -ltnp 2>/dev/null || true)
@@ -96,12 +96,24 @@ port_listening() {
   owners=$(printf '%s\n' "$listing" | grep -E "[:.]$1[[:space:]]" || true)
   [ -n "$owners" ] || return 1
   if printf '%s\n' "$owners" | grep -Eq '[0-9]+/[^ ]+|pid='; then
-    printf '%s\n' "$owners" | grep -q openstream
+    printf '%s\n' "$owners" | awk -v process="${openwrt_process:-ost}" '
+      {
+        for (i = 1; i <= NF; i++) {
+          if ($i ~ /^[0-9]+\//) {
+            owner = $i
+            sub(/^[0-9]+\//, "", owner)
+            if (owner == process) found = 1
+          }
+        }
+        if (index($0, "\"" process "\"") > 0) found = 1
+      }
+      END { exit(found ? 0 : 1) }
+    '
   fi
 }
 
 # Process IDs of running OpenStream TV servers (empty when pidof is unavailable).
-openstream_pids() { pidof openstream 2>/dev/null || true; }
+openstream_pids() { pidof "${openwrt_process:-ost}" 2>/dev/null || true; }
 
 # Stop the service and wait until the process has really exited: procd only
 # signals it on stop, so a lingering old process could otherwise be mistaken for
@@ -609,10 +621,10 @@ ob_admin_password() {
     if printf '%s\n' "$ob_pass" | "$ob_bin" admin password >/dev/null 2>&1; then
       ui_ok "Admin password saved"
     else
-      ui_fail "Could not save the admin password; run: openstream admin password"
+      ui_fail "Could not save the admin password; run: ost admin password"
     fi
   else
-    ui_warn "No password set; run: openstream admin password"
+    ui_warn "No password set; run: ost admin password"
   fi
 }
 
@@ -713,9 +725,9 @@ ob_restart_existing_service() {
 
 ob_openstream_process_running() {
   if command -v pgrep >/dev/null 2>&1; then
-    pgrep -x openstream >/dev/null 2>&1
+    pgrep -x ost >/dev/null 2>&1 || pgrep -x openstream >/dev/null 2>&1
   elif command -v pidof >/dev/null 2>&1; then
-    [ -n "$(pidof openstream 2>/dev/null || true)" ]
+    [ -n "$(pidof ost 2>/dev/null || true)$(pidof openstream 2>/dev/null || true)" ]
   else
     return 1
   fi
@@ -723,7 +735,10 @@ ob_openstream_process_running() {
 
 ob_stop_existing_service() {
   ob_stopped_service=
-  command -v systemctl >/dev/null 2>&1 || return 0
+  if ! command -v systemctl >/dev/null 2>&1; then
+    ob_openstream_process_running && return 1
+    return 0
+  fi
   if systemctl is-active --quiet openstream 2>/dev/null; then
     ob_stopped_service=system
     systemctl stop openstream || return 1
@@ -746,6 +761,63 @@ ob_stop_existing_service() {
     sleep 1
   done
   return 1
+}
+
+ob_systemd_quote_arg() {
+  case "$1" in
+    ''|*[!A-Za-z0-9_./:=@,+-]*)
+      escaped=$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g; s/%/%%/g; s/\$/$$/g')
+      printf '"%s"' "$escaped"
+      ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+
+ob_migrate_legacy_service_exec() {
+  new_bin=$1
+  if [ -n "${OPENSTREAM_TEST_SYSTEMD_UNIT:-}" ]; then
+    unit=$OPENSTREAM_TEST_SYSTEMD_UNIT
+    user_service=1
+  elif [ ! -d /run/systemd/system ]; then
+    return 0
+  elif [ "$(id -u 2>/dev/null || echo 1)" = 0 ]; then
+    unit=/etc/systemd/system/openstream.service
+    user_service=0
+  else
+    config_home=${XDG_CONFIG_HOME:-${HOME:-}/.config}
+    unit=$config_home/systemd/user/openstream.service
+    user_service=1
+  fi
+  [ -f "$unit" ] || return 0
+  grep -F 'Description=OpenStream TV' "$unit" >/dev/null 2>&1 || return 1
+  grep -F -- '--skip-update-check' "$unit" >/dev/null 2>&1 || return 1
+
+  quoted_new=$(ob_systemd_quote_arg "$new_bin")
+  old_bin=${new_bin%/*}/openstream
+  quoted_old=$(ob_systemd_quote_arg "$old_bin")
+  exec_prefix="ExecStart=$quoted_old"
+  unit_tmp="${unit}.ost-migrate.$$"
+  changed=0
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      "$exec_prefix "*)
+        rest=${line#"$exec_prefix"}
+        case "$rest" in
+          *' --skip-update-check '*|*' --skip-update-check')
+            printf 'ExecStart=%s%s\n' "$quoted_new" "$rest"
+            changed=1
+            ;;
+          *) printf '%s\n' "$line" ;;
+        esac
+        ;;
+      *) printf '%s\n' "$line" ;;
+    esac
+  done <"$unit" >"$unit_tmp" || { rm -f "$unit_tmp"; return 1; }
+  [ "$changed" = 1 ] || { rm -f "$unit_tmp"; return 1; }
+  mv "$unit_tmp" "$unit" || return 1
+  if [ "$user_service" = 1 ]; then systemctl --user daemon-reload
+  else systemctl daemon-reload
+  fi
 }
 
 ob_summary() {
@@ -788,7 +860,7 @@ ob_summary() {
     esac
     printf '  %splaylist%s  %s\n' "$ui_dim" "$ui_reset" "$ob_playlist_url"
   else
-    ui_warn "Could not get the authenticated playlist URL; run 'openstream key show' after starting the server"
+    ui_warn "Could not get the authenticated playlist URL; run 'ost key show' after starting the server"
   fi
   case "$tunnel" in
     temp) printf '  %sremote%s    a trycloudflare.com address, printed by the service each start\n' "$ui_dim" "$ui_reset" ;;
@@ -797,9 +869,9 @@ ob_summary() {
   printf '\n'
   if [ "$ob_service" != 1 ]; then
     if [ -n "${ob_env_file:-}" ]; then
-      printf '  Start it with: %s. %s && openstream serve %s%s\n' "$ui_bold" "$(ob_shell_quote "$ob_env_file")" "$(ob_serve_args)" "$ui_reset"
+      printf '  Start it with: %s. %s && ost serve %s%s\n' "$ui_bold" "$(ob_shell_quote "$ob_env_file")" "$(ob_serve_args)" "$ui_reset"
     else
-      printf '  Start it with: %sopenstream serve %s%s\n' "$ui_bold" "$(ob_serve_args)" "$ui_reset"
+      printf '  Start it with: %sost serve %s%s\n' "$ui_bold" "$(ob_serve_args)" "$ui_reset"
     fi
   fi
   if [ "$variant" = full ]; then
@@ -898,6 +970,14 @@ if [ "$openwrt" = true ]; then
     if opkg status "$other_package" 2>/dev/null | grep -q '^Status: .* installed$'; then opkg remove "$other_package"; fi
     opkg install "$tmp/$asset"
   fi
+  openwrt_bin=${OPENSTREAM_TEST_OPENWRT_BIN:-}
+  if [ -z "$openwrt_bin" ]; then
+    if [ -x /usr/bin/ost ]; then openwrt_bin=/usr/bin/ost
+    elif [ -x /usr/bin/openstream ]; then openwrt_bin=/usr/bin/openstream
+    else openwrt_bin=/usr/bin/ost
+    fi
+  fi
+  openwrt_process=${openwrt_bin##*/}
   say "Enabling the service at boot"
   "$init_script" enable
 
@@ -909,13 +989,13 @@ if [ "$openwrt" = true ]; then
       ui_fail "Could not stop the existing service; account setup was not started"
       exit 1
     fi
-    ob_choose_provider /usr/bin/openstream
+    ob_choose_provider "$openwrt_bin"
     ob_choose_host
     ob_choose_tunnel
-    if ob_credentials /usr/bin/openstream; then ob_creds_done=1; else
+    if ob_credentials "$openwrt_bin"; then ob_creds_done=1; else
       ui_fail "The install is complete but the account is not connected"
     fi
-    ob_admin_password /usr/bin/openstream
+    ob_admin_password "$openwrt_bin"
     ob_write_uci
   fi
 
@@ -979,7 +1059,7 @@ if [ "$openwrt" = true ]; then
   if [ "${ob_creds_done:-0}" = 1 ]; then
     ob_service=1
     [ "$running" = true ] || ob_service=0
-    ob_summary /usr/bin/openstream
+    ob_summary "$openwrt_bin"
     [ "$stop_failed" != true ] || exit 1
     [ "$start_service" = 0 ] || [ "$disabled" = true ] || [ "$running" = true ] || exit 1
     exit 0
@@ -1015,13 +1095,13 @@ if [ "$openwrt" = true ]; then
   fi
   if [ "$variant" = slim ]; then
     echo "  $step. Sign in to JioTV from the terminal (you enter the OTP yourself). Stop the service first so it cannot overwrite the login:"
-    echo "       $init_script stop; while pidof openstream >/dev/null; do sleep 1; done; openstream login otp; $init_script start"
+    echo "       $init_script stop; while pidof $openwrt_process >/dev/null; do sleep 1; done; $openwrt_bin login otp; $init_script start"
   else
-    echo "  $step. Set the admin password: openstream admin password"
+    echo "  $step. Set the admin password: $openwrt_bin admin password"
     step=$((step + 1))
     echo "  $step. Open the browser UI, log in with that password, then sign in to JioTV (you enter the OTP yourself)."
     echo "  To sign in to JioTV from the terminal instead, stop the service first so it cannot overwrite the login:"
-    echo "    $init_script stop; while pidof openstream >/dev/null; do sleep 1; done; openstream login otp; $init_script start"
+    echo "    $init_script stop; while pidof $openwrt_process >/dev/null; do sleep 1; done; $openwrt_bin login otp; $init_script start"
   fi
   echo
   echo "Service control: $init_script start|stop|restart    Logs: logread -e openstream"
@@ -1090,7 +1170,13 @@ else install_dir=${HOME:-}/.local/bin
 fi
 [ -n "$install_dir" ] || { echo "HOME is unset; set OPENSTREAM_INSTALL_DIR" >&2; exit 1; }
 was_installed=false
-[ -x "$install_dir/openstream" ] && was_installed=true
+legacy_bin="$install_dir/openstream"
+legacy_installed=false
+[ -x "$install_dir/ost" ] && was_installed=true
+if [ -x "$legacy_bin" ]; then
+  was_installed=true
+  legacy_installed=true
+fi
 ob_existing_update=false
 if [ "$was_installed" = true ] && onboard_enabled; then
   ui_step "OpenStream TV is already installed here"
@@ -1105,14 +1191,27 @@ if [ "$ob_existing_update" = true ] && ! ob_stop_existing_service; then
   exit 1
 fi
 mkdir -p "$install_dir"
-if command -v install >/dev/null 2>&1; then install -m 0755 "$tmp/$asset" "$install_dir/openstream"
-else cp "$tmp/$asset" "$install_dir/openstream" && chmod 0755 "$install_dir/openstream"
+if command -v install >/dev/null 2>&1; then install -m 0755 "$tmp/$asset" "$install_dir/ost"
+else cp "$tmp/$asset" "$install_dir/ost" && chmod 0755 "$install_dir/ost"
 fi
-echo "Installed openstream ($variant, $target) to $install_dir/openstream"
-case ":${PATH:-}:" in *":$install_dir:"*) ;; *) echo "Add $install_dir to PATH to run openstream directly." ;; esac
+if [ "$legacy_installed" = true ]; then
+  if [ "$termux" = true ]; then
+    # Existing Termux startup lines may still point at the old filename. Keep
+    # that path on upgraded installs until ost autostart rewrites the marker.
+    if command -v install >/dev/null 2>&1; then install -m 0755 "$tmp/$asset" "$legacy_bin"
+    else cp "$tmp/$asset" "$legacy_bin" && chmod 0755 "$legacy_bin"
+    fi
+  elif ob_migrate_legacy_service_exec "$install_dir/ost"; then
+    rm -f "$legacy_bin"
+  else
+    ui_warn "Could not migrate the existing OpenStream TV service path; kept $legacy_bin so the service still starts"
+  fi
+fi
+echo "Installed ost ($variant, $target) to $install_dir/ost"
+case ":${PATH:-}:" in *":$install_dir:"*) ;; *) echo "Add $install_dir to PATH to run ost directly." ;; esac
 
 if onboard_enabled; then
-  openstream_bin=$install_dir/openstream
+  ost_bin=$install_dir/ost
   if [ "$ob_existing_update" = true ]; then
     if [ "$start_service" = 1 ] && ob_restart_existing_service; then
       ui_ok "Updated and restarted the existing OpenStream TV service; account settings were kept"
@@ -1123,7 +1222,7 @@ if onboard_enabled; then
     fi
     exit 0
   fi
-  ob_choose_provider "$openstream_bin"
+  ob_choose_provider "$ost_bin"
   ob_choose_host
   ob_choose_tunnel
   if ! ob_stop_existing_service; then
@@ -1135,10 +1234,10 @@ if onboard_enabled; then
   export OPENSTREAM_TVPLUS OPENSTREAM_FASTWAY
   if [ -n "$tunnel_token" ]; then export OPENSTREAM_TUNNEL_TOKEN="$tunnel_token"; fi
   ob_write_shell_env
-  if ob_credentials "$openstream_bin"; then
-    ob_admin_password "$openstream_bin"
-    ob_install_service "$openstream_bin"
-    ob_summary "$openstream_bin"
+  if ob_credentials "$ost_bin"; then
+    ob_admin_password "$ost_bin"
+    ob_install_service "$ost_bin"
+    ob_summary "$ost_bin"
     [ "$start_service" = 1 ] || ob_stopped_service=
     exit 0
   fi
@@ -1149,25 +1248,25 @@ if onboard_enabled; then
     *) ob_login_cmd='login otp' ;;
   esac
   if [ -n "${ob_env_file:-}" ]; then
-    printf '\n  Sign in when you are ready: . %s && openstream %s\n\n' "$(ob_shell_quote "$ob_env_file")" "$ob_login_cmd"
+    printf '\n  Sign in when you are ready: . %s && ost %s\n\n' "$(ob_shell_quote "$ob_env_file")" "$ob_login_cmd"
   else
-    printf '\n  Sign in when you are ready: %sopenstream %s%s\n\n' "$ui_bold" "$ob_login_cmd" "$ui_reset"
+    printf '\n  Sign in when you are ready: %sost %s%s\n\n' "$ui_bold" "$ob_login_cmd" "$ui_reset"
   fi
   exit 1
 fi
 
 if [ "$install_tls" = 1 ]; then
-  echo "Next: openstream login otp; openstream admin password; openstream serve --host 0.0.0.0 --tls"
+  echo "Next: ost login otp; ost admin password; ost serve --host 0.0.0.0 --tls"
   if [ "$variant" = slim ]; then
-    echo "IPTV apps: use the playlist URL that openstream serve prints when it starts, with localhost:5001 on this machine or this machine's address from other devices. The slim build has no browser UI."
+    echo "IPTV apps: use the playlist URL that ost serve prints when it starts, with localhost:5001 on this machine or this machine's address from other devices. The slim build has no browser UI."
   else
     echo "Browser UI on this machine (HTTPS, self-signed certificate; accept the one-time warning): https://localhost:5443/"
     echo "From other devices on your network, use this machine's address instead of localhost: https://<this-machine-ip>:5443/ (browser), http://<this-machine-ip>:5001/ (IPTV apps, plain HTTP playlist)."
   fi
 else
-  echo "Next: openstream login otp; openstream admin password; openstream serve --host 0.0.0.0"
+  echo "Next: ost login otp; ost admin password; ost serve --host 0.0.0.0"
   if [ "$variant" = slim ]; then
-    echo "IPTV apps: use the playlist URL that openstream serve prints when it starts, with localhost:5001 on this machine or this machine's address from other devices. The slim build has no browser UI."
+    echo "IPTV apps: use the playlist URL that ost serve prints when it starts, with localhost:5001 on this machine or this machine's address from other devices. The slim build has no browser UI."
   else
     echo "Browser UI on this machine: http://localhost:5001/ (browsers need HTTPS or localhost for DRM and encrypted HLS playback; add --tls to enable HTTPS)"
     echo "From other devices on your network, use this machine's address instead of localhost: http://<this-machine-ip>:5001/"

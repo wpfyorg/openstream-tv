@@ -23,7 +23,7 @@ The container starts the server on all interfaces with HTTPS enabled. On the Doc
 Set the admin password from the container's terminal, then sign in to the web interface and complete JioTV OTP login:
 
 ```sh
-docker exec -it openstream /usr/local/bin/openstream admin password
+docker exec -it openstream /usr/local/bin/ost admin password
 ```
 
 View output with `docker logs -f openstream`. For updates and backup instructions, see [Docker maintenance](../maintenance-docker/index.md).

@@ -24,7 +24,7 @@ Review downloaded scripts before running them if that suits your security policy
 If the guided installer has already started the service, use the address it printed and do not start a second copy. Otherwise, start it in a terminal:
 
 ```sh
-openstream serve
+ost serve
 ```
 
 The default address is **http://localhost:5001/** on the server itself. The process must remain running while you watch. The terminal prints a private **Web setup** link on first launch. Copy that complete link into a browser **on the server**; do not share it. It contains your access key.
@@ -35,7 +35,7 @@ For a service on another device, see [access from your network](../configuration
 
 The setup page asks you to choose and repeat an **admin password** with at least eight characters. Select **Set password**. Afterwards, use the same password when the page asks you to **Sign in**.
 
-**Important:** If you opened just `/` before setting a password, the page tells you to use the **Web setup** link from the terminal or run `openstream admin password` on the server.
+**Important:** If you opened just `/` before setting a password, the page tells you to use the **Web setup** link from the terminal or run `ost admin password` on the server.
 
 ![OpenStream TV first-launch form asking for an admin password and confirmation](../images/first-launch-setup.png)
 

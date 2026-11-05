@@ -7,7 +7,7 @@ OpenStream TV is a Rust CLI/server for live TV, catch-up, EPG, IPTV/M3U clients,
 ## Architecture
 
 - `src/main.rs` owns startup, command dispatch, data-directory resolution, server lifecycle, background mode, and migration fallbacks.
-- `src/cli.rs` parses the `openstream` CLI.
+- `src/cli.rs` parses the `ost` CLI.
 - `src/config.rs` owns TOML configuration and environment loading. `OPENSTREAM_*` is primary; legacy `JIOTV_*` names remain compatibility aliases.
 - `src/server.rs` composes Axum routes and serves the embedded UI in full builds.
 - `src/television.rs` and `src/login.rs` contain JioTV provider API behavior.
@@ -19,7 +19,7 @@ OpenStream TV is a Rust CLI/server for live TV, catch-up, EPG, IPTV/M3U clients,
 - `openwrt/openstream/` contains OpenWrt package/service definitions.
 - `scripts/` contains installers, packaging helpers, docs tooling, and integration tests.
 
-Preserve provider-specific JioTV identifiers where they refer to the real upstream API, account, routes, payload fields, or compatibility state. Use OpenStream TV/openstream for application identity, commands, services, packages, release assets, and new configuration.
+Preserve provider-specific JioTV identifiers where they refer to the real upstream API, account, routes, payload fields, or compatibility state. Use OpenStream TV/openstream for application identity, services, packages, release assets, and new configuration. The CLI executable and user-facing commands are ost.
 
 ## Repository Skills
 

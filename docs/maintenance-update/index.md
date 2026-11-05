@@ -11,9 +11,9 @@ Before updating, note how OpenStream TV was installed and make a private [backup
 
 ## Standalone Linux, macOS, Windows or Termux
 
-1. Check the version shown in **Settings** or `openstream --help` for available commands.
+1. Check the version shown in **Settings** or `ost --help` for available commands.
 2. Stop the running foreground process or service. Record how it was started so you can use the same settings later.
-3. Run `openstream update` to fetch a matching release and verify its checksum. To choose a version, use `openstream update --version v1.5.0` (replace with the release you intend to install).
+3. Run `ost update` to fetch a matching release and verify its checksum. To choose a version, use `ost update --version v1.5.0` (replace with the release you intend to install).
 4. Restart OpenStream TV using your original command or service manager. On a systemd service, run `sudo systemctl restart openstream` (or `systemctl --user restart openstream` for a user service).
 5. Open the app and check the version and whether Channels and Settings load.
 
@@ -25,7 +25,7 @@ Pull the image used by your deployment and recreate the container using its exis
 
 ## OpenWrt
 
-Use the OpenWrt package installer or package manager to update the package, then check the procd service. The in-app `openstream update` command is not intended to replace a package-managed binary. See [OpenWrt maintenance](../maintenance-openwrt/index.md).
+Use the OpenWrt package installer or package manager to update the package, then check the procd service. The in-app `ost update` command is not intended to replace a package-managed binary. See [OpenWrt maintenance](../maintenance-openwrt/index.md).
 
 ## If an update fails
 

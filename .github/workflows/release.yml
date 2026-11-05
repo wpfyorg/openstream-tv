@@ -92,7 +92,7 @@ jobs:
               android) cargo ndk --target "${{ matrix.target.triple }}" --platform 21 build --release --locked "${flags[@]}" ;;
               *) cargo build --release --locked --target "${{ matrix.target.triple }}" "${flags[@]}" ;;
             esac
-            cp "target/${{ matrix.target.triple }}/release/openstream${suffix}" "out/openstream-${variant}-${{ matrix.target.triple }}${suffix}"
+            cp "target/${{ matrix.target.triple }}/release/ost${suffix}" "out/openstream-${variant}-${{ matrix.target.triple }}${suffix}"
           done
       - name: Run native target tests
         if: matrix.target.test

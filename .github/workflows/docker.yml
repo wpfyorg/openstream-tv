@@ -51,8 +51,8 @@ jobs:
             sleep 10
           done
           (cd docker/context && grep -F "  $asset" SHA256SUMS | sha256sum -c -)
-          mv "docker/context/$asset" docker/context/openstream
-          chmod 0755 docker/context/openstream
+          mv "docker/context/$asset" docker/context/ost
+          chmod 0755 docker/context/ost
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
@@ -69,7 +69,7 @@ jobs:
             --build-arg VARIANT="${{ matrix.variant }}" \
             --file docker/Dockerfile \
             --load --tag "openstream-smoke:${{ matrix.variant }}" docker/context
-          docker run --rm --platform "${{ matrix.platform }}" --entrypoint /usr/local/bin/openstream \
+          docker run --rm --platform "${{ matrix.platform }}" --entrypoint /usr/local/bin/ost \
             "openstream-smoke:${{ matrix.variant }}" --help
           docker run -d --name openstream-smoke --platform "${{ matrix.platform }}" \
             -p 5001:5001 "openstream-smoke:${{ matrix.variant }}"

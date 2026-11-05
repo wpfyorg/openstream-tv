@@ -43,22 +43,22 @@ The guided setup connects the account for you. If it printed a retry command tha
 ```sh
 # JioTV: mobile-number OTP
 export OPENSTREAM_TVPLUS=false OPENSTREAM_FASTWAY=false
-openstream login otp
+ost login otp
 
 # JioTV+: eligible JioFiber or AirFiber login
 export OPENSTREAM_TVPLUS=true OPENSTREAM_FASTWAY=false
-openstream tv+ login
+ost tv+ login
 
 # Fastway: prompts for the provider username and password
 export OPENSTREAM_TVPLUS=false OPENSTREAM_FASTWAY=true
-openstream fastway login
+ost fastway login
 ```
 
 Then protect and start the full web build:
 
 ```sh
-openstream admin password
-openstream serve --host 127.0.0.1 --tls
+ost admin password
+ost serve --host 127.0.0.1 --tls
 ```
 
 Open `https://localhost:5443/` and accept the self-signed certificate warning. To access the server from other devices on your home network, bind to all interfaces with `--host 0.0.0.0` and use your Mac's LAN address. Keep access limited to a trusted network. The `slim` build has no browser interface.
@@ -67,6 +67,6 @@ For boot-time service setup, see [Background service](../maintenance-background-
 
 ## Verify and troubleshoot
 
-Run `command -v openstream` and `openstream --help` in Terminal. Confirm the browser opens the address selected when starting `serve`. If `openstream` is missing, confirm your install location is in `PATH`; restart Terminal after updating the shell profile. If a port is occupied, follow [startup fixes](../troubleshooting-installation-startup/index.md).
+Run `command -v ost` and `ost --help` in Terminal. Confirm the browser opens the address selected when starting `serve`. If `ost` is missing, confirm your install location is in `PATH`; restart Terminal after updating the shell profile. If a port is occupied, follow [startup fixes](../troubleshooting-installation-startup/index.md).
 
-Update with `openstream update`, restart OpenStream TV, and check the interface. For removal, stop OpenStream TV and delete the binary from your install directory. Keep your data directory unless you want to erase your saved account state; see [uninstall](../maintenance-update-uninstall/index.md).
+Update with `ost update`, restart OpenStream TV, and check the interface. For removal, stop OpenStream TV and delete the binary from your install directory. Keep your data directory unless you want to erase your saved account state; see [uninstall](../maintenance-update-uninstall/index.md).

@@ -9,7 +9,7 @@ keywords: [OpenWrt, update, apk, opkg, backup, logread, uninstall]
 
 ## Update
 
-Run the [OpenWrt installer](../installations-openwrt/index.md) again. It downloads the package for the detected package manager and architecture, verifies its checksum, then updates through `apk` or `opkg`. Do not run `openstream update` on a package installation.
+Run the [OpenWrt installer](../installations-openwrt/index.md) again. It downloads the package for the detected package manager and architecture, verifies its checksum, then updates through `apk` or `opkg`. Do not run `ost update` on a package installation.
 
 ## Service and logs
 

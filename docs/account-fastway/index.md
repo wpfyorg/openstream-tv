@@ -33,20 +33,20 @@ Use the Fastway username and password for your subscription. This provider does 
 ### Terminal
 
 ```bash
-openstream fastway login
+ost fastway login
 ```
 
 The command prompts for the username and password and saves the login in the server's data directory. Restart a running server after a CLI login so it picks up the new credentials. To remove the saved login:
 
 ```bash
-openstream fastway logout
+ost fastway logout
 ```
 
 The password is kept locally because Fastway has no refresh-token endpoint; the server signs in again with the saved credentials when the provider rejects an expired access token. Do not share the data directory or its store file.
 
 ## Security limitation in v1.5.0
 
-The shipped Fastway client uses a plain-HTTP provider API (`fwlivetvapp.netplus.co.in:8080`) and a plain-HTTP PallyCon license endpoint. That means the Fastway username/password exchange, provider tokens and DRM-license traffic are not protected by TLS on those upstream hops. Local `openstream serve --tls` protects the browser-to-OpenStream connection only; it does not change Fastway's upstream URLs.
+The shipped Fastway client uses a plain-HTTP provider API (`fwlivetvapp.netplus.co.in:8080`) and a plain-HTTP PallyCon license endpoint. That means the Fastway username/password exchange, provider tokens and DRM-license traffic are not protected by TLS on those upstream hops. Local `ost serve --tls` protects the browser-to-OpenStream connection only; it does not change Fastway's upstream URLs.
 
 Avoid using Fastway over networks you do not trust, protect the local data directory, and do not expose Fastway credentials or provider tokens in logs or support requests. This is a transport limitation of the v1.5.0 integration, not a DRM bypass feature.
 
@@ -63,7 +63,7 @@ Fastway does not use the JioTV+ unlock-code gate. It is controlled by the `fastw
 
 ## Disconnect
 
-Select **Disconnect** on the Fastway card, or run `openstream fastway logout`. Disconnecting removes the saved Fastway login and returns the active catalogue to JioTV+ or JioTV. If the server sets `disable_logout = true`, the web interface hides provider disconnect controls; the CLI command still works.
+Select **Disconnect** on the Fastway card, or run `ost fastway logout`. Disconnecting removes the saved Fastway login and returns the active catalogue to JioTV+ or JioTV. If the server sets `disable_logout = true`, the web interface hides provider disconnect controls; the CLI command still works.
 
 ## Troubleshooting
 

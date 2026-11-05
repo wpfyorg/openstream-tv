@@ -12,7 +12,7 @@ By default OpenStream TV listens on `localhost:5001` so only the server can conn
 ## Open the web interface on your network
 
 1. Find your server's private LAN address (for example, `192.168.1.20`).
-2. Start `openstream serve --host 0.0.0.0 --port 5001` on a trusted network.
+2. Start `ost serve --host 0.0.0.0 --port 5001` on a trusted network.
 3. On another device on the same LAN, visit `http://192.168.1.20:5001/` with **your own server address**.
 4. Sign in with your admin password. Ensure any local firewall permits only the devices you intend.
 
@@ -20,7 +20,7 @@ When the listener is bound to an IPv4 wildcard such as `0.0.0.0`, v1.5.0 also pr
 
 ## HTTPS and protected browser playback
 
-Run `openstream serve --tls` to add HTTPS on port **5443** while retaining the HTTP IPTV listener on **5001**. Browsers may require a secure origin for DRM/Widevine or encrypted media APIs. The generated certificate is self-signed, so plan for proper trust on each viewing device or provide `--tls-cert` and `--tls-key`. Supplying certificate flags alone, without `--tls`, has no effect.
+Run `ost serve --tls` to add HTTPS on port **5443** while retaining the HTTP IPTV listener on **5001**. Browsers may require a secure origin for DRM/Widevine or encrypted media APIs. The generated certificate is self-signed, so plan for proper trust on each viewing device or provide `--tls-cert` and `--tls-key`. Supplying certificate flags alone, without `--tls`, has no effect.
 
 When you open **Settings → IPTV playlist**, the UI offers plain-HTTP playlist/EPG links when accessed over OpenStream TV's HTTPS listener because some IPTV players do not trust a self-signed certificate.
 

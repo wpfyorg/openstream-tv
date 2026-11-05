@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=openstream
-PKG_VERSION?=1.5.0
+PKG_VERSION?=1.5.1
 PKG_RELEASE:=1
 PKGARCH:=$(ARCH_PACKAGES)
 
@@ -44,7 +44,7 @@ endef
 
 define Package/openstream/install
 	$(INSTALL_DIR) $(1)/usr/bin $(1)/etc/init.d $(1)/etc/config $(1)/etc/uci-defaults
-	$(INSTALL_BIN) $(OPENSTREAM_FULL_BIN) $(1)/usr/bin/openstream
+	$(INSTALL_BIN) $(OPENSTREAM_FULL_BIN) $(1)/usr/bin/ost
 	$(INSTALL_BIN) ./files/openstream.init $(1)/etc/init.d/openstream
 	$(INSTALL_CONF) ./files/openstream.config $(1)/etc/config/openstream
 	$(INSTALL_BIN) ./files/openstream.defaults $(1)/etc/uci-defaults/99-openstream
@@ -52,7 +52,7 @@ endef
 
 define Package/openstream-slim/install
 	$(INSTALL_DIR) $(1)/usr/bin $(1)/etc/init.d $(1)/etc/config $(1)/etc/uci-defaults
-	$(INSTALL_BIN) $(OPENSTREAM_SLIM_BIN) $(1)/usr/bin/openstream
+	$(INSTALL_BIN) $(OPENSTREAM_SLIM_BIN) $(1)/usr/bin/ost
 	$(INSTALL_BIN) ./files/openstream.init $(1)/etc/init.d/openstream
 	$(INSTALL_CONF) ./files/openstream.config $(1)/etc/config/openstream
 	$(INSTALL_BIN) ./files/openstream.defaults $(1)/etc/uci-defaults/99-openstream

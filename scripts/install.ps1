@@ -389,8 +389,9 @@ try {
     if ($actual -ne $expected) { throw "Checksum mismatch for $asset" }
 
     New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
-    $destination = Join-Path $InstallDir 'openstream.exe'
-    $alreadyInstalled = Test-Path -LiteralPath $destination
+    $destination = Join-Path $InstallDir 'ost.exe'
+    $legacyDestination = Join-Path $InstallDir 'openstream.exe'
+    $alreadyInstalled = (Test-Path -LiteralPath $destination) -or (Test-Path -LiteralPath $legacyDestination)
     $keepExistingAccount = $false
     if ($Interactive -and $alreadyInstalled) {
         Write-Step 'OpenStream TV is already installed here'
@@ -402,27 +403,35 @@ try {
         $keepExistingAccount = $true
     }
     Copy-Item -LiteralPath $binary -Destination $destination -Force
+    if (Test-Path -LiteralPath $legacyDestination) {
+        try {
+            Remove-Item -LiteralPath $legacyDestination -Force
+        }
+        catch {
+            Write-Warn2 "Could not remove legacy openstream.exe: $($_.Exception.Message) Stop the old server, remove openstream.exe, then start ost."
+        }
+    }
     $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
     $entries = @($userPath -split ';' | Where-Object { $_ })
     if (-not ($entries | Where-Object { $_.TrimEnd('\') -ieq $InstallDir.TrimEnd('\') })) {
         [Environment]::SetEnvironmentVariable('Path', (($entries + $InstallDir) -join ';'), 'User')
         $env:Path = "$InstallDir;$env:Path"
     }
-    Write-Output "Installed openstream ($Variant, $target) to $destination"
+    Write-Output "Installed ost ($Variant, $target) to $destination"
 
-    $serveLine = 'openstream serve --host 0.0.0.0'
+    $serveLine = 'ost serve --host 0.0.0.0'
     if (-not $NoTls) { $serveLine += ' --tls' }
 
     if ($Interactive) {
         if ($keepExistingAccount) {
             Write-Ok 'Updated the binary; existing account and environment settings were kept'
-            Write-Host "  Start it with: $serveLine"
+            Write-Host "  Restart the server with: $serveLine"
             return
         }
 
-        $openstream = $destination
+        $ost = $destination
         $help = ''
-        try { $help = (& $openstream --help 2>&1 | Out-String) } catch { $help = '' }
+        try { $help = (& $ost --help 2>&1 | Out-String) } catch { $help = '' }
         # `tv+ login` is the current name; older binaries still answer to
         # `extras login`, so that is used when it is the only one advertised.
         $TvPlusCmd = ''
@@ -493,24 +502,24 @@ try {
 
         # Sign-in happens inside the wizard: the commands read plain stdin
         # lines, so the number and the OTP are typed here, once.
-        $signedIn = Connect-Provider $openstream $Provider
+        $signedIn = Connect-Provider $ost $Provider
         $loginCmd = switch ($Provider) {
             'extras' { $TvPlusCmd }
             'fastway' { 'fastway login' }
             default { 'login otp' }
         }
         if ($signedIn) { Write-Ok 'Signed in' }
-        else { Write-Fail "Sign-in did not complete; run 'openstream $loginCmd' when you are ready" }
+        else { Write-Fail "Sign-in did not complete; run 'ost $loginCmd' when you are ready" }
 
         if ($Variant -eq 'full') {
             Write-Step 'Protect the browser interface'
             $password = Read-Secret 'Choose an admin password'
             if ($password) {
-                $password | & $openstream admin password | Out-Null
+                $password | & $ost admin password | Out-Null
                 if ($LASTEXITCODE -eq 0) { Write-Ok 'Admin password saved' }
-                else { Write-Fail 'Could not save the password; run: openstream admin password' }
+                else { Write-Fail 'Could not save the password; run: ost admin password' }
             }
-            else { Write-Warn2 'No password set; run: openstream admin password' }
+            else { Write-Warn2 'No password set; run: ost admin password' }
         }
 
         Write-Host ''
@@ -519,12 +528,12 @@ try {
         Write-Rule
         Write-Host "  build     $Variant $target" -ForegroundColor DarkGray
         Write-Host "  account   $(if ($Provider -eq 'extras') { 'JioTV+' } else { $Provider })"
-        if (-not $signedIn) { Write-Warn2 "  Not signed in yet: run 'openstream $loginCmd'" }
+        if (-not $signedIn) { Write-Warn2 "  Not signed in yet: run 'ost $loginCmd'" }
         if ($Variant -eq 'full') {
             if ($NoTls) { Write-Host "  browser   http://${PublicHost}:5001/" }
             else { Write-Host "  browser   https://${PublicHost}:5443/" }
         }
-        $playlistPath = (& $openstream key show 2>$null | Out-String).Trim()
+        $playlistPath = (& $ost key show 2>$null | Out-String).Trim()
         if ($playlistPath.StartsWith('http://') -or $playlistPath.StartsWith('https://')) {
             $playlistUrl = $playlistPath
         }
@@ -538,7 +547,7 @@ try {
             $playlistUrl = ''
         }
         if ($playlistUrl) { Write-Host "  playlist  $playlistUrl" }
-        else { Write-Warn2 "Could not get the authenticated playlist URL; run 'openstream key show' after starting the server" }
+        else { Write-Warn2 "Could not get the authenticated playlist URL; run 'ost key show' after starting the server" }
         if ($Tunnel -ne 'none') { Write-Host '  remote    a Cloudflare tunnel address' }
         Write-Host ''
         if ($TunnelToken) {
@@ -551,16 +560,16 @@ try {
     }
 
     if ($NoTls) {
-        Write-Output 'Next: openstream login otp; openstream admin password; openstream serve --host 0.0.0.0'
-        if ($Variant -eq 'slim') { Write-Output 'IPTV apps: use the playlist URL that openstream serve prints when it starts, with localhost:5001 on this PC or <this-pc-ip>:5001 from other devices (see ipconfig). The slim build has no browser UI.' }
+        Write-Output 'Next: ost login otp; ost admin password; ost serve --host 0.0.0.0'
+        if ($Variant -eq 'slim') { Write-Output 'IPTV apps: use the playlist URL that ost serve prints when it starts, with localhost:5001 on this PC or <this-pc-ip>:5001 from other devices (see ipconfig). The slim build has no browser UI.' }
         else {
             Write-Output 'Browser UI on this PC: http://localhost:5001/ (browsers need HTTPS or localhost for DRM and encrypted HLS playback; add --tls to enable HTTPS)'
             Write-Output 'From other devices on your network: http://<this-pc-ip>:5001/ (see ipconfig)'
         }
     }
     else {
-        Write-Output 'Next: openstream login otp; openstream admin password; openstream serve --host 0.0.0.0 --tls'
-        if ($Variant -eq 'slim') { Write-Output 'IPTV apps: use the playlist URL that openstream serve prints when it starts, with localhost:5001 on this PC or <this-pc-ip>:5001 from other devices (see ipconfig). The slim build has no browser UI.' }
+        Write-Output 'Next: ost login otp; ost admin password; ost serve --host 0.0.0.0 --tls'
+        if ($Variant -eq 'slim') { Write-Output 'IPTV apps: use the playlist URL that ost serve prints when it starts, with localhost:5001 on this PC or <this-pc-ip>:5001 from other devices (see ipconfig). The slim build has no browser UI.' }
         else {
             Write-Output 'Browser UI on this PC (HTTPS, self-signed certificate; accept the one-time warning): https://localhost:5443/'
             Write-Output 'From other devices on your network: https://<this-pc-ip>:5443/ (browser), http://<this-pc-ip>:5001/ (IPTV apps, plain HTTP playlist); see ipconfig for the address'

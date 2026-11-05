@@ -14,16 +14,16 @@ Before uninstalling, decide whether to keep the OpenStream TV data directory. It
 ## Linux, macOS and other standalone binaries
 
 1. Stop the running OpenStream TV process.
-2. If you installed autostart on Linux or Termux, remove it with `openstream autostart remove` using the same operating-system user that created it.
-3. Delete only the `openstream` executable from the directory where you installed it, such as `/usr/local/bin/openstream` or `$HOME/.local/bin/openstream`.
+2. If you installed autostart on Linux or Termux, remove it with `ost autostart remove` using the same operating-system user that created it.
+3. Delete only the `ost` executable from the directory where you installed it, such as `/usr/local/bin/ost` or `$HOME/.local/bin/ost`.
 4. Keep the data directory unless you deliberately want to remove saved accounts and server secrets.
 
-If a systemd service was created for OpenStream TV, `openstream autostart remove` removes the service definition installed by OpenStream TV. Run it with the same privilege level used during setup.
+If a systemd service was created for OpenStream TV, `ost autostart remove` removes the service definition installed by OpenStream TV. Run it with the same privilege level used during setup.
 
 ## Windows
 
 1. Stop the server window or process.
-2. Delete `openstream.exe` from its install directory. The PowerShell installer defaults to `%LOCALAPPDATA%\Programs\OpenStream TV` unless you selected another location.
+2. Delete `ost.exe` from its install directory. The PowerShell installer defaults to `%LOCALAPPDATA%\Programs\OpenStream TV` unless you selected another location.
 3. Remove that directory from your user `PATH` if it is no longer needed.
 4. Keep the data directory if you may reinstall.
 
@@ -31,7 +31,7 @@ The project does not install a native Windows background service, so remove any 
 
 ## Termux
 
-Run `openstream autostart remove` if you enabled Termux autostart, stop the server, then delete the `openstream` executable from `$PREFIX/bin`. Android may keep Termux files after the app closes; remove the OpenStream TV data directory separately only if you want to erase saved state.
+Run `ost autostart remove` if you enabled Termux autostart, stop the server, then delete the `ost` executable from `$PREFIX/bin`. Android may keep Termux files after the app closes; remove the OpenStream TV data directory separately only if you want to erase saved state.
 
 ## OpenWrt
 
@@ -51,6 +51,6 @@ Stop and remove the container, then remove its image if desired. Keep the persis
 
 ## Verify removal
 
-After removal, `openstream --help` should no longer resolve from the removed install location, and the previous OpenStream TV server ports should no longer be listening unless another copy is running. If the command still resolves, check `command -v openstream` on Unix-like systems or `Get-Command openstream` in PowerShell for another installation.
+After removal, `ost --help` should no longer resolve from the removed install location, and the previous OpenStream TV server ports should no longer be listening unless another copy is running. If the command still resolves, check `command -v ost` on Unix-like systems or `Get-Command ost` in PowerShell for another installation.
 
 Removing the executable does not automatically erase OpenStream TV data. Review [data, backups and logs](../configuration-storage-logs/index.md) before deleting any saved state.

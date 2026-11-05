@@ -1,4 +1,4 @@
-//! `openstream autostart`: runs the server at boot.
+//! `ost autostart`: runs the server at boot.
 //!
 //! On Linux with systemd it installs an `openstream` service: a system unit when
 //! run as root, otherwise a user unit. The OpenStream TV environment of the
@@ -130,7 +130,7 @@ fn env_file(path_prefix: &str) -> String {
         path_prefix.to_string(),
     ));
     vars.sort();
-    let mut out = String::from("# Written by `openstream autostart`.\n");
+    let mut out = String::from("# Written by `ost autostart`.\n");
     for (k, v) in vars {
         let v = v.replace('\\', "\\\\").replace('"', "\\\"");
         out.push_str(&format!("{k}=\"{v}\"\n"));
@@ -160,7 +160,7 @@ fn shell_env_file(path_prefix: &str) -> String {
         path_prefix.to_string(),
     ));
     vars.sort();
-    let mut out = String::from("# Written by `openstream autostart`; keep this file private.\n");
+    let mut out = String::from("# Written by `ost autostart`; keep this file private.\n");
     for (key, value) in vars {
         out.push_str(&format!("export {key}={}\n", shell_quote(&value)));
     }
@@ -177,12 +177,17 @@ fn termux_start_line(exe: &Path, env: &Path, serve_args: &str) -> String {
 }
 
 fn termux_rc_contents(existing: &str, start_line: &str) -> (String, bool) {
-    let already_set_up =
-        existing.contains(TERMUX_MARKER) || existing.contains(LEGACY_TERMUX_MARKER);
+    let already_set_up = existing.contains(TERMUX_MARKER)
+        || existing.contains(LEGACY_OPENSTREAM_TERMUX_MARKER)
+        || existing.contains(LEGACY_TERMUX_MARKER);
     let mut contents = if already_set_up {
         existing
             .lines()
-            .filter(|line| !line.contains(TERMUX_MARKER) && !line.contains(LEGACY_TERMUX_MARKER))
+            .filter(|line| {
+                !line.contains(TERMUX_MARKER)
+                    && !line.contains(LEGACY_OPENSTREAM_TERMUX_MARKER)
+                    && !line.contains(LEGACY_TERMUX_MARKER)
+            })
             .map(|line| format!("{line}\n"))
             .collect()
     } else {
@@ -223,14 +228,14 @@ fn systemctl(user: bool, args: &[&str]) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// `openstream autostart [--args "serve flags"]`.
+/// `ost autostart [--args "serve flags"]`.
 pub fn install(serve_args: &str, config: Option<&str>, path_prefix: &str) -> anyhow::Result<()> {
     if is_termux() {
         return install_termux(serve_args, path_prefix);
     }
     if !has_systemd() {
         anyhow::bail!(
-            "systemd is not running here. On OpenWrt, the openstream package starts OpenStream TV from /etc/init.d/openstream; elsewhere, start `openstream serve` from your init system"
+            "systemd is not running here. On OpenWrt, the openstream package starts OpenStream TV from /etc/init.d/openstream; elsewhere, start `ost serve` from your init system"
         );
     }
     let p = paths()?;
@@ -268,7 +273,7 @@ pub fn install(serve_args: &str, config: Option<&str>, path_prefix: &str) -> any
     Ok(())
 }
 
-/// `openstream autostart remove`.
+/// `ost autostart remove`.
 pub fn remove() -> anyhow::Result<()> {
     if is_termux() {
         return remove_termux();
@@ -289,7 +294,8 @@ pub fn remove() -> anyhow::Result<()> {
     Ok(())
 }
 
-const TERMUX_MARKER: &str = "# openstream autostart";
+const TERMUX_MARKER: &str = "# ost autostart";
+const LEGACY_OPENSTREAM_TERMUX_MARKER: &str = "# openstream autostart";
 const LEGACY_TERMUX_MARKER: &str = "# jiotv autostart";
 
 fn termux_rc() -> anyhow::Result<PathBuf> {
@@ -330,7 +336,11 @@ fn remove_termux() -> anyhow::Result<()> {
     let existing = std::fs::read_to_string(&rc).unwrap_or_default();
     let kept: String = existing
         .lines()
-        .filter(|l| !l.contains(TERMUX_MARKER) && !l.contains(LEGACY_TERMUX_MARKER))
+        .filter(|l| {
+            !l.contains(TERMUX_MARKER)
+                && !l.contains(LEGACY_OPENSTREAM_TERMUX_MARKER)
+                && !l.contains(LEGACY_TERMUX_MARKER)
+        })
         .map(|l| format!("{l}\n"))
         .collect();
     std::fs::write(&rc, kept)?;
@@ -348,13 +358,13 @@ mod tests {
     #[test]
     fn quotes_exec_arguments() {
         assert_eq!(
-            quote("/usr/local/bin/openstream"),
-            "/usr/local/bin/openstream"
+            quote("/usr/local/bin/ost"),
+            "/usr/local/bin/ost"
         );
         assert_eq!(quote("--port"), "--port");
         assert_eq!(
-            quote("/opt/my dir/openstream"),
-            "\"/opt/my dir/openstream\""
+            quote("/opt/my dir/ost"),
+            "\"/opt/my dir/ost\""
         );
         assert_eq!(quote("50%"), "\"50%%\"");
     }
@@ -362,7 +372,7 @@ mod tests {
     #[test]
     fn unit_file_has_the_service_basics() {
         let exec = vec![
-            "/usr/bin/openstream".to_string(),
+            "/usr/bin/ost".to_string(),
             "serve".to_string(),
             "--port".to_string(),
             "5001".to_string(),
@@ -373,7 +383,7 @@ mod tests {
             Path::new("/var/lib/openstream"),
             false,
         );
-        assert!(unit.contains("ExecStart=/usr/bin/openstream serve --port 5001\n"));
+        assert!(unit.contains("ExecStart=/usr/bin/ost serve --port 5001\n"));
         assert!(unit.contains("EnvironmentFile=-/etc/openstream/openstream.env\n"));
         assert!(unit.contains("WantedBy=multi-user.target\n"));
         assert!(unit.contains("Restart=on-failure\n"));
@@ -407,7 +417,7 @@ mod tests {
         assert!(contents
             .contains("export OPENSTREAM_AUTOSTART_TEST_TOKEN='token with '\\''quote'\\'''\n"));
         let line = termux_start_line(
-            Path::new("/data/data/com.termux/files/usr/bin/openstream"),
+            Path::new("/data/data/com.termux/files/usr/bin/ost"),
             Path::new("/data/data/com.termux/files/home/.config/openstream/openstream.env"),
             "--host 0.0.0.0 --tls --tunnel",
         );
@@ -420,7 +430,16 @@ mod tests {
     #[test]
     fn termux_autostart_replaces_stale_arguments() {
         let old = "alias ll='ls -l'\n/home/jiotv background start --args '--host 0.0.0.0' # jiotv autostart\n";
-        let new = ". '/home/.config/openstream/openstream.env'; /home/openstream background start --args '--host 0.0.0.0 --tunnel' # openstream autostart\n";
+        let new = ". '/home/.config/openstream/openstream.env'; /home/ost background start --args '--host 0.0.0.0 --tunnel' # ost autostart\n";
+        let (contents, was_set_up) = termux_rc_contents(old, new);
+        assert!(was_set_up);
+        assert_eq!(contents, "alias ll='ls -l'\n".to_string() + new);
+    }
+
+    #[test]
+    fn termux_autostart_replaces_openstream_marker() {
+        let old = "alias ll='ls -l'\n/home/openstream background start --args '--host 0.0.0.0' # openstream autostart\n";
+        let new = ". '/home/.config/openstream/openstream.env'; /home/ost background start --args '--host 0.0.0.0 --tunnel' # ost autostart\n";
         let (contents, was_set_up) = termux_rc_contents(old, new);
         assert!(was_set_up);
         assert_eq!(contents, "alias ll='ls -l'\n".to_string() + new);

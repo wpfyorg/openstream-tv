@@ -17,7 +17,7 @@ cd openstream-tv
 cargo build --release
 ```
 
-The binary is `target/release/openstream`. To build slim:
+The binary is `target/release/ost`. To build slim:
 
 ```sh
 cargo build --release --no-default-features --features slim
@@ -27,7 +27,7 @@ Run it in place to try it, or install it to a directory on `PATH`:
 
 ```sh
 mkdir -p "$HOME/.local/bin"
-install -m 0755 target/release/openstream "$HOME/.local/bin/openstream"
+install -m 0755 target/release/ost "$HOME/.local/bin/ost"
 ```
 
 Cross-compiling requires a Rust target toolchain and linker suitable for the destination. The repository's release workflows define the supported target triples; a successful local build does not guarantee compatibility with a different libc or CPU. For OpenWrt, use the matching OpenWrt SDK and the supplied `scripts/build-openwrt-packages.sh`, which requires full and slim binaries plus the SDK path and version. Follow that script's usage line for its exact arguments.
@@ -36,6 +36,6 @@ See [first launch](../getting-started-first-launch/index.md), [CLI commands](../
 
 ## Start, verify and maintain
 
-Run `./target/release/openstream --help` to verify the binary starts on the build machine. If the full build is installed on your `PATH`, run `openstream serve` and browse to `http://localhost:5001/` on that machine. A slim build does not serve the browser UI.
+Run `./target/release/ost --help` to verify the binary starts on the build machine. If the full build is installed on your `PATH`, run `ost serve` and browse to `http://localhost:5001/` on that machine. A slim build does not serve the browser UI.
 
 To update a source installation, fetch the intended source revision and rebuild, then replace your installed executable while the server is stopped. To uninstall, remove the executable and any service registration you created. Keep the private data directory unless you mean to erase saved logins. See [startup troubleshooting](../troubleshooting-installation-startup/index.md).

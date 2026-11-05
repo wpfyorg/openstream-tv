@@ -23,7 +23,7 @@ Settings has JioTV and perhaps JioTV+, but no Fastway card.
 
 ### Diagnose and fix
 
-1. Confirm the running release supports `openstream fastway login` with `openstream --help`.
+1. Confirm the running release supports `ost fastway login` with `ost --help`.
 2. Enable `fastway = true` in the TOML file, or set `OPENSTREAM_FASTWAY=true` for the process/service.
 3. Restart the running server or service so it reloads configuration.
 4. Open Settings again.
@@ -34,7 +34,7 @@ Settings has JioTV and perhaps JioTV+, but no Fastway card.
 
 ### Symptoms
 
-The Fastway card reports a login error, `openstream fastway login` fails, or the source does not stay connected.
+The Fastway card reports a login error, `ost fastway login` fails, or the source does not stay connected.
 
 ### Possible causes
 
@@ -48,7 +48,7 @@ The Fastway card reports a login error, `openstream fastway login` fails, or the
 1. Re-enter the Fastway username and password carefully. Fastway does not use the JioTV OTP flow.
 2. Check the same account with the provider's supported service before changing OpenStream configuration.
 3. Inspect only the redacted error around the failed request. Do not post the password, access token or data-store file.
-4. If credentials changed, run `openstream fastway logout`, sign in again, then restart an already-running server after a CLI login.
+4. If credentials changed, run `ost fastway logout`, sign in again, then restart an already-running server after a CLI login.
 
 **Verify:** Settings shows **Connected** and Channels loads the Fastway catalogue.
 
