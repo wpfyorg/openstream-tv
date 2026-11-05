@@ -264,11 +264,18 @@ fn set_epg_enabled(
 
 fn restart_managed_service() -> anyhow::Result<autostart::RestartOutcome> {
     if is_openwrt() {
+        let mut found = false;
         for init in ["/etc/init.d/openstream", "/etc/init.d/jiotv"] {
             let init = std::path::Path::new(init);
             if init.exists() {
-                return restart_init_service_if_running(init);
+                found = true;
+                if restart_init_service_if_running(init)? == autostart::RestartOutcome::Restarted {
+                    return Ok(autostart::RestartOutcome::Restarted);
+                }
             }
+        }
+        if found {
+            return Ok(autostart::RestartOutcome::Stopped);
         }
     }
     autostart::restart_if_running()

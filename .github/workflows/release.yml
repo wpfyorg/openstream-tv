@@ -148,8 +148,11 @@ jobs:
       - name: Package version
         id: version
         run: |
-          if [ "$GITHUB_REF_TYPE" = tag ]; then version=${GITHUB_REF_NAME#v}
-          else version=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+          cargo_version=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            version=${GITHUB_REF_NAME#v}
+            [ "$version" = "$cargo_version" ] || { echo "tag $GITHUB_REF_NAME does not match Cargo.toml version v$cargo_version"; exit 1; }
+          else version=$cargo_version
           fi
           echo "value=$version" >> "$GITHUB_OUTPUT"
       - name: Build packages with the OpenWrt SDK
