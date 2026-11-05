@@ -71,15 +71,61 @@ pub fn restart_hint() -> String {
     }
 }
 
-/// Restarts the systemd-managed OpenStream TV service when this installation
-/// owns one. Returns false when no managed service is installed.
-pub fn restart_if_installed() -> anyhow::Result<bool> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RestartOutcome {
+    Restarted,
+    Stopped,
+    NotInstalled,
+}
+
+/// Restarts the systemd-managed OpenStream TV service only when it is already
+/// running. An intentionally stopped service stays stopped.
+pub fn restart_if_running() -> anyhow::Result<RestartOutcome> {
     if !installed() {
-        return Ok(false);
+        return Ok(RestartOutcome::NotInstalled);
     }
     let p = paths()?;
+    let mut active = Command::new("systemctl");
+    if p.user {
+        active.arg("--user");
+    }
+    let active = active
+        .args(["is-active", "--quiet", SERVICE])
+        .status()
+        .map_err(|e| anyhow::anyhow!("cannot run systemctl: {e}"))?;
+    if !active.success() {
+        return Ok(RestartOutcome::Stopped);
+    }
     systemctl(p.user, &["restart", SERVICE])?;
-    Ok(true)
+    Ok(RestartOutcome::Restarted)
+}
+
+/// Returns the HTTP port encoded in the installed systemd service. A service
+/// without an explicit port uses the CLI default. None means the effective
+/// service port cannot be determined safely.
+pub fn service_port() -> Option<String> {
+    if !installed() {
+        return None;
+    }
+    let p = paths().ok()?;
+    let unit = std::fs::read_to_string(p.unit).ok()?;
+    Some(port_from_unit(&unit).unwrap_or_else(|| "5001".to_string()))
+}
+
+fn port_from_unit(unit: &str) -> Option<String> {
+    let exec = unit
+        .lines()
+        .find_map(|line| line.strip_prefix("ExecStart="))?;
+    let mut args = exec.split_whitespace();
+    while let Some(arg) = args.next() {
+        if arg == "--port" || arg == "-p" {
+            return args.next().map(|value| value.trim_matches('"').to_string());
+        }
+        if let Some(value) = arg.strip_prefix("--port=") {
+            return Some(value.trim_matches('"').to_string());
+        }
+    }
+    None
 }
 
 /// Quotes one ExecStart argument for systemd.
@@ -398,6 +444,22 @@ mod tests {
         assert!(unit.contains("EnvironmentFile=-/etc/openstream/openstream.env\n"));
         assert!(unit.contains("WantedBy=multi-user.target\n"));
         assert!(unit.contains("Restart=on-failure\n"));
+    }
+
+    #[test]
+    fn reads_custom_port_from_unit_exec_start() {
+        assert_eq!(
+            port_from_unit("[Service]\nExecStart=/usr/bin/ost serve --port 6000\n"),
+            Some("6000".to_string())
+        );
+        assert_eq!(
+            port_from_unit("[Service]\nExecStart=/usr/bin/ost serve --port=7000\n"),
+            Some("7000".to_string())
+        );
+        assert_eq!(
+            port_from_unit("[Service]\nExecStart=/usr/bin/ost serve -p 8000\n"),
+            Some("8000".to_string())
+        );
     }
 
     #[test]

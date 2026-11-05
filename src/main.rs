@@ -242,17 +242,19 @@ fn set_epg_enabled(
         epg::STORE_KEY_ENABLED,
         if enabled { "true" } else { "false" },
     )?;
-    let restarted = restart_managed_service()?;
-    if restarted {
-        println!(
+    match restart_managed_service()? {
+        autostart::RestartOutcome::Restarted => println!(
             "EPG {} permanently. OpenStream TV service restarted.",
             if enabled { "enabled" } else { "disabled" }
-        );
-    } else {
-        println!(
+        ),
+        autostart::RestartOutcome::Stopped => println!(
+            "EPG {} permanently. The managed OpenStream TV service is stopped; the setting will apply on its next start.",
+            if enabled { "enabled" } else { "disabled" }
+        ),
+        autostart::RestartOutcome::NotInstalled => println!(
             "EPG {} permanently. Restart OpenStream TV to apply it.",
             if enabled { "enabled" } else { "disabled" }
-        );
+        ),
     }
     if enabled {
         print_epg_urls(access, cfg)?;
@@ -260,20 +262,28 @@ fn set_epg_enabled(
     Ok(())
 }
 
-fn restart_managed_service() -> anyhow::Result<bool> {
+fn restart_managed_service() -> anyhow::Result<autostart::RestartOutcome> {
     if is_openwrt() {
         for init in ["/etc/init.d/openstream", "/etc/init.d/jiotv"] {
             let init = std::path::Path::new(init);
             if init.exists() {
-                restart_init_service(init)?;
-                return Ok(true);
+                return restart_init_service_if_running(init);
             }
         }
     }
-    autostart::restart_if_installed()
+    autostart::restart_if_running()
 }
 
-fn restart_init_service(init: &std::path::Path) -> anyhow::Result<()> {
+fn restart_init_service_if_running(
+    init: &std::path::Path,
+) -> anyhow::Result<autostart::RestartOutcome> {
+    let running = std::process::Command::new(init)
+        .arg("running")
+        .status()
+        .map_err(|e| anyhow::anyhow!("cannot query OpenStream TV service state: {e}"))?;
+    if !running.success() {
+        return Ok(autostart::RestartOutcome::Stopped);
+    }
     let status = std::process::Command::new(init)
         .arg("restart")
         .status()
@@ -281,7 +291,7 @@ fn restart_init_service(init: &std::path::Path) -> anyhow::Result<()> {
     if !status.success() {
         anyhow::bail!("OpenStream TV service restart failed: {status}");
     }
-    Ok(())
+    Ok(autostart::RestartOutcome::Restarted)
 }
 
 fn epg_url_path(access: &access::Access, disable_auth: bool) -> anyhow::Result<String> {
@@ -333,7 +343,7 @@ fn print_epg_urls(access: &access::Access, cfg: &config::Config) -> anyhow::Resu
     } else {
         (
             "<server-ip>".to_string(),
-            "5001".to_string(),
+            autostart::service_port().unwrap_or_else(|| "<port>".to_string()),
             cfg.disable_auth,
         )
     };
@@ -1147,11 +1157,21 @@ mod tests {
         }
 
         #[test]
-        fn managed_init_service_uses_restart() {
+        fn running_managed_init_service_uses_restart() {
             let dir = tempfile::tempdir().unwrap();
             let init = fake_init(dir.path(), true);
-            restart_init_service(&init).unwrap();
+            let outcome = restart_init_service_if_running(&init).unwrap();
+            assert_eq!(outcome, autostart::RestartOutcome::Restarted);
             assert_eq!(actions(dir.path()), ["restart"]);
+        }
+
+        #[test]
+        fn stopped_managed_init_service_stays_stopped() {
+            let dir = tempfile::tempdir().unwrap();
+            let init = fake_init(dir.path(), false);
+            let outcome = restart_init_service_if_running(&init).unwrap();
+            assert_eq!(outcome, autostart::RestartOutcome::Stopped);
+            assert!(actions(dir.path()).is_empty());
         }
     }
 
