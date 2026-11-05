@@ -13,6 +13,7 @@ public final class ServerService extends Service {
     static final String ACTION_START = "org.opebstreamstv.android.START";
     static final String ACTION_STOP = "org.opebstreamstv.android.STOP";
     static final String ACTION_STOPPED = "org.opebstreamstv.android.STOPPED";
+    static final String ACTION_EXITED = "org.opebstreamstv.android.EXITED";
     private static final String PREFS = "server_autostart";
     private static final String PREF_ENABLED = "enabled";
     private Process process;
@@ -46,6 +47,21 @@ public final class ServerService extends Service {
             env.put("OPENSTREAM_FASTWAY", "false");
             env.put("OPENSTREAM_TVPLUS", "true");
             process = pb.start();
+            Process started = process;
+            new Thread(() -> {
+                try {
+                    started.waitFor();
+                    new android.os.Handler(getMainLooper()).post(() -> {
+                        if (process != started) return;
+                        process = null;
+                        stopForeground(true);
+                        sendBroadcast(new Intent(ACTION_EXITED).setPackage(getPackageName()));
+                        stopSelf();
+                    });
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }, "server-exit-monitor").start();
             updateNotification("Local server: 127.0.0.1:5001");
         } catch (Exception e) {
             updateNotification("Could not start server. Open Openstream TV Slim for details.");

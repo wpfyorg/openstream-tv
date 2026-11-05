@@ -15,6 +15,11 @@ public class PlaylistLinkTest {
     @Test(expected = IllegalArgumentException.class) public void rejectsUnkeyedPath() { PlaylistLink.keyedPrefix("/playlist.m3u"); }
     @Test(expected = IllegalArgumentException.class) public void rejectsEmptyKey() { PlaylistLink.keyedPrefix("/k//playlist.m3u"); }
     @Test(expected = IllegalArgumentException.class) public void rejectsAmbiguousNestedKey() { PlaylistLink.keyedPrefix("/k/key/extra/playlist.m3u"); }
+    @Test public void rejectsUrlDelimitersAndEscapes() {
+        for (String key : new String[]{"a?b", "a#b", "a%b", "a b"}) {
+            assertThrows(IllegalArgumentException.class, () -> PlaylistLink.keyedPrefix("/k/" + key + "/playlist.m3u"));
+        }
+    }
     @Test public void validatesCliOutput() throws Exception {
         assertEquals("/k/key/playlist.m3u", PlaylistLink.readValidatedPath(new ByteArrayInputStream("/k/key/playlist.m3u\n".getBytes(StandardCharsets.UTF_8))));
         assertThrows(IllegalArgumentException.class, () -> PlaylistLink.readValidatedPath(new ByteArrayInputStream("/k/a/b/playlist.m3u\n".getBytes(StandardCharsets.UTF_8))));

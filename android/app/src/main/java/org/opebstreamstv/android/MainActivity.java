@@ -122,10 +122,19 @@ public final class MainActivity extends Activity {
     private View pendingTvReturnFocus;
     private EditText activeTvEditField;
     private int pendingLocalPickerRequest;
+    private final BroadcastReceiver serverExitedReceiver = new BroadcastReceiver() {
+        @Override public void onReceive(Context context, Intent intent) {
+            service.setText("Start local server");
+            say("Server stopped unexpectedly. Start it again.");
+        }
+    };
 
     @Override public void onCreate(Bundle b) {
         super.onCreate(b);
         render();
+        IntentFilter exitFilter = new IntentFilter(ServerService.ACTION_EXITED);
+        if (Build.VERSION.SDK_INT >= 33) registerReceiver(serverExitedReceiver, exitFilter, Context.RECEIVER_NOT_EXPORTED);
+        else registerReceiver(serverExitedReceiver, exitFilter);
         Shizuku.addRequestPermissionResultListener(shizukuPermissionListener);
         Shizuku.addBinderDeadListener(shizukuBinderDeadListener);
         service.setText(isServiceRunning() ? "Stop local server" : "Start local server");
@@ -957,12 +966,16 @@ public final class MainActivity extends Activity {
             Process process = pb.start();
             if (!process.waitFor(10, java.util.concurrent.TimeUnit.SECONDS)) { process.destroyForcibly(); throw new IOException("Store validation timed out"); }
             if (process.exitValue() != 0) throw new IOException("Invalid store schema");
-            try (InputStream in = new FileInputStream(keyOutput)) { PlaylistLink.readValidatedPath(in); }
+            String restoredPath;
+            try (InputStream in = new FileInputStream(keyOutput)) { restoredPath = PlaylistLink.readValidatedPath(in); }
             if (!liveData.isDirectory() && !liveData.mkdirs()) throw new IOException("Cannot access app data directory");
             try (InputStream in = new FileInputStream(staged)) { StoreBackup.copyBounded(in, temp, 2 * 1024 * 1024); }
             restart = isServiceRunning();
             if (restart && !stopServiceAndWait()) throw new IOException("Could not stop server safely");
             Os.rename(temp.getAbsolutePath(), new File(liveData, "store_v4.toml").getAbsolutePath());
+            keyedPrefix = PlaylistLink.keyedPrefix(restoredPath);
+            playlistUrl = PlaylistLink.loopbackUrl(restoredPath);
+            showPlaylistUrl();
             if (restart) startServerService();
             say(restart ? "Login store imported. Server restarted." : "Login store imported. Start the server to use it.");
         } catch (Exception e) {
@@ -993,6 +1006,7 @@ public final class MainActivity extends Activity {
         runOnUiThread(() -> service.setText("Stop local server"));
     }
     @Override protected void onDestroy() {
+        unregisterReceiver(serverExitedReceiver);
         synchronized (serverPollLock) {
             activityDestroyed = true;
             serverPollHandler.removeCallbacksAndMessages(null);
