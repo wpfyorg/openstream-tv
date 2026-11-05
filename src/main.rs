@@ -86,8 +86,8 @@ fn main() -> anyhow::Result<()> {
             runtime.block_on(epg_generate(&cfg, &path_prefix, store, access, secure))
         }
         cli::Command::EpgDelete => epg_delete(&path_prefix),
-        cli::Command::EpgOn => set_epg_enabled(&store, true),
-        cli::Command::EpgOff => set_epg_enabled(&store, false),
+        cli::Command::EpgOn => set_epg_enabled(&store, &access, &cfg, true),
+        cli::Command::EpgOff => set_epg_enabled(&store, &access, &cfg, false),
         cli::Command::BackgroundStart { args } => background_start(&args, &path_prefix),
         cli::Command::BackgroundStop => background_stop(&path_prefix),
         cli::Command::Update { version } => runtime.block_on(update::run(version.as_deref())),
@@ -232,15 +232,143 @@ fn epg_delete(path_prefix: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn set_epg_enabled(store: &store::Store, enabled: bool) -> anyhow::Result<()> {
+fn set_epg_enabled(
+    store: &store::Store,
+    access: &access::Access,
+    cfg: &config::Config,
+    enabled: bool,
+) -> anyhow::Result<()> {
     store.set(
         epg::STORE_KEY_ENABLED,
         if enabled { "true" } else { "false" },
     )?;
-    println!(
-        "EPG {} permanently. Restart the OpenStream TV service to apply it.",
-        if enabled { "enabled" } else { "disabled" }
-    );
+    match restart_managed_service()? {
+        autostart::RestartOutcome::Restarted => println!(
+            "EPG {} permanently. OpenStream TV service restarted.",
+            if enabled { "enabled" } else { "disabled" }
+        ),
+        autostart::RestartOutcome::Stopped => println!(
+            "EPG {} permanently. The managed OpenStream TV service is stopped; the setting will apply on its next start.",
+            if enabled { "enabled" } else { "disabled" }
+        ),
+        autostart::RestartOutcome::NotInstalled => println!(
+            "EPG {} permanently. Restart OpenStream TV to apply it.",
+            if enabled { "enabled" } else { "disabled" }
+        ),
+    }
+    if enabled {
+        print_epg_urls(access, cfg)?;
+    }
+    Ok(())
+}
+
+fn restart_managed_service() -> anyhow::Result<autostart::RestartOutcome> {
+    if is_openwrt() {
+        let mut found = false;
+        for init in ["/etc/init.d/openstream", "/etc/init.d/jiotv"] {
+            let init = std::path::Path::new(init);
+            if init.exists() {
+                found = true;
+                if restart_init_service_if_running(init)? == autostart::RestartOutcome::Restarted {
+                    return Ok(autostart::RestartOutcome::Restarted);
+                }
+            }
+        }
+        if found {
+            return Ok(autostart::RestartOutcome::Stopped);
+        }
+    }
+    autostart::restart_if_running()
+}
+
+fn restart_init_service_if_running(
+    init: &std::path::Path,
+) -> anyhow::Result<autostart::RestartOutcome> {
+    let running = std::process::Command::new(init)
+        .arg("running")
+        .status()
+        .map_err(|e| anyhow::anyhow!("cannot query OpenStream TV service state: {e}"))?;
+    if !running.success() {
+        return Ok(autostart::RestartOutcome::Stopped);
+    }
+    let status = std::process::Command::new(init)
+        .arg("restart")
+        .status()
+        .map_err(|e| anyhow::anyhow!("cannot restart OpenStream TV service: {e}"))?;
+    if !status.success() {
+        anyhow::bail!("OpenStream TV service restart failed: {status}");
+    }
+    Ok(autostart::RestartOutcome::Restarted)
+}
+
+fn epg_url_path(access: &access::Access, disable_auth: bool) -> anyhow::Result<String> {
+    if disable_auth {
+        return Ok("/epg.xml.gz".to_string());
+    }
+    let playlist = access.playlist_path()?;
+    Ok(format!(
+        "{}epg.xml.gz",
+        playlist.trim_end_matches("playlist.m3u")
+    ))
+}
+
+fn uci_get(option: &str) -> Option<String> {
+    for package in ["openstream", "jiotv"] {
+        let key = format!("{package}.main.{option}");
+        let output = std::process::Command::new("uci")
+            .args(["-q", "get", &key])
+            .output()
+            .ok()?;
+        if output.status.success() {
+            let value = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !value.is_empty() {
+                return Some(value);
+            }
+        }
+    }
+    None
+}
+
+fn parse_uci_bool(value: &str) -> Option<bool> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => Some(true),
+        "0" | "false" | "no" | "off" => Some(false),
+        _ => None,
+    }
+}
+
+fn print_epg_urls(access: &access::Access, cfg: &config::Config) -> anyhow::Result<()> {
+    let (host, port, disable_auth) = if is_openwrt() {
+        (
+            uci_get("host").unwrap_or_else(|| "0.0.0.0".to_string()),
+            uci_get("port").unwrap_or_else(|| "5001".to_string()),
+            uci_get("disable_auth")
+                .as_deref()
+                .and_then(parse_uci_bool)
+                .unwrap_or(cfg.disable_auth),
+        )
+    } else {
+        (
+            "<server-ip>".to_string(),
+            autostart::service_port().unwrap_or_else(|| "<port>".to_string()),
+            cfg.disable_auth,
+        )
+    };
+    let path = epg_url_path(access, disable_auth)?;
+
+    if is_wildcard_host(&host) {
+        match lan_ipv4_addresses() {
+            Ok(addresses) if !addresses.is_empty() => {
+                for address in addresses {
+                    println!("EPG: http://{address}:{port}{path}");
+                }
+                return Ok(());
+            }
+            Ok(_) => {}
+            Err(error) => tracing::warn!("cannot detect LAN IPv4 addresses: {error}"),
+        }
+    }
+    println!("EPG: http://{}:{port}{path}", reachable_host(&host));
     Ok(())
 }
 
@@ -1034,6 +1162,49 @@ mod tests {
             assert!(err.to_string().contains("disk full"));
             assert_eq!(actions(dir.path()), ["stop", "start"]);
         }
+
+        #[test]
+        fn running_managed_init_service_uses_restart() {
+            let dir = tempfile::tempdir().unwrap();
+            let init = fake_init(dir.path(), true);
+            let outcome = restart_init_service_if_running(&init).unwrap();
+            assert_eq!(outcome, autostart::RestartOutcome::Restarted);
+            assert_eq!(actions(dir.path()), ["restart"]);
+        }
+
+        #[test]
+        fn stopped_managed_init_service_stays_stopped() {
+            let dir = tempfile::tempdir().unwrap();
+            let init = fake_init(dir.path(), false);
+            let outcome = restart_init_service_if_running(&init).unwrap();
+            assert_eq!(outcome, autostart::RestartOutcome::Stopped);
+            assert!(actions(dir.path()).is_empty());
+        }
+    }
+
+    #[test]
+    fn epg_url_path_respects_access_mode() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(store::Store::open(dir.path().to_str().unwrap()).unwrap());
+        store.set("access_key", "abc123").unwrap();
+        let access = access::Access::new(store);
+
+        assert_eq!(
+            epg_url_path(&access, false).unwrap(),
+            "/k/abc123/epg.xml.gz"
+        );
+        assert_eq!(epg_url_path(&access, true).unwrap(), "/epg.xml.gz");
+    }
+
+    #[test]
+    fn uci_boolean_values_are_parsed() {
+        for value in ["1", "true", "yes", "on", "TRUE"] {
+            assert_eq!(parse_uci_bool(value), Some(true), "{value}");
+        }
+        for value in ["0", "false", "no", "off", "FALSE"] {
+            assert_eq!(parse_uci_bool(value), Some(false), "{value}");
+        }
+        assert_eq!(parse_uci_bool("maybe"), None);
     }
 
     #[test]

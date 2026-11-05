@@ -18,7 +18,7 @@ Run `ost --help` to see the installed binary's command list. These commands are 
 | `ost fastway login` / `ost fastway logout` | Connect/disconnect the optional Fastway provider when `fastway = true` / `OPENSTREAM_FASTWAY=true`. |
 | `ost admin password` | Set an admin password from the CLI. |
 | `ost key show` / `ost key rotate` | Show or replace the IPTV access key. Treat its output as confidential. |
-| `ost epg on` / `ost epg off` | Permanently enable or disable automatic EPG generation for this data directory. Restart the service after changing it. |
+| `ost epg on` / `ost epg off` | Permanently enable or disable automatic EPG generation for this data directory. Running managed OpenWrt/systemd services restart automatically; stopped services stay stopped and use the setting on their next start. `epg on` also prints the EPG URL. Restart manually only for an unmanaged foreground/background server. |
 | `ost epg generate` / `ost epg delete` | Generate the current guide or remove its cache. |
 | `ost background start` / `ost background stop` | Start or stop a detached server process. |
 | `ost update` | Check/install a release. `--version vX.Y.Z` requests a specific release. |
