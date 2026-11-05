@@ -731,7 +731,7 @@ public final class MainActivity extends Activity {
         }
     }
     private boolean serverHealthy() throws Exception { HttpURLConnection c=(HttpURLConnection)new URL("http://127.0.0.1:5001"+keyedPrefix+"api/status").openConnection(); c.setConnectTimeout(1200); c.setReadTimeout(1800); c.setRequestMethod("GET"); try { int code=c.getResponseCode(); if(code!=200) return false; ByteArrayOutputStream out=new ByteArrayOutputStream(); try(InputStream in=c.getInputStream()){ byte[] buf=new byte[1024]; int n; while((n=in.read(buf))!=-1) out.write(buf,0,n); } return new JSONObject(out.toString("UTF-8")).has("jiotv"); } catch (ConnectException e) { return false; } finally { c.disconnect(); } }
-    private String runKeyShow() throws Exception { File binary=new File(getApplicationInfo().nativeLibraryDir,"libopenstream_exec.so"); java.util.List<String> command=new java.util.ArrayList<>(); command.add(binary.getAbsolutePath()); command.add("--skip-update-check"); File config=new File(getFilesDir(),"config.toml"); if(config.isFile()) { command.add("--config"); command.add(config.getAbsolutePath()); } command.add("key"); command.add("show"); ProcessBuilder b=new ProcessBuilder(command); b.directory(getFilesDir()); b.redirectErrorStream(true); b.environment().put("JIOTV_PATH_PREFIX",new File(getFilesDir(),"data").getAbsolutePath()); b.environment().put("HOME",getFilesDir().getAbsolutePath()); Process p=b.start(); ByteArrayOutputStream out=new ByteArrayOutputStream(); byte[] buf=new byte[256]; int n; while((n=p.getInputStream().read(buf))!=-1) out.write(buf,0,n); if(p.waitFor()!=0) throw new IOException("key command failed"); String result=out.toString("UTF-8").trim(); keyedPrefix=PlaylistLink.keyedPrefix(result); return result; }
+    private String runKeyShow() throws Exception { File binary=new File(getApplicationInfo().nativeLibraryDir,"libopenstream_exec.so"); java.util.List<String> command=new java.util.ArrayList<>(); command.add(binary.getAbsolutePath()); command.add("--skip-update-check"); File config=new File(getFilesDir(),"config.toml"); if(config.isFile()) { command.add("--config"); command.add(config.getAbsolutePath()); } command.add("key"); command.add("show"); ProcessBuilder b=new ProcessBuilder(command); b.directory(getFilesDir()); b.redirectError(new File("/dev/null")); b.environment().put("JIOTV_PATH_PREFIX",new File(getFilesDir(),"data").getAbsolutePath()); b.environment().put("HOME",getFilesDir().getAbsolutePath()); Process p=b.start(); String result; try (InputStream in=p.getInputStream()) { result=PlaylistLink.readValidatedPath(in); } catch (Exception e) { p.destroy(); throw e; } if(p.waitFor()!=0) throw new IOException("key command failed"); keyedPrefix=PlaylistLink.keyedPrefix(result); return result; }
 
     private void otpRequest(boolean verifyRequest) {
         String n=number.getText().toString().trim(), code=otp.getText().toString().trim(); if(n.isEmpty() || (verifyRequest && code.isEmpty())) { say("Enter your mobile number" + (verifyRequest ? " and OTP." : ".")); return; }
@@ -949,13 +949,15 @@ public final class MainActivity extends Activity {
             try (InputStream in = new FileInputStream(staged)) { StoreBackup.copyBounded(in, candidate, 2 * 1024 * 1024); }
             ProcessBuilder pb = new ProcessBuilder(new File(getApplicationInfo().nativeLibraryDir, "libopenstream_exec.so").getAbsolutePath(), "--skip-update-check", "key", "show");
             pb.directory(validationData);
-            pb.redirectOutput(new File("/dev/null"));
+            File keyOutput = new File(validationData, "playlist-path");
+            pb.redirectOutput(keyOutput);
             pb.redirectError(new File("/dev/null"));
             pb.environment().put("JIOTV_PATH_PREFIX", validationData.getAbsolutePath());
             pb.environment().put("HOME", getFilesDir().getAbsolutePath());
             Process process = pb.start();
             if (!process.waitFor(10, java.util.concurrent.TimeUnit.SECONDS)) { process.destroyForcibly(); throw new IOException("Store validation timed out"); }
             if (process.exitValue() != 0) throw new IOException("Invalid store schema");
+            try (InputStream in = new FileInputStream(keyOutput)) { PlaylistLink.readValidatedPath(in); }
             if (!liveData.isDirectory() && !liveData.mkdirs()) throw new IOException("Cannot access app data directory");
             try (InputStream in = new FileInputStream(staged)) { StoreBackup.copyBounded(in, temp, 2 * 1024 * 1024); }
             restart = isServiceRunning();
