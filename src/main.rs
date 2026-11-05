@@ -104,7 +104,7 @@ fn main() -> anyhow::Result<()> {
         } => {
             if !access.has_password() && cfg!(feature = "full") {
                 anyhow::bail!(
-                    "set an admin password with 'jiotv admin password' before publishing JioTV"
+                    "set an admin password with 'ost admin password' before publishing OpenStream TV"
                 );
             }
             let api_token = std::env::var("CLOUDFLARE_API_TOKEN").map_err(|_| {
@@ -521,10 +521,15 @@ async fn serve(
         if args.tunnel_quick && args.tunnel_saved {
             anyhow::bail!("--tunnel-quick and --tunnel-saved are mutually exclusive");
         }
-        let saved = if args.tunnel_quick {
-            None
-        } else {
+        let load_saved_tunnel = should_load_saved_tunnel(
+            args.tunnel_quick,
+            args.tunnel_saved,
+            args.tunnel_token.is_some(),
+        );
+        let saved = if load_saved_tunnel {
             tunnel_setup::load_token(&path_prefix)?
+        } else {
+            None
         };
         let using_saved_token = !args.tunnel_quick
             && (args.tunnel_saved || args.tunnel_token.is_none())
@@ -540,6 +545,7 @@ async fn serve(
         };
         if let Some(token) = &token {
             if using_saved_token {
+                validate_saved_tunnel_listener(listener.local_addr()?)?;
                 let saved_port = tunnel_setup::load_port(&path_prefix)?.ok_or_else(|| {
                     anyhow::anyhow!(
                         "saved tunnel has no configured port; run 'ost tunnel setup' again"
@@ -610,6 +616,24 @@ async fn serve(
         t.kill().await;
     }
     serve_result.map_err(Into::into)
+}
+
+fn should_load_saved_tunnel(tunnel_quick: bool, tunnel_saved: bool, explicit_token: bool) -> bool {
+    !tunnel_quick && (tunnel_saved || !explicit_token)
+}
+
+fn validate_saved_tunnel_listener(address: std::net::SocketAddr) -> anyhow::Result<()> {
+    let supported = matches!(
+        address,
+        std::net::SocketAddr::V4(address)
+            if address.ip() == &std::net::Ipv4Addr::LOCALHOST
+                || address.ip().is_unspecified()
+    );
+    anyhow::ensure!(
+        supported,
+        "saved tunnels use IPv4 ingress; bind with --host 127.0.0.1 or --host 0.0.0.0"
+    );
+    Ok(())
 }
 
 fn build_app_state(
@@ -1141,6 +1165,30 @@ mod tests {
         }
         for local in ["localhost", "127.0.0.1", "192.168.1.10"] {
             assert!(!is_wildcard_host(local));
+        }
+    }
+
+    #[test]
+    fn explicit_tunnel_token_skips_saved_state_unless_requested() {
+        assert!(!should_load_saved_tunnel(false, false, true));
+        assert!(should_load_saved_tunnel(false, true, true));
+        assert!(should_load_saved_tunnel(false, false, false));
+        assert!(!should_load_saved_tunnel(true, false, false));
+    }
+
+    #[test]
+    fn saved_tunnel_requires_exact_supported_ipv4_bind_address() {
+        for address in ["127.0.0.1:5001", "0.0.0.0:5001"] {
+            validate_saved_tunnel_listener(address.parse().unwrap()).unwrap();
+        }
+        for address in [
+            "127.0.0.2:5001",
+            "192.168.1.10:5001",
+            "[::]:5001",
+            "[::1]:5001",
+        ] {
+            let error = validate_saved_tunnel_listener(address.parse().unwrap()).unwrap_err();
+            assert!(error.to_string().contains("--host 127.0.0.1"));
         }
     }
 }

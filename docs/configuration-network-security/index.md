@@ -29,12 +29,12 @@ When you open **Settings → IPTV playlist**, the UI offers plain-HTTP playlist/
 If Cloudflare or another trusted proxy accepts HTTPS and forwards HTTP to port 5001, set the public hostname explicitly:
 
 ```sh
-JIOTV_PUBLIC_ORIGIN=https://tv.example.com jiotv serve --host 127.0.0.1 --port 5001
+OPENSTREAM_PUBLIC_ORIGIN=https://tv.example.com ost serve --host 127.0.0.1 --port 5001
 ```
 
 Only requests whose `Host` matches `tv.example.com` then receive HTTPS links in the playlist, EPG, live-stream and DRM license URLs. Requests from LAN clients (for example `192.168.1.20:5001`) continue to receive HTTP links; the direct TLS listener also retains its own HTTPS origin. The server ignores client-supplied `Forwarded` and `X-Forwarded-*` headers for URL generation. The proxy must pass the public hostname in `Host` and protect access to the local HTTP listener.
 
-Run `jiotv tunnel setup --domain example.com --subdomain tv --port 5001` with a scoped `CLOUDFLARE_API_TOKEN` to create a managed tunnel and save its connector token and public origin privately. Grant the token **Zone Read**, **DNS Edit**, and **Cloudflare Tunnel Edit** for the intended zone/account. Then start `jiotv serve --host 127.0.0.1 --port 5001 --tunnel --tunnel-saved` (use the port you supplied during setup). Quick tunnels started with `--tunnel --tunnel-quick` discover their temporary HTTPS origin automatically. For a manually created named tunnel using `--tunnel-token` or `JIOTV_TUNNEL_TOKEN`, set `JIOTV_PUBLIC_ORIGIN` yourself. A configured origin takes precedence over the discovered tunnel hostname.
+Run `ost tunnel setup --domain example.com --subdomain tv --port 5001` with a scoped `CLOUDFLARE_API_TOKEN` to create a managed tunnel and save its connector token and public origin privately. Grant the token **Zone Read**, **DNS Edit**, and **Cloudflare Tunnel Edit** for the intended zone/account. Then start `ost serve --host 127.0.0.1 --port 5001 --tunnel --tunnel-saved` (use the port you supplied during setup). Quick tunnels started with `--tunnel --tunnel-quick` discover their temporary HTTPS origin automatically. For a manually created named tunnel using `--tunnel-token` or `OPENSTREAM_TUNNEL_TOKEN`, set `OPENSTREAM_PUBLIC_ORIGIN` yourself. A configured origin takes precedence over the discovered tunnel hostname.
 
 ## Account and playlist security
 
