@@ -607,13 +607,18 @@ public final class MainActivity extends Activity {
     private RadioButton providerChoice(String label, boolean checked) { RadioButton b = new RadioButton(this); b.setId(View.generateViewId()); b.setText(label); b.setTextColor(0xfff4f8fc); b.setTextSize(television ? 15 : 14); b.setChecked(checked); b.setFocusable(true); b.setFocusableInTouchMode(false); if (television) { b.setMinHeight(dp(54)); b.setPadding(dp(12), dp(8), dp(12), dp(8)); b.setBackgroundResource(org.jiotvgo.android.R.drawable.tv_field_background); } return b; }
     private void pickFile(String type, int request) {
         rememberTvReturnFocus(request == PICK_CONFIG ? importConfigButton : importStoreButton);
-        if (television) {
+        if (television && Build.VERSION.SDK_INT <= 32) {
             openLocalTomlPicker(request);
             return;
         }
         Intent document = new Intent(Intent.ACTION_OPEN_DOCUMENT); document.setType("*/*"); document.addCategory(Intent.CATEGORY_OPENABLE);
         try { startActivityForResult(document, request); }
         catch (ActivityNotFoundException missingPicker) {
+            if (Build.VERSION.SDK_INT >= 33) {
+                say("No system file picker is available. Enable or install a document picker to import files on Android 13+.");
+                restoreTvReturnFocus();
+                return;
+            }
             Intent fallback = new Intent(Intent.ACTION_GET_CONTENT); fallback.setType("*/*"); fallback.addCategory(Intent.CATEGORY_OPENABLE);
             try { startActivityForResult(fallback, request); }
             catch (ActivityNotFoundException noFallback) { openLocalTomlPicker(request); }
@@ -621,13 +626,18 @@ public final class MainActivity extends Activity {
     }
     private void createConfigDocument() {
         rememberTvReturnFocus(exportConfigButton);
-        if (television) {
+        if (television && Build.VERSION.SDK_INT <= 32) {
             openLocalTomlPicker(CREATE_CONFIG);
             return;
         }
         Intent i = new Intent(Intent.ACTION_CREATE_DOCUMENT); i.addCategory(Intent.CATEGORY_OPENABLE); i.setType("application/octet-stream"); i.putExtra(Intent.EXTRA_TITLE, "config.toml");
         try { startActivityForResult(i, CREATE_CONFIG); }
-        catch (ActivityNotFoundException e) { openLocalTomlPicker(CREATE_CONFIG); }
+        catch (ActivityNotFoundException e) {
+            if (Build.VERSION.SDK_INT >= 33) {
+                say("No system file picker is available. Enable or install a document picker to export files on Android 13+.");
+                restoreTvReturnFocus();
+            } else openLocalTomlPicker(CREATE_CONFIG);
+        }
     }
     private void openLocalTomlPicker(int request) {
         pendingLocalPickerRequest = request;
