@@ -61,7 +61,8 @@ Evidence-backed static record. No live calls. No credentials.
 
 ## Implementation consequence
 
-This service provides app distribution, not TV. The backend models it as a
-status-only provider (`src/vzyone.rs`, IDs `ud_*` reserved but no channels):
-status reports package/version/presence, login/playback/EPG are explicitly
-unsupported. No feature parity is forced.
+This service provides app distribution, not TV. The backend keeps a single
+provenance record in `src/vzyone.rs`, exposed at `/api/vzyone/status`
+(package, version, artifact SHA-256, and why it is not a provider). There is no
+configuration switch, no device state, no login and no channel prefix, because
+no runtime behaviour exists behind them.
