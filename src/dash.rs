@@ -282,9 +282,10 @@ pub(crate) fn build_drm_mpd_output(
         });
     }
 
-    let channel_enc_url = state.secure.encrypt(&tv_url);
+    let channel_enc_url = encrypt_dash_route_value(&state.secure, channel_id, &tv_url);
     let license_url = if !live.resolved_license_url().is_empty() {
-        let enc_key = state.secure.encrypt(live.resolved_license_url());
+        let enc_key =
+            encrypt_dash_route_value(&state.secure, channel_id, live.resolved_license_url());
         format!("/drm?auth={enc_key}&channel_id={channel_id}&channel={channel_enc_url}")
     } else {
         String::new()
@@ -437,11 +438,11 @@ async fn drm_license_impl(
     else {
         return (StatusCode::BAD_REQUEST, "channel_id is required").into_response();
     };
-    let decoded_url = match state.secure.decrypt(auth) {
-        Ok(u) => u,
+    let decoded_url = match decrypt_dash_route_value(&state.secure, &channel_id, auth) {
+        Some(u) => u,
         // A 400, like `/render.mpd`: 403 on a media request must mean the
         // provider refused, which the player UI reports as a denial.
-        Err(_) => return (StatusCode::BAD_REQUEST, "invalid auth parameter").into_response(),
+        None => return (StatusCode::BAD_REQUEST, "invalid auth parameter").into_response(),
     };
 
     // A Fastway channel's license is a PallyCon token exchange: the provider
@@ -503,7 +504,8 @@ async fn drm_license_impl(
     // request, mirroring DRMKeyHandler's cookie relay.
     let mut cookie_header = None;
     if let Some(channel_enc) = params.get("channel") {
-        if let Ok(channel_url) = state.secure.decrypt(channel_enc) {
+        if let Some(channel_url) = decrypt_dash_route_value(&state.secure, &channel_id, channel_enc)
+        {
             if let Ok(resp) = state.http.head(&channel_url).send().await {
                 let cookies: Vec<String> = resp
                     .headers()
@@ -609,9 +611,9 @@ async fn render_mpd_inner(state: Arc<AppState>, q: RenderMpdQuery) -> Response {
     let Some(channel_id) = q.channel_id.as_deref().filter(|id| !id.is_empty()) else {
         return (StatusCode::BAD_REQUEST, "channel_id is required").into_response();
     };
-    let mut decrypted = match state.secure.decrypt(&q.auth) {
-        Ok(u) => u,
-        Err(_) => return (StatusCode::BAD_REQUEST, "invalid auth parameter").into_response(),
+    let mut decrypted = match decrypt_dash_route_value(&state.secure, channel_id, &q.auth) {
+        Some(u) => u,
+        None => return (StatusCode::BAD_REQUEST, "invalid auth parameter").into_response(),
     };
     let quality = q.q.clone().unwrap_or_default();
 
@@ -1137,7 +1139,10 @@ mod tests {
 
         let state = fastway_app_state(store, fastway);
         let params = std::collections::HashMap::from([
-            ("auth".to_string(), state.secure.encrypt("http://example/license")),
+            (
+                "auth".to_string(),
+                encrypt_dash_route_value(&state.secure, "fw_7", "http://example/license"),
+            ),
             ("channel_id".to_string(), "fw_7".to_string()),
         ]);
         let response = drm_license_handler(
@@ -1232,7 +1237,10 @@ mod tests {
         let state = license_test_state(playbox);
         let license_url = format!("{}/license", server.uri());
         let params = std::collections::HashMap::from([
-            ("auth".to_string(), state.secure.encrypt(&license_url)),
+            (
+                "auth".to_string(),
+                encrypt_dash_route_value(&state.secure, "pb_ch1", &license_url),
+            ),
             ("channel_id".to_string(), "pb_ch1".to_string()),
         ]);
         let resp = drm_license_handler(
@@ -1244,6 +1252,34 @@ mod tests {
         )
         .await;
         assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn playbox_license_rejects_auth_bound_to_a_different_channel() {
+        let playbox = Arc::new(crate::playbox_state::PlayboxState::new(true));
+        let state = license_test_state(playbox);
+        let params = std::collections::HashMap::from([
+            (
+                "auth".to_string(),
+                encrypt_dash_route_value(
+                    &state.secure,
+                    "pb_source",
+                    "https://example.invalid/license",
+                ),
+            ),
+            ("channel_id".to_string(), "pb_target".to_string()),
+        ]);
+
+        let response = drm_license_handler(
+            State(state),
+            Query(params),
+            Method::POST,
+            axum::http::HeaderMap::new(),
+            Bytes::from_static(b"challenge"),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]
@@ -1304,7 +1340,7 @@ mod tests {
         let response = render_mpd_inner(
             state.clone(),
             RenderMpdQuery {
-                auth: state.secure.encrypt(&media_url),
+                auth: encrypt_dash_route_value(&state.secure, "pb_ch1", &media_url),
                 channel_id: Some("pb_ch1".into()),
                 q: Some("auto".into()),
                 hdnea: None,
