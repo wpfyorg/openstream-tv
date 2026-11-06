@@ -93,6 +93,19 @@ fn api_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/api/extras/logout", post(crate::api::extras_logout))
         .route("/api/extras/unlock", post(crate::api::extras_unlock))
         .route("/api/extras/lock", post(crate::api::extras_lock))
+        .route("/api/playbox/status", get(crate::api::playbox_status))
+        .route("/api/playbox/login/sendOTP", post(crate::api::playbox_send_otp))
+        .route("/api/playbox/login/verifyOTP", post(crate::api::playbox_verify_otp))
+        .route("/api/playbox/logout", post(crate::api::playbox_logout))
+        .route("/api/playbox/channels", get(crate::api::playbox_channels))
+        .route("/api/playbox/play/:id", get(crate::api::playbox_play))
+        .route("/api/tataplay/status", get(crate::api::tataplay_status))
+        .route("/api/tataplay/login/sendOTP", post(crate::api::tataplay_send_otp))
+        .route("/api/tataplay/login/verifyOTP", post(crate::api::tataplay_verify_otp))
+        .route("/api/tataplay/logout", post(crate::api::tataplay_logout))
+        .route("/api/tataplay/channels", get(crate::api::tataplay_channels))
+        .route("/api/vzyone/status", get(crate::api::vzyone_status))
+        .route("/api/vzyone/logout", post(crate::api::vzyone_logout))
         .route("/api/ott/search", get(crate::vod::api_ott_search))
         .route("/api/ott/screen/:id", get(crate::vod::api_ott_screen))
         .route("/api/ott/show/:id", get(crate::vod::api_ott_episodes))
@@ -504,6 +517,9 @@ mod tests {
             epg_state: Default::default(),
             extras: Arc::new(crate::extras_state::ExtrasState::new(false, None)),
             fastway: Arc::new(crate::fastway_state::FastwayState::new(false)),
+            playbox: Arc::new(crate::playbox::PlayboxState::new(false)),
+            tataplay: Arc::new(crate::tataplay::TataplayState::new(false)),
+            vzyone: Arc::new(crate::vzyone::VzyoneState::new(false)),
             vod_state: Default::default(),
             public_ip: Arc::new(crate::unlock::PublicIp::new(reqwest::Client::new())),
             unlock_limiter: Arc::new(crate::unlock::AttemptLimiter::default()),

@@ -4,10 +4,13 @@ use crate::custom_channels::CustomChannels;
 use crate::dash::DashState;
 use crate::extras_state::ExtrasState;
 use crate::fastway_state::FastwayState;
+use crate::playbox::PlayboxState;
 use crate::secureurl::SecureUrl;
 use crate::store::Store;
 use crate::stream::RenderCaches;
+use crate::tataplay::TataplayState;
 use crate::television::Television;
+use crate::vzyone::VzyoneState;
 use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -49,6 +52,9 @@ pub struct AppState {
     pub epg_state: crate::epg::EpgState,
     pub extras: Arc<ExtrasState>,
     pub fastway: Arc<FastwayState>,
+    pub playbox: Arc<PlayboxState>,
+    pub tataplay: Arc<TataplayState>,
+    pub vzyone: Arc<VzyoneState>,
     pub vod_state: crate::vod::VodState,
     /// The server's cached public IPv4, used to compute today's extras
     /// unlock code. See `unlock.rs`.
@@ -108,6 +114,10 @@ impl AppState {
         self.render_caches.clear();
         self.dash_state.clear();
         self.vod_state.clear();
+        // Provider switching must not leak one account's catalogue into the
+        // next context: drop provider caches at the same boundary.
+        self.playbox.clear();
+        self.tataplay.clear();
     }
 
     /// Product selection follows the authenticated session that can actually
@@ -260,6 +270,9 @@ mod tests {
             epg_state: Default::default(),
             extras: Arc::new(ExtrasState::new(false, None)),
             fastway: Arc::new(FastwayState::new(false)),
+            playbox: Arc::new(crate::playbox::PlayboxState::new(false)),
+            tataplay: Arc::new(crate::tataplay::TataplayState::new(false)),
+            vzyone: Arc::new(crate::vzyone::VzyoneState::new(false)),
             vod_state: Default::default(),
             public_ip: Arc::new(crate::unlock::PublicIp::new(reqwest::Client::new())),
             unlock_limiter: Arc::new(crate::unlock::AttemptLimiter::default()),

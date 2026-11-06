@@ -14,12 +14,14 @@ mod fastway;
 mod fastway_state;
 mod keyed_locks;
 mod login;
+mod playbox;
 mod public_origin;
 mod secureurl;
 mod server;
 mod state;
 mod store;
 mod stream;
+mod tataplay;
 mod television;
 mod tls;
 mod token_refresh;
@@ -28,6 +30,7 @@ mod tunnel_setup;
 mod unlock;
 mod update;
 mod vod;
+mod vzyone;
 
 #[cfg(feature = "full")]
 mod ui_assets;
@@ -806,6 +809,12 @@ fn build_app_state(
     extras_state.init(&http, &store);
     let fastway_state = Arc::new(fastway_state::FastwayState::new(cfg.fastway));
     fastway_state.init(&http, &store);
+    let playbox_state = Arc::new(playbox::PlayboxState::new(cfg.playbox));
+    playbox_state.init(&http, &store);
+    let tataplay_state = Arc::new(tataplay::TataplayState::new(cfg.tataplay));
+    tataplay_state.init(&http, &store);
+    let vzyone_state = Arc::new(vzyone::VzyoneState::new(cfg.vzyone));
+    vzyone_state.init(&store);
 
     Ok(Arc::new(state::AppState {
         config: cfg.clone(),
@@ -822,6 +831,9 @@ fn build_app_state(
         epg_state: Default::default(),
         extras: extras_state,
         fastway: fastway_state,
+        playbox: playbox_state,
+        tataplay: tataplay_state,
+        vzyone: vzyone_state,
         vod_state: Default::default(),
         public_ip: Arc::new(unlock::PublicIp::new(http)),
         unlock_limiter: Arc::new(unlock::AttemptLimiter::default()),

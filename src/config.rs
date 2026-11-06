@@ -20,6 +20,14 @@ pub struct Config {
     /// Enables the optional Fastway Live TV provider. It still needs
     /// `ost fastway login` (or the Settings card) before channels appear.
     pub fastway: bool,
+    /// Optional OTT providers backed by the reverse-engineered Android apps
+    /// (see `docs/ott-providers/`). All default off.
+    #[serde(default)]
+    pub playbox: bool,
+    #[serde(default)]
+    pub tataplay: bool,
+    #[serde(default)]
+    pub vzyone: bool,
     pub disable_auth: bool,
     pub title: String,
     pub disable_url_encryption: bool,
@@ -49,6 +57,9 @@ impl Default for Config {
             drm: true,
             extras: false,
             fastway: false,
+            playbox: false,
+            tataplay: false,
+            vzyone: false,
             disable_auth: false,
             title: "OpenStream TV".to_string(),
             disable_url_encryption: false,
@@ -132,6 +143,9 @@ impl Config {
         }
         env_bool!(extras, "JIOTV_TVPLUS", "OPENSTREAM_TVPLUS");
         env_bool!(fastway, "JIOTV_FASTWAY", "OPENSTREAM_FASTWAY");
+        env_bool!(playbox, "JIOTV_PLAYBOX", "OPENSTREAM_PLAYBOX");
+        env_bool!(tataplay, "JIOTV_TATAPLAY", "OPENSTREAM_TATAPLAY");
+        env_bool!(vzyone, "JIOTV_VZYONE", "OPENSTREAM_VZYONE");
         env_bool!(
             disable_auth,
             "JIOTV_DISABLE_AUTH",
