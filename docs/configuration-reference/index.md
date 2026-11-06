@@ -22,6 +22,8 @@ epg = true
 drm = true
 tv_plus = false
 fastway = false
+# Optional PlayboxTV account (OTP login). Off unless you sign in.
+playbox = false
 disable_auth = false
 debug = false
 log_to_stdout = true
@@ -44,6 +46,7 @@ Save, start with `ost --config ./openstream.toml serve`, then open `http://local
 | `drm` | `JIOTV_DRM`, `OPENSTREAM_DRM` | `true` | Boolean. Allow the protected DASH pathway; does not bypass DRM. |
 | `tv_plus` | `JIOTV_TVPLUS`, `OPENSTREAM_TVPLUS` | `false` | Boolean. Enable the optional JioTV+ account. Needs a JioFiber or AirFiber login. |
 | `fastway` | `JIOTV_FASTWAY`, `OPENSTREAM_FASTWAY` | `false` | Boolean. Enable the optional Fastway Live TV provider. Connect an account with `ost fastway login` or Settings before channels appear. |
+| `playbox` | `JIOTV_PLAYBOX`, `OPENSTREAM_PLAYBOX` | `false` | Boolean. Enable the optional PlayboxTV account. Sign in with `POST /api/playbox/login/sendOTP` then `POST /api/playbox/login/verifyOTP`; the channel catalogue and live playback then use the normal `/live/...` routes. |
 | `disable_auth` | `JIOTV_DISABLE_AUTH`, `OPENSTREAM_DISABLE_AUTH` | `false` | Boolean. Disable app access checks. Dangerous on reachable networks; use only with a trusted external access control. |
 | `title` | `JIOTV_TITLE`, `OPENSTREAM_TITLE` | `"OpenStream TV"` | Display title; any TOML string. |
 | `disable_url_encryption` | `JIOTV_DISABLE_URL_ENCRYPTION`, `OPENSTREAM_DISABLE_URL_ENCRYPTION` | `false` | Boolean. Disable encryption of local proxy parameters. Leave false. |
@@ -61,5 +64,7 @@ Boolean environment values must be `true` or `false` in lowercase (as Rust's par
 The TOML key is `tv_plus`; `JIOTV_TVPLUS` and `OPENSTREAM_TVPLUS` are accepted, with `OPENSTREAM_TVPLUS` taking precedence. The previous TOML key `extras` and legacy `JIOTV_EXTRAS` variable are also accepted. Both `JIOTV_*` and `OPENSTREAM_*` aliases are accepted for tunnel and update tokens.
 
 When more than one alternate source is connected, Fastway takes priority over JioTV+, and JioTV+ takes priority over the JioTV catalogue. See [Connect Fastway Live TV](../account-fastway/index.md).
+
+`playbox` / `JIOTV_PLAYBOX` enables PlayboxTV. When a PlayboxTV session is signed in it takes over the catalogue only if JioTV+ is not signed in; JioTV+ keeps precedence. Its channel IDs start with `pb_`. EPG for PlayboxTV is not published because the client's guide response has no programme end time. There is no configuration switch for the Tata Play or Uptodown artifacts: Tata Play's content contracts are not recoverable from the shipped app, and the supplied `com.vzy.one.apk` is the Uptodown app store rather than a TV service.
 
 For runtime listening options, see [CLI commands](../configuration-cli/index.md); for protection see [Network and HTTPS](../configuration-network-security/index.md); for storage see [Data and logs](../configuration-storage-logs/index.md).

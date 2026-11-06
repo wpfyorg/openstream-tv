@@ -4,13 +4,11 @@ use crate::custom_channels::CustomChannels;
 use crate::dash::DashState;
 use crate::extras_state::ExtrasState;
 use crate::fastway_state::FastwayState;
-use crate::playbox::PlayboxState;
+use crate::playbox_state::PlayboxState;
 use crate::secureurl::SecureUrl;
 use crate::store::Store;
 use crate::stream::RenderCaches;
-use crate::tataplay::TataplayState;
 use crate::television::Television;
-use crate::vzyone::VzyoneState;
 use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -18,6 +16,7 @@ pub enum ActiveProduct {
     Tv,
     Extras,
     Fastway,
+    Playbox,
 }
 
 impl ActiveProduct {
@@ -26,6 +25,7 @@ impl ActiveProduct {
             ActiveProduct::Tv => "tv",
             ActiveProduct::Extras => "extras",
             ActiveProduct::Fastway => "fastway",
+            ActiveProduct::Playbox => "playbox",
         }
     }
 }
@@ -53,8 +53,6 @@ pub struct AppState {
     pub extras: Arc<ExtrasState>,
     pub fastway: Arc<FastwayState>,
     pub playbox: Arc<PlayboxState>,
-    pub tataplay: Arc<TataplayState>,
-    pub vzyone: Arc<VzyoneState>,
     pub vod_state: crate::vod::VodState,
     /// The server's cached public IPv4, used to compute today's extras
     /// unlock code. See `unlock.rs`.
@@ -117,18 +115,19 @@ impl AppState {
         // Provider switching must not leak one account's catalogue into the
         // next context: drop provider caches at the same boundary.
         self.playbox.clear();
-        self.tataplay.clear();
     }
 
     /// Product selection follows the authenticated session that can actually
     /// supply the alternate catalogue. Fastway takes priority when connected,
-    /// then extras; otherwise the TV catalogue. Locking or logging out of an
-    /// alternate provider immediately falls back to the next one.
+    /// then JioTV+, then PlayboxTV; otherwise the TV catalogue. Logging out of
+    /// an alternate provider immediately falls back to the next one.
     pub fn active_product(&self) -> ActiveProduct {
         if self.fastway.connected() {
             ActiveProduct::Fastway
         } else if self.extras.connected() {
             ActiveProduct::Extras
+        } else if self.playbox.connected() {
+            ActiveProduct::Playbox
         } else {
             ActiveProduct::Tv
         }
@@ -148,6 +147,10 @@ impl AppState {
             ActiveProduct::Extras => {
                 self.extras.refresh_catalogue_if_needed(&self.tv).await;
                 Ok(self.extras.catalogue_channels())
+            }
+            ActiveProduct::Playbox => {
+                self.playbox.ensure_catalogue().await;
+                Ok(self.playbox.channels())
             }
             ActiveProduct::Tv => Ok(self.tv.channels().await?.result),
         }
@@ -174,6 +177,10 @@ impl AppState {
                 self.extras.refresh_catalogue_if_needed(&self.tv).await;
                 self.extras.contains_catalogue_channel(id)
             }
+            ActiveProduct::Playbox => {
+                self.playbox.ensure_catalogue().await;
+                self.playbox.contains(id)
+            }
             ActiveProduct::Tv => self
                 .tv
                 .channels()
@@ -196,6 +203,9 @@ impl AppState {
         }
         if FastwayState::is_fastway_channel(id) {
             return self.fastway.is_drm(id);
+        }
+        if crate::playbox::is_playbox_channel(id) {
+            return self.playbox.is_drm(id);
         }
         match self
             .extras
@@ -241,6 +251,7 @@ impl AppState {
         match self.active_product() {
             ActiveProduct::Fastway => self.fastway.connected(),
             ActiveProduct::Extras => self.extras.connected(),
+            ActiveProduct::Playbox => self.playbox.connected(),
             ActiveProduct::Tv => self.tv.logged_in(),
         }
     }
@@ -270,15 +281,130 @@ mod tests {
             epg_state: Default::default(),
             extras: Arc::new(ExtrasState::new(false, None)),
             fastway: Arc::new(FastwayState::new(false)),
-            playbox: Arc::new(crate::playbox::PlayboxState::new(false)),
-            tataplay: Arc::new(crate::tataplay::TataplayState::new(false)),
-            vzyone: Arc::new(crate::vzyone::VzyoneState::new(false)),
+            playbox: Arc::new(PlayboxState::new(false)),
             vod_state: Default::default(),
             public_ip: Arc::new(crate::unlock::PublicIp::new(reqwest::Client::new())),
             unlock_limiter: Arc::new(crate::unlock::AttemptLimiter::default()),
             listen: Default::default(),
             tunnel_origin: Default::default(),
         })
+    }
+
+    fn state_with_providers(
+        store: Arc<Store>,
+        extras: Arc<ExtrasState>,
+        playbox: Arc<PlayboxState>,
+    ) -> Arc<AppState> {
+        Arc::new(AppState {
+            config: Config::default(),
+            path_prefix: String::new(),
+            access: Arc::new(Access::new(store.clone())),
+            store,
+            tv: Arc::new(Television::new(reqwest::Client::new())),
+            secure: Arc::new(SecureUrl::new(false)),
+            http: reqwest::Client::new(),
+            drm_channels: Default::default(),
+            custom_channels: Arc::new(CustomChannels::new()),
+            render_caches: Default::default(),
+            dash_state: Default::default(),
+            epg_state: Default::default(),
+            extras,
+            playbox,
+            vod_state: Default::default(),
+            public_ip: Arc::new(crate::unlock::PublicIp::new(reqwest::Client::new())),
+            unlock_limiter: Arc::new(crate::unlock::AttemptLimiter::default()),
+            listen: Default::default(),
+            tunnel_origin: Default::default(),
+        })
+    }
+
+    fn playbox_state_with_mock(server: &wiremock::MockServer) -> Arc<PlayboxState> {
+        let state = Arc::new(PlayboxState::new(true));
+        let mut client = crate::playbox::Client::new(
+            reqwest::Client::new(),
+            crate::playbox::Device::new(),
+        );
+        client.set_bases_for_test(&server.uri());
+        *client.creds.write().unwrap() = crate::playbox::Credentials {
+            phone: "9876543210".into(),
+            token: "opaque-session-token".into(),
+            customer_id: "cust-1".into(),
+        };
+        state.set_client_for_test(Arc::new(client));
+        state
+    }
+
+    fn empty_store() -> Arc<Store> {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(Store::open(dir.path().to_str().unwrap()).unwrap());
+        std::mem::forget(dir);
+        store
+    }
+
+    #[tokio::test]
+    async fn playbox_becomes_the_active_catalogue_only_when_connected() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/catalogue/v3/page/livetv2"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "livetv": [{"id": "ch1", "name": "One", "typeId": 106}]
+            })))
+            .mount(&server)
+            .await;
+
+        let disconnected = state_with_providers(
+            empty_store(),
+            Arc::new(ExtrasState::new(false, None)),
+            Arc::new(PlayboxState::new(false)),
+        );
+        assert_eq!(disconnected.active_product(), ActiveProduct::Tv);
+        assert!(!disconnected.is_playable("pb_ch1"));
+
+        let s = state_with_providers(
+            empty_store(),
+            Arc::new(ExtrasState::new(false, None)),
+            playbox_state_with_mock(&server),
+        );
+        assert_eq!(s.active_product(), ActiveProduct::Playbox);
+        assert!(s.is_playable("pb_ch1"));
+
+        let channels = s.effective_upstream_channels().await.unwrap();
+        assert_eq!(channels.len(), 1);
+        assert_eq!(channels[0].id, "pb_ch1");
+        assert!(s.channel_allowed("pb_ch1").await);
+        assert!(!s.channel_allowed("pb_other").await);
+    }
+
+    #[tokio::test]
+    async fn jiotv_plus_keeps_precedence_over_playbox() {
+        let store = empty_store();
+        store
+            .set(
+                crate::extras::STORE_KEY_CREDENTIALS,
+                &serde_json::to_string(&crate::extras::Credentials {
+                    sso_token: "redacted-sso".into(),
+                    subscriber_id: "redacted-sub".into(),
+                    user_id: "redacted-user".into(),
+                    auth_token: "redacted-access".into(),
+                    ..Default::default()
+                })
+                .unwrap(),
+            )
+            .unwrap();
+        let extras = Arc::new(ExtrasState::new(true, None));
+        extras.init(&reqwest::Client::new(), &store);
+        assert!(extras.connected());
+
+        let server = wiremock::MockServer::start().await;
+        let s = state_with_providers(
+            empty_store(),
+            extras,
+            playbox_state_with_mock(&server),
+        );
+        assert_eq!(s.active_product(), ActiveProduct::Extras);
     }
 
     #[test]

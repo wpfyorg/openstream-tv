@@ -315,6 +315,9 @@ pub(crate) async fn fetch_live(
     if !state.channel_allowed(channel_id).await {
         anyhow::bail!("channel {channel_id} is not available for the active account");
     }
+    if crate::playbox::is_playbox_channel(channel_id) {
+        return state.playbox.live(channel_id).await;
+    }
     let is_custom = state.custom_channels.contains(channel_id);
     if let Some(content_id) = state.fastway.route(channel_id) {
         return state.fastway.live(&content_id).await;
@@ -385,15 +388,32 @@ fn shared_media_key(rendition_key: &str, original_token: &str) -> String {
     )
 }
 
-async fn render_with_cookie_retry(
+/// Fetch one manifest or segment for `channel_id`. PlayboxTV carries its
+/// media headers with the resolved playback URL; every other product uses the
+/// JioTV cookie flow.
+pub(crate) async fn fetch_media(
     state: &AppState,
+    channel_id: &str,
     url: &str,
     token: &str,
 ) -> (Vec<u8>, u16, String) {
-    let (body, status, cookie) = state.tv.render(url, token).await;
+    if crate::playbox::is_playbox_channel(channel_id) {
+        let headers = state.playbox.media_headers(channel_id).await;
+        return state.tv.render_with_headers(url, "", &headers).await;
+    }
+    state.tv.render(url, token).await
+}
+
+async fn render_with_cookie_retry(
+    state: &AppState,
+    channel_id: &str,
+    url: &str,
+    token: &str,
+) -> (Vec<u8>, u16, String) {
+    let (body, status, cookie) = fetch_media(state, channel_id, url, token).await;
     if matches!(status, 401 | 403) && !cookie.is_empty() && cookie != token {
         let (body, status, next_cookie) =
-            state.tv.render(&strip_hdnea_from_url(url), &cookie).await;
+            fetch_media(state, channel_id, &strip_hdnea_from_url(url), &cookie).await;
         return (
             body,
             status,
@@ -677,7 +697,8 @@ async fn live_impl_inner(
             .extras
             .route(id, state.tv.logged_in(), is_custom)
             .is_some();
-        if (via_fastway || via_extras) && television::has_dash(&live) {
+        let via_playbox = crate::playbox::is_playbox_channel(id);
+        if (via_fastway || via_extras || via_playbox) && television::has_dash(&live) {
             let prefix_str = prefix.as_ref().map(|p| p.0 .0.clone()).unwrap_or_default();
             return Redirect::to(&format!("{prefix_str}/live/mpd/{id}?q={quality}"))
                 .into_response();
@@ -1060,7 +1081,8 @@ async fn render_m3u8_inner(state: Arc<AppState>, q: RenderQuery) -> Response {
     };
 
     let mut rejected_token = token.clone();
-    let (mut body, mut status, new_hdnea) = state.tv.render(&render_url, &token).await;
+    let (mut body, mut status, new_hdnea) =
+        fetch_media(&state, &channel_id, &render_url, &token).await;
     if !new_hdnea.is_empty() {
         state
             .render_caches
@@ -1071,7 +1093,7 @@ async fn render_m3u8_inner(state: Arc<AppState>, q: RenderQuery) -> Response {
     if matches!(status, 401 | 403) && !new_hdnea.is_empty() && new_hdnea != rejected_token {
         rejected_token = token.clone();
         render_url = strip_hdnea_from_url(&render_url);
-        let (b, s, h) = state.tv.render(&render_url, &token).await;
+        let (b, s, h) = fetch_media(&state, &channel_id, &render_url, &token).await;
         body = b;
         status = s;
         if !h.is_empty() {
@@ -1085,6 +1107,12 @@ async fn render_m3u8_inner(state: Arc<AppState>, q: RenderQuery) -> Response {
             state.render_caches.clear_hdnea(&hdnea_key);
         }
         let recently_dead = status == 404 && state.render_caches.is_dead(&channel_id);
+        // PlayboxTV publishes no refresh endpoint; the client re-resolves on
+        // retry instead of replaying a JioTV cookie-recovery flow.
+        if crate::playbox::is_playbox_channel(&channel_id) {
+            return (StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_GATEWAY))
+                .into_response();
+        }
         if !recently_dead && !channel_id.is_empty() {
             if let Ok(refreshed) = refresh_channel_token(&state, &channel_id).await {
                 let retry_quality = if quality.is_empty() {
@@ -1111,7 +1139,8 @@ async fn render_m3u8_inner(state: Arc<AppState>, q: RenderQuery) -> Response {
                     hdnea_key = RenderCaches::hdnea_key(&channel_id, &quality, &scope);
                     token = recovered.token;
                     state.render_caches.set_hdnea(cache_gen, &hdnea_key, &token);
-                    let (b, s, h) = render_with_cookie_retry(&state, &render_url, &token).await;
+                    let (b, s, h) =
+                        render_with_cookie_retry(&state, &channel_id, &render_url, &token).await;
                     body = b;
                     status = s;
                     if !h.is_empty() {
@@ -1141,7 +1170,8 @@ async fn render_m3u8_inner(state: Arc<AppState>, q: RenderQuery) -> Response {
                         if !token.is_empty() {
                             state.render_caches.set_hdnea(cache_gen, &hdnea_key, &token);
                         }
-                        let (b, s, h) = state.tv.render(&render_url, &token).await;
+                        let (b, s, h) =
+                            fetch_media(&state, &channel_id, &render_url, &token).await;
                         body = b;
                         status = s;
                         if matches!(status, 401 | 403) && !h.is_empty() && h != token {
@@ -1311,10 +1341,20 @@ pub async fn render_ts_handler(
         token = extract_hdnea_from_url(&decoded);
     }
 
-    let resp = proxy_segment(&state, &decoded, token.as_deref()).await;
+    let resp = proxy_segment(&state, &channel_id, &decoded, token.as_deref()).await;
     let (mut status, mut body, mut headers) = resp;
 
-    if matches!(status, 401 | 403) {
+    if matches!(status, 401 | 403) && crate::playbox::is_playbox_channel(&channel_id) {
+        // No cookie refresh exists for PlayboxTV: re-resolve once for fresh
+        // headers, then retry the same segment URL.
+        if refresh_channel_token(&state, &channel_id).await.is_ok() {
+            let (s, b, h) =
+                proxy_segment(&state, &channel_id, &decoded, token.as_deref()).await;
+            status = s;
+            body = b;
+            headers = h;
+        }
+    } else if matches!(status, 401 | 403) {
         state.render_caches.clear_hdnea(&hdnea_key);
         state.render_caches.clear_hdnea(&shared_key);
         let stripped = strip_hdnea_from_url(&decoded);
@@ -1344,7 +1384,8 @@ pub async fn render_ts_handler(
                 }
             }
         }
-        let (s, b, h) = proxy_segment(&state, &stripped, fresh_token.as_deref()).await;
+        let (s, b, h) =
+            proxy_segment(&state, &channel_id, &stripped, fresh_token.as_deref()).await;
         status = s;
         body = b;
         headers = h;
@@ -1360,16 +1401,31 @@ pub async fn render_ts_handler(
 
 async fn proxy_segment(
     state: &AppState,
+    channel_id: &str,
     url: &str,
     hdnea: Option<&str>,
 ) -> (u16, Vec<u8>, Option<String>) {
-    let ua = url::Url::parse(url)
-        .ok()
-        .and_then(|u| u.host_str().map(|h| state.player_user_agent_for(h)))
-        .unwrap_or(television::PLAYER_USER_AGENT);
-    let mut req = state.http.get(url).header(header::USER_AGENT, ua);
-    if let Some(t) = hdnea.filter(|t| !t.is_empty()) {
-        req = req.header(header::COOKIE, format!("__hdnea__={t}"));
+    let mut req = state.http.get(url);
+    if crate::playbox::is_playbox_channel(channel_id) {
+        let mut has_user_agent = false;
+        for (name, value) in state.playbox.media_headers(channel_id).await {
+            if name.eq_ignore_ascii_case("user-agent") {
+                has_user_agent = true;
+            }
+            req = req.header(name.as_str(), value.as_str());
+        }
+        if !has_user_agent {
+            req = req.header(header::USER_AGENT, television::PLAYER_USER_AGENT);
+        }
+    } else {
+        let ua = url::Url::parse(url)
+            .ok()
+            .and_then(|u| u.host_str().map(|h| state.player_user_agent_for(h)))
+            .unwrap_or(television::PLAYER_USER_AGENT);
+        req = req.header(header::USER_AGENT, ua);
+        if let Some(t) = hdnea.filter(|t| !t.is_empty()) {
+            req = req.header(header::COOKIE, format!("__hdnea__={t}"));
+        }
     }
     match req.send().await {
         Ok(resp) => {
@@ -1736,9 +1792,7 @@ mod tests {
             epg_state: Default::default(),
             extras: Arc::new(crate::extras_state::ExtrasState::new(false, None)),
             fastway: Arc::new(crate::fastway_state::FastwayState::new(false)),
-            playbox: Arc::new(crate::playbox::PlayboxState::new(false)),
-            tataplay: Arc::new(crate::tataplay::TataplayState::new(false)),
-            vzyone: Arc::new(crate::vzyone::VzyoneState::new(false)),
+            playbox: Arc::new(crate::playbox_state::PlayboxState::new(false)),
             vod_state: Default::default(),
             public_ip: Arc::new(crate::unlock::PublicIp::new(reqwest::Client::new())),
             unlock_limiter: Arc::new(crate::unlock::AttemptLimiter::default()),
@@ -1756,9 +1810,9 @@ mod tests {
             .mount(&upstream)
             .await;
         let tokenless_segment = format!("{}/tokenless.ts", upstream.uri());
-        assert_eq!(proxy_segment(&state, &tokenless_segment, None).await.0, 200);
+        assert_eq!(proxy_segment(&state, "154", &tokenless_segment, None).await.0, 200);
         assert_eq!(
-            proxy_segment(&state, &tokenless_segment, Some("")).await.0,
+            proxy_segment(&state, "154", &tokenless_segment, Some("")).await.0,
             200
         );
         Mock::given(method("GET"))
@@ -1771,6 +1825,7 @@ mod tests {
         assert_eq!(
             proxy_segment(
                 &state,
+                "154",
                 &format!("{}/credential.ts", upstream.uri()),
                 Some("valid")
             )
@@ -1899,6 +1954,7 @@ mod tests {
             assert_eq!(recovered.token, "root-fresh");
             let (_, status, cookie) = render_with_cookie_retry(
                 &state,
+                "154",
                 &strip_hdnea_from_url(&recovered.url),
                 &recovered.token,
             )
@@ -2260,9 +2316,7 @@ mod tests {
             epg_state: Default::default(),
             extras: Arc::new(crate::extras_state::ExtrasState::new(false, None)),
             fastway: Arc::new(crate::fastway_state::FastwayState::new(false)),
-            playbox: Arc::new(crate::playbox::PlayboxState::new(false)),
-            tataplay: Arc::new(crate::tataplay::TataplayState::new(false)),
-            vzyone: Arc::new(crate::vzyone::VzyoneState::new(false)),
+            playbox: Arc::new(crate::playbox_state::PlayboxState::new(false)),
             vod_state: Default::default(),
             public_ip: Arc::new(crate::unlock::PublicIp::new(reqwest::Client::new())),
             unlock_limiter: Arc::new(crate::unlock::AttemptLimiter::default()),
@@ -2296,4 +2350,88 @@ mod tests {
             "https://a.b/live/child.m3u8"
         );
     }
+    fn playbox_test_state(
+        server: &wiremock::MockServer,
+    ) -> std::sync::Arc<AppState> {
+        let dir = tempfile::tempdir().unwrap();
+        let store = std::sync::Arc::new(
+            crate::store::Store::open(dir.path().to_str().unwrap()).unwrap(),
+        );
+        std::mem::forget(dir);
+        let playbox = std::sync::Arc::new(crate::playbox_state::PlayboxState::new(true));
+        let mut client = crate::playbox::Client::new(
+            reqwest::Client::new(),
+            crate::playbox::Device::new(),
+        );
+        client.set_bases_for_test(&server.uri());
+        *client.creds.write().unwrap() = crate::playbox::Credentials {
+            phone: "9876543210".into(),
+            token: "opaque-session-token".into(),
+            customer_id: "cust-1".into(),
+        };
+        playbox.set_client_for_test(std::sync::Arc::new(client));
+        std::sync::Arc::new(AppState {
+            config: crate::config::Config::default(),
+            path_prefix: String::new(),
+            access: std::sync::Arc::new(crate::access::Access::new(store.clone())),
+            store,
+            tv: std::sync::Arc::new(television::Television::new(reqwest::Client::new())),
+            secure: std::sync::Arc::new(crate::secureurl::SecureUrl::new(false)),
+            http: reqwest::Client::new(),
+            drm_channels: Default::default(),
+            custom_channels: std::sync::Arc::new(crate::custom_channels::CustomChannels::new()),
+            render_caches: Default::default(),
+            dash_state: Default::default(),
+            epg_state: Default::default(),
+            extras: std::sync::Arc::new(crate::extras_state::ExtrasState::new(false, None)),
+            playbox,
+            vod_state: Default::default(),
+            public_ip: std::sync::Arc::new(crate::unlock::PublicIp::new(reqwest::Client::new())),
+            unlock_limiter: std::sync::Arc::new(crate::unlock::AttemptLimiter::default()),
+            listen: Default::default(),
+            tunnel_origin: Default::default(),
+        })
+    }
+
+    #[tokio::test]
+    async fn playbox_channels_route_through_shared_live_resolution() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/catalogue/v3/page/livetv2"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "livetv": [{"id": "ch1", "name": "One", "typeId": 106}]
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/consume/v1/playback/resolve"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "code": 200,
+                "data": {"url": {
+                    "playable": "https://cdn.example/ch1.mpd",
+                    "licenceUrl": "https://lic.example/wv",
+                    "token": "drm-token"
+                }}
+            })))
+            .mount(&server)
+            .await;
+
+        let state = playbox_test_state(&server);
+        let live = fetch_live(&state, "pb_ch1").await.unwrap();
+        assert_eq!(live.mpd.auto, "https://cdn.example/ch1.mpd");
+        assert!(live.is_drm);
+        assert!(state.is_drm_channel("pb_ch1"));
+
+        // A DASH-only provider channel is redirected to the shared MPD route.
+        let resp = live_impl_inner(&state, "pb_ch1", "auto", &None).await;
+        assert_eq!(resp.status(), axum::http::StatusCode::SEE_OTHER);
+        assert_eq!(
+            resp.headers()[axum::http::header::LOCATION],
+            "/live/mpd/pb_ch1?q=auto"
+        );
+    }
+
 }

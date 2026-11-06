@@ -110,6 +110,10 @@ fn snapshot_fingerprint(
         crate::state::ActiveProduct::Fastway => {
             hash_field(&mut hasher, &state.fastway.account_fingerprint());
         }
+        crate::state::ActiveProduct::Playbox => {
+            hash_field(&mut hasher, &state.playbox.account_fingerprint());
+            hash_field(&mut hasher, "playbox-epg:unavailable");
+        }
     }
 
     // XMLTV currently contains only upstream channels. Sorting makes this a
@@ -358,6 +362,21 @@ async fn generate_xml_from_sources(
     Ok(xml)
 }
 
+/// XMLTV with channel entries but no programmes, used for a product whose
+/// real programme timing is not understood.
+fn generate_channels_only_xml_gz(channels: Vec<(String, String)>) -> anyhow::Result<Vec<u8>> {
+    let mut xml = String::from(r#"<tv version="" encoding="">"#);
+    for (id, display) in &channels {
+        xml.push_str(&format!(
+            "<channel id=\"{}\"><display-name>{}</display-name></channel>",
+            xml_escape(id),
+            xml_escape(display)
+        ));
+    }
+    xml.push_str("</tv>");
+    gzip_xml(&xml)
+}
+
 async fn generate_xml_gz_from_sources(
     client: &reqwest::Client,
     tv_sources: Vec<(String, String)>,
@@ -448,6 +467,16 @@ pub async fn regenerate_for_state(state: &Arc<AppState>) -> anyhow::Result<()> {
         crate::state::ActiveProduct::Fastway => {
             let (sources, programmes) = state.fastway.epg_source(&state.store).await?;
             generate_xml_gz_from_sources(&state.http, Vec::new(), sources, programmes).await?
+        }
+        // PlayboxTV's EPG response has no programme stop time, so only the
+        // channel list is published; no programme is invented.
+        crate::state::ActiveProduct::Playbox => {
+            let channels = snapshot
+                .channels
+                .iter()
+                .map(|ch| (ch.id.clone(), ch.name.clone()))
+                .collect();
+            generate_channels_only_xml_gz(channels)?
         }
     };
 
@@ -600,6 +629,16 @@ pub async fn web_epg_handler(
     Path((channel_id, offset)): Path<(String, String)>,
     State(state): State<Arc<AppState>>,
 ) -> Response {
+    // A constant answer, checked before the account-scoped catalogue so the
+    // gap is reported even when PlayboxTV is not the active product.
+    if crate::playbox::is_playbox_channel(&channel_id) {
+        return (
+            StatusCode::NOT_IMPLEMENTED,
+            "playbox EPG is unavailable: the client's weekly_epg response has no \
+             programme end time and its startTime is display-only",
+        )
+            .into_response();
+    }
     if !state.channel_allowed(&channel_id).await {
         return (
             StatusCode::NOT_FOUND,
@@ -757,6 +796,41 @@ pub async fn poster_handler(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn playbox_web_epg_reports_the_missing_stop_time() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = std::sync::Arc::new(
+            crate::store::Store::open(dir.path().to_str().unwrap()).unwrap(),
+        );
+        std::mem::forget(dir);
+        let state = std::sync::Arc::new(AppState {
+            config: crate::config::Config::default(),
+            path_prefix: String::new(),
+            access: std::sync::Arc::new(crate::access::Access::new(store.clone())),
+            store,
+            tv: std::sync::Arc::new(crate::television::Television::new(reqwest::Client::new())),
+            secure: std::sync::Arc::new(crate::secureurl::SecureUrl::new(false)),
+            http: reqwest::Client::new(),
+            drm_channels: Default::default(),
+            custom_channels: std::sync::Arc::new(
+                crate::custom_channels::CustomChannels::new(),
+            ),
+            render_caches: Default::default(),
+            dash_state: Default::default(),
+            epg_state: Default::default(),
+            extras: std::sync::Arc::new(crate::extras_state::ExtrasState::new(false, None)),
+            playbox: std::sync::Arc::new(crate::playbox_state::PlayboxState::new(false)),
+            vod_state: Default::default(),
+            public_ip: std::sync::Arc::new(crate::unlock::PublicIp::new(reqwest::Client::new())),
+            unlock_limiter: std::sync::Arc::new(crate::unlock::AttemptLimiter::default()),
+            listen: Default::default(),
+            tunnel_origin: Default::default(),
+        });
+        let resp =
+            web_epg_handler(Path(("pb_ch1".into(), "0".into())), State(state)).await;
+        assert_eq!(resp.status(), StatusCode::NOT_IMPLEMENTED);
+    }
     use http_body_util::BodyExt;
     use std::collections::HashMap;
 
@@ -860,9 +934,7 @@ mod tests {
             epg_state: Default::default(),
             extras: extras_state,
             fastway: Arc::new(crate::fastway_state::FastwayState::new(false)),
-            playbox: Arc::new(crate::playbox::PlayboxState::new(false)),
-            tataplay: Arc::new(crate::tataplay::TataplayState::new(false)),
-            vzyone: Arc::new(crate::vzyone::VzyoneState::new(false)),
+            playbox: Arc::new(crate::playbox_state::PlayboxState::new(false)),
             vod_state: Default::default(),
             public_ip: Arc::new(crate::unlock::PublicIp::new(http)),
             unlock_limiter: Arc::new(crate::unlock::AttemptLimiter::default()),

@@ -434,6 +434,19 @@ async fn drm_license_impl(
         return send_license_request(req, body).await;
     }
 
+    // PlayboxTV's license request carries the playback token in the same
+    // multi-DRM headers the app sets (`buildCustomDrmSessionManager`).
+    if crate::playbox::is_playbox_channel(&channel_id) {
+        let mut req = state
+            .http
+            .request(method, &decoded_url)
+            .header(header::CONTENT_TYPE, "application/octet-stream");
+        for (k, v) in state.playbox.license_headers(&channel_id).await {
+            req = req.header(k.as_str(), v.as_str());
+        }
+        return send_license_request(req, body).await;
+    }
+
     // A extras channel's license is authorised by the token already in the
     // license URL; send the headers the extras app sends and skip the
     // cookie-harvesting dance below entirely, mirroring `DRMKeyHandler`'s
@@ -597,13 +610,13 @@ async fn render_mpd_inner(state: Arc<AppState>, q: RenderMpdQuery) -> Response {
         }
     }
 
-    let (status, body, set_cookies) = proxy_mpd(&state, &decrypted).await;
+    let (status, body, set_cookies) = proxy_mpd(&state, channel_id, &decrypted).await;
     let mut status = status;
     let mut body = body;
     let mut set_cookies = set_cookies;
     if matches!(status, 401 | 403) {
         let stripped = crate::stream::strip_hdnea_from_url(&decrypted);
-        let (s, b, c) = proxy_mpd(&state, &stripped).await;
+        let (s, b, c) = proxy_mpd(&state, channel_id, &stripped).await;
         status = s;
         body = b;
         set_cookies = c;
@@ -768,15 +781,27 @@ fn player_user_agent_for(state: &AppState, url: &str) -> &'static str {
         .unwrap_or(television::PLAYER_USER_AGENT)
 }
 
-async fn proxy_mpd(state: &AppState, url: &str) -> (u16, Vec<u8>, Vec<String>) {
-    let ua = player_user_agent_for(state, url);
-    match state
-        .http
-        .get(url)
-        .header(header::USER_AGENT, ua)
-        .send()
-        .await
-    {
+async fn proxy_mpd(
+    state: &AppState,
+    channel_id: &str,
+    url: &str,
+) -> (u16, Vec<u8>, Vec<String>) {
+    let mut req = state.http.get(url);
+    if crate::playbox::is_playbox_channel(channel_id) {
+        let mut has_user_agent = false;
+        for (name, value) in state.playbox.media_headers(channel_id).await {
+            if name.eq_ignore_ascii_case("user-agent") {
+                has_user_agent = true;
+            }
+            req = req.header(name.as_str(), value.as_str());
+        }
+        if !has_user_agent {
+            req = req.header(header::USER_AGENT, television::PLAYER_USER_AGENT);
+        }
+    } else {
+        req = req.header(header::USER_AGENT, player_user_agent_for(state, url));
+    }
+    match req.send().await {
         Ok(resp) => {
             let status = resp.status().as_u16();
             let cookies: Vec<String> = resp
@@ -843,7 +868,7 @@ pub async fn render_dash_handler(
     State(state): State<Arc<AppState>>,
     uri: axum::http::Uri,
 ) -> Response {
-    let (_channel_id, enc_host, enc_path, enc_hdnea, segment_path) =
+    let (channel_id, enc_host, enc_path, enc_hdnea, segment_path) =
         match split_dash_path(uri.path()) {
             Some(v) => v,
             None => return (StatusCode::BAD_REQUEST, "malformed dash path").into_response(),
@@ -873,12 +898,12 @@ pub async fn render_dash_handler(
         uri.query().unwrap_or(""),
     );
 
-    let (status, body, ct) = proxy_dash_segment(&state, &proxy_url, hdnea_token.as_deref()).await;
+    let (status, body, ct) = proxy_dash_segment(&state, &channel_id, &proxy_url, hdnea_token.as_deref()).await;
     let mut status = status;
     let mut body = body;
     let mut ct = ct;
     if matches!(status, 401 | 403) {
-        let (s, b, c) = proxy_dash_segment(&state, &proxy_url, None).await;
+        let (s, b, c) = proxy_dash_segment(&state, &channel_id, &proxy_url, None).await;
         status = s;
         body = b;
         ct = c;
@@ -894,13 +919,27 @@ pub async fn render_dash_handler(
 
 async fn proxy_dash_segment(
     state: &AppState,
+    channel_id: &str,
     url: &str,
     hdnea: Option<&str>,
 ) -> (u16, Vec<u8>, Option<String>) {
-    let ua = player_user_agent_for(state, url);
-    let mut req = state.http.get(url).header(header::USER_AGENT, ua);
-    if let Some(t) = hdnea {
-        req = req.header(header::COOKIE, format!("__hdnea__={t}"));
+    let mut req = state.http.get(url);
+    if crate::playbox::is_playbox_channel(channel_id) {
+        let mut has_user_agent = false;
+        for (name, value) in state.playbox.media_headers(channel_id).await {
+            if name.eq_ignore_ascii_case("user-agent") {
+                has_user_agent = true;
+            }
+            req = req.header(name.as_str(), value.as_str());
+        }
+        if !has_user_agent {
+            req = req.header(header::USER_AGENT, television::PLAYER_USER_AGENT);
+        }
+    } else {
+        req = req.header(header::USER_AGENT, player_user_agent_for(state, url));
+        if let Some(t) = hdnea {
+            req = req.header(header::COOKIE, format!("__hdnea__={t}"));
+        }
     }
     match req.send().await {
         Ok(resp) => {
@@ -1078,6 +1117,89 @@ mod tests {
             play_url: "/render.mpd?x".into(),
             ..Default::default()
         }
+    }
+
+    fn license_test_state(playbox: Arc<crate::playbox_state::PlayboxState>) -> Arc<AppState> {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(crate::store::Store::open(dir.path().to_str().unwrap()).unwrap());
+        std::mem::forget(dir);
+        Arc::new(AppState {
+            config: crate::config::Config::default(),
+            path_prefix: String::new(),
+            access: Arc::new(crate::access::Access::new(store.clone())),
+            store,
+            tv: Arc::new(television::Television::new(reqwest::Client::new())),
+            secure: Arc::new(crate::secureurl::SecureUrl::new(false)),
+            http: reqwest::Client::new(),
+            drm_channels: Default::default(),
+            custom_channels: Arc::new(crate::custom_channels::CustomChannels::new()),
+            render_caches: Default::default(),
+            dash_state: Default::default(),
+            epg_state: Default::default(),
+            extras: Arc::new(crate::extras_state::ExtrasState::new(false, None)),
+            playbox,
+            vod_state: Default::default(),
+            public_ip: Arc::new(crate::unlock::PublicIp::new(reqwest::Client::new())),
+            unlock_limiter: Arc::new(crate::unlock::AttemptLimiter::default()),
+            listen: Default::default(),
+            tunnel_origin: Default::default(),
+        })
+    }
+
+    #[tokio::test]
+    async fn playbox_license_forwards_the_resolved_token_headers() {
+        use wiremock::matchers::{header, method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/consume/v1/playback/resolve"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "code": 200,
+                "data": {"url": {
+                    "playable": "https://cdn.example/ch1.mpd",
+                    "licenceUrl": format!("{}/license", server.uri()),
+                    "token": "drm-token"
+                }}
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/license"))
+            .and(header("X-AxDRM-Message", "drm-token"))
+            .and(header("Authorization", "Bearer drm-token"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(b"license".to_vec()))
+            .mount(&server)
+            .await;
+
+        let playbox = Arc::new(crate::playbox_state::PlayboxState::new(true));
+        let mut client = crate::playbox::Client::new(
+            reqwest::Client::new(),
+            crate::playbox::Device::new(),
+        );
+        client.set_bases_for_test(&server.uri());
+        *client.creds.write().unwrap() = crate::playbox::Credentials {
+            phone: "9876543210".into(),
+            token: "opaque-session-token".into(),
+            customer_id: "cust-1".into(),
+        };
+        playbox.set_client_for_test(Arc::new(client));
+
+        let state = license_test_state(playbox);
+        let license_url = format!("{}/license", server.uri());
+        let params = std::collections::HashMap::from([
+            ("auth".to_string(), state.secure.encrypt(&license_url)),
+            ("channel_id".to_string(), "pb_ch1".to_string()),
+        ]);
+        let resp = drm_license_handler(
+            State(state),
+            Query(params),
+            Method::POST,
+            axum::http::HeaderMap::new(),
+            Bytes::from_static(b"challenge"),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
     }
 
     #[test]
