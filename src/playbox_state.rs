@@ -450,11 +450,14 @@ impl PlayboxState {
                 return Some(entitled);
             }
         }
+        let generation = self.generation();
         let client = self.client()?;
         let packs: ActivePacks = client.subscription().await.ok()?;
         let entitled = packs.entitled();
-        *self.entitlement.write().unwrap() = Some((entitled, Instant::now()));
-        Some(entitled)
+        self.commit_if_current(generation, || {
+            *self.entitlement.write().unwrap() = Some((entitled, Instant::now()));
+            entitled
+        })
     }
 
     pub fn account_fingerprint(&self) -> String {
@@ -670,6 +673,45 @@ mod tests {
         let _ = first.await.unwrap();
         assert!(second.await.unwrap().is_err());
         assert!(state.resolved.read().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn stale_subscription_response_cannot_repopulate_after_account_change() {
+        let old_server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/user/v1/customer/9876543210/hasActivePacks"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_delay(Duration::from_millis(100))
+                    .set_body_json(serde_json::json!({"active": true})),
+            )
+            .expect(1)
+            .mount(&old_server)
+            .await;
+
+        let new_server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/user/v1/customer/9876543210/hasActivePacks"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "active": false,
+                "bundleActive": false
+            })))
+            .expect(1)
+            .mount(&new_server)
+            .await;
+
+        let state = PlayboxState::new(true);
+        state.set_client_for_test(client_for(&old_server));
+        let stale = state.subscription();
+        let switch_account = async {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            state.clear();
+            state.set_client_for_test(client_for(&new_server));
+        };
+        let (stale_result, ()) = tokio::join!(stale, switch_account);
+
+        assert_eq!(stale_result, None);
+        assert_eq!(state.subscription().await, Some(false));
     }
 
     #[tokio::test]
