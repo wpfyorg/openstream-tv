@@ -326,6 +326,7 @@ mod tests {
             dash_state: Default::default(),
             epg_state: Default::default(),
             extras,
+            fastway: Arc::new(FastwayState::new(false)),
             playbox,
             vzy: Arc::new(VzyState::new(false)),
             vod_state: Default::default(),

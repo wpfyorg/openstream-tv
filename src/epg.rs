@@ -829,6 +829,7 @@ mod tests {
             dash_state: Default::default(),
             epg_state: Default::default(),
             extras: std::sync::Arc::new(crate::extras_state::ExtrasState::new(false, None)),
+            fastway: std::sync::Arc::new(crate::fastway_state::FastwayState::new(false)),
             playbox: std::sync::Arc::new(crate::playbox_state::PlayboxState::new(false)),
             vzy: std::sync::Arc::new(crate::vzy_state::VzyState::new(false)),
             vod_state: Default::default(),
