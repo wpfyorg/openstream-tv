@@ -54,6 +54,10 @@ const DEFAULT_LANGS: &str = "hi";
 const LIVE_TYPE: &str = "liveTV";
 
 #[cfg(not(test))]
+const CATALOGUE_TIMEOUT: Duration = Duration::from_secs(15);
+#[cfg(test)]
+const CATALOGUE_TIMEOUT: Duration = Duration::from_millis(500);
+#[cfg(not(test))]
 const PLAYBACK_RESOLVE_TIMEOUT: Duration = Duration::from_secs(15);
 #[cfg(test)]
 const PLAYBACK_RESOLVE_TIMEOUT: Duration = Duration::from_millis(500);
@@ -122,7 +126,7 @@ impl Credentials {
 }
 
 pub fn delete_credentials(store: &crate::store::Store) -> anyhow::Result<()> {
-    let _ = store.delete(STORE_KEY_CREDENTIALS);
+    store.delete(STORE_KEY_CREDENTIALS)?;
     Ok(())
 }
 
@@ -643,6 +647,12 @@ impl Client {
 
     /// `Api.listLiveTV`: `GET v3/page/livetv2` on the CloudFront catalogue.
     pub async fn channels(&self) -> anyhow::Result<Vec<Item>> {
+        tokio::time::timeout(CATALOGUE_TIMEOUT, self.channels_inner())
+            .await
+            .map_err(|_| anyhow::anyhow!("playbox: catalogue timed out"))?
+    }
+
+    async fn channels_inner(&self) -> anyhow::Result<Vec<Item>> {
         let url = format!(
             "{}v3/page/livetv2?langs={DEFAULT_LANGS}&identifier={IDENTIFIER}&countryCode={COUNTRY_CODE}",
             self.catalogue
@@ -813,6 +823,17 @@ mod tests {
         assert_eq!(Credentials::load(&store).unwrap().token, "tok");
         delete_credentials(&store).unwrap();
         assert!(Credentials::load(&store).is_none());
+    }
+
+    #[test]
+    fn credential_delete_surfaces_store_write_failures() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = crate::store::Store::open(dir.path().to_str().unwrap()).unwrap();
+        let path = dir.path().join("store_v4.toml");
+        std::fs::remove_file(&path).unwrap();
+        std::fs::create_dir(&path).unwrap();
+
+        assert!(delete_credentials(&store).is_err());
     }
 
     #[test]
@@ -1110,5 +1131,31 @@ mod tests {
         assert_eq!(channels.len(), 1);
         assert_eq!(to_television_channel(&channels[0]).id, "pb_ch1");
         assert!(client.subscription().await.unwrap().entitled());
+    }
+
+    #[tokio::test]
+    async fn catalogue_timeout_bounds_the_complete_fetch() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/catalogue/v3/page/livetv2"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_delay(Duration::from_secs(2))
+                    .set_body_json(serde_json::json!({
+                        "statusCode": 200,
+                        "livetv": [{"id": "ch1", "name": "One", "typeId": 106}]
+                    })),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let mut client = Client::new(reqwest::Client::new(), Device::new());
+        client.set_bases_for_test(&server.uri());
+
+        assert_eq!(
+            client.channels().await.unwrap_err().to_string(),
+            "playbox: catalogue timed out"
+        );
     }
 }

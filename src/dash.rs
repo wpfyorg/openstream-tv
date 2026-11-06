@@ -621,6 +621,9 @@ async fn render_mpd_inner(state: Arc<AppState>, q: RenderMpdQuery) -> Response {
         body = b;
         set_cookies = c;
     }
+    if matches!(status, 401 | 403 | 404) && crate::playbox::is_playbox_channel(channel_id) {
+        state.playbox.invalidate_playback(channel_id).await;
+    }
 
     let upstream_hdnea = set_cookies.iter().find_map(|sc| {
         sc.split(';')
@@ -1199,6 +1202,78 @@ mod tests {
         )
         .await;
         assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn playbox_mpd_rejection_invalidates_cached_playback() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, Request, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        let media_url = format!("{}/stale.mpd", server.uri());
+        Mock::given(method("GET"))
+            .and(path("/catalogue/v3/page/livetv2"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "statusCode": 200,
+                "livetv": [{"id": "ch1", "name": "One", "typeId": 106}]
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let resolve_calls = Arc::new(AtomicUsize::new(0));
+        let resolve_calls_for_response = resolve_calls.clone();
+        let media_for_response = media_url.clone();
+        Mock::given(method("POST"))
+            .and(path("/consume/v1/playback/resolve"))
+            .respond_with(move |_request: &Request| {
+                resolve_calls_for_response.fetch_add(1, Ordering::SeqCst);
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "code": 200,
+                    "data": {"url": {"playable": media_for_response, "token": "media-token"}}
+                }))
+            })
+            .expect(2)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/stale.mpd"))
+            .respond_with(ResponseTemplate::new(403))
+            .expect(2)
+            .mount(&server)
+            .await;
+
+        let playbox = Arc::new(crate::playbox_state::PlayboxState::new(true));
+        let mut client =
+            crate::playbox::Client::new(reqwest::Client::new(), crate::playbox::Device::new());
+        client.set_bases_for_test(&server.uri());
+        *client.creds.write().unwrap() = crate::playbox::Credentials {
+            phone: "9876543210".into(),
+            token: "opaque-session-token".into(),
+            customer_id: "cust-1".into(),
+        };
+        playbox.set_client_for_test(Arc::new(client));
+        let state = license_test_state(playbox);
+
+        let first = state.playbox.live("pb_ch1").await.unwrap();
+        assert_eq!(first.mpd.auto, media_url);
+        assert!(state.playbox.playlist_ready("pb_ch1"));
+
+        let response = render_mpd_inner(
+            state.clone(),
+            RenderMpdQuery {
+                auth: state.secure.encrypt(&media_url),
+                channel_id: Some("pb_ch1".into()),
+                q: Some("auto".into()),
+                hdnea: None,
+            },
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        assert!(!state.playbox.playlist_ready("pb_ch1"));
+
+        let _ = state.playbox.live("pb_ch1").await.unwrap();
+        assert_eq!(resolve_calls.load(Ordering::SeqCst), 2);
     }
 
     #[test]
