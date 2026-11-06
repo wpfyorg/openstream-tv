@@ -46,6 +46,68 @@ contract is statically recoverable. Guessed paths were therefore removed from
 the backend; `/api/tataplay/status` reports the artifact identity and this exact
 gap, and no Tata Play channel can enter the shared catalogue.
 
+## 1b. New artifact and runtime evidence (follow-up pass)
+
+Two different Tata Play packages are now in scope:
+
+- **Installed, logged in on the A15**: `com.ryzmedia.tatasky` 509.0/894
+  (this record's original artifact). Its encrypted fallback bundle was
+  bypassed legally by fetching the app's own CodePush update with the
+  deployment key embedded in the APK. The CodePush payload is a plain ZIP
+  containing plain Hermes bytecode (`index.android.bundle`, 11.8 MB), so the
+  real JS is recoverable. It exposes the full old-app API surface
+  (`login-service`, `rest-api`, `lit-mobile-common-bff`,
+  `lit-subscription-service`, `pas/api/v1/access/control`,
+  `content-detail`, etc.) under `https://tm.tapi.videoready.tv/`.
+- **New artifact in `TataPlay.zip`**: package `com.tataplay.livetv`
+  (`com.tataplaylit.tv`, "Tata Play Smart"), with a native Retrofit API layer
+  and a small RN subscription SDK. This is a different app generation; it is
+  not the installed package.
+
+### Runtime boundary on the logged-in A15 (no subscription)
+
+Observed through the device UI, without capturing tokens:
+
+- Session restoration and home screen: **work**. The account is logged in.
+- Channel catalogue / home rails: **work** (channels and "Subscribe" prompts).
+- Live TV guide / EPG: **work** (programme rows, channel numbers, categories).
+- Search: **work** (e.g. DD National HD, DD Sports HD, DD India HD).
+- Premium live playback: gated by the app's own "Subscribe" UI; the account has
+  no active pack. No subscription was purchased or activated.
+- Free-to-air playback was not conclusively triggered through ADB touch input
+  (the leanback cards did not accept injected taps); therefore no claim is made
+  that free channels play.
+- No API request/response was captured: the release package is not debuggable,
+  the device has no root, and the app does not trust user CAs, so TLS
+  interception would require patching the app (not done). No OTP was entered by
+  the agent.
+
+### New app static contracts (recovered, **not enabled**)
+
+The new `com.tataplay.livetv` app has a native `NetworkApi` with explicit
+Retrofit annotations on `https://tm.tapi.videoready.tv/`:
+
+- `POST login-service/pub/api/v3/signin/generate/otp` (`GenerateBody{rmn,sid}`)
+- `POST login-service/pub/api/v3/signin/validate/otp` (`ValidateOtpPayLoad{…}`)
+- `POST rest-api/api/v3/refreshToken` (`RefreshTokenRequest{refreshToken,subscriberId}`)
+- `GET lit-subscription-service/api/v1/lit/getEntitlementDetails`
+- `GET portal-search/pub/api/v1/channels/all?limit&offset`
+- `GET lit-mobile-common-bff/api/v2/channels/guide?…`
+- `GET pas/api/v1/access/control/{contentType}/{channelId}` → `PlayUrlData`
+- `GET content-detail/pub/api/v3/catchupEpg/{channelId}?isLitEnabled=true`
+- `POST device-management/v1/app/lit/subscriber/{subscriberId}/device`
+
+Header injection is explicit (`RD0` interceptor): `Authorization: bearer <KS>`,
+`appVersion: 1.0.10`, `platform`, `deviceId`, `device_details`, `deviceName`,
+`x-device-id`, `x-subscriber-id`, `x-authenticated-userid`, `subscriberId`,
+`sid`, `countryRegion`, `profileId`. Token expiry is `expiresIn` (epoch millis
+or duration) and refresh uses the `refreshToken`/`subscriberId` body.
+
+**These are not enabled.** They were recovered statically, not exercised
+against the live service. In particular `sid`, `refId`, `loginOption`,
+`jwtToken` and the OTP/session-update sequence still need a real
+request/response capture. The existing status-only surface is therefore kept.
+
 ## 2. API bases (observed static strings)
 
 - `BASE_URL = https://tm.tapi.videoready.tv/` (`BASE_URL_CONFIG_AKAMAI` same;

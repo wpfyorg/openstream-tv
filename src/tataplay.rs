@@ -19,10 +19,13 @@ pub const ARTIFACT_SHA256: &str =
 
 /// Static evidence: no content contract is recoverable from the shipped
 /// artifact.
-pub const GAP: &str = "Tata Play login, catalogue, EPG, playback and Widevine \
-contracts are not recoverable statically: index.android.bundle is encrypted \
-(no Hermes magic) and the app's network layer exists only inside that bundle. \
-A runtime capture with an authorised account is required.";
+pub const GAP: &str = "Tata Play contracts are recovered statically (old app \
+CodePush bundle + new com.tataplay.livetv Retrofit layer), but no runtime API \
+request/response has been captured: the release app is not debuggable, the \
+device has no root, and it does not trust user CAs. Login/refresh/catalogue/EPG \
+therefore remain disabled rather than guessed. On the logged-in device without \
+a subscription, session restoration, catalogue, EPG and search work; premium \
+playback is gated by the app's own Subscribe flow.";
 
 /// The status record exposed at `/api/tataplay/status`. It intentionally
 /// reports no connection and no channels.
@@ -41,7 +44,16 @@ pub fn status() -> serde_json::Value {
             "license": false,
             "subscription": false
         },
-        "gap": GAP
+        "gap": GAP,
+        "runtime": {
+            "device": "A15 (SM-A156E), logged in, no active subscription",
+            "sessionRestoration": true,
+            "catalogue": true,
+            "epg": true,
+            "search": true,
+            "premiumPlayback": "gated by the app's Subscribe flow",
+            "freePlayback": "not conclusively exercised via ADB"
+        }
     })
 }
 
@@ -71,6 +83,6 @@ mod tests {
         ] {
             assert_eq!(s["implemented"][feature], false, "{feature}");
         }
-        assert!(s["gap"].as_str().unwrap().contains("encrypted"));
+        assert!(s["gap"].as_str().unwrap().contains("runtime API"));
     }
 }
