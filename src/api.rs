@@ -1075,7 +1075,7 @@ pub async fn tataplay_logout(State(state): State<SharedState>) -> Response {
     if let Some(response) = tataplay_enabled(&state) {
         return response;
     }
-    match crate::tataplay::logout(&state.store) {
+    match crate::tataplay::logout(&state.store).await {
         Ok(()) => Json(json!({"status": true})).into_response(),
         Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
     }

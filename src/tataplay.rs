@@ -6,6 +6,8 @@
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::sync::OnceLock;
+use std::time::Duration;
 
 pub const PACKAGE: &str = "com.tataplay.livetv";
 pub const VERSION_NAME: &str = "1.0.10";
@@ -18,6 +20,16 @@ pub const PLATFORM: &str = "STV";
 pub const STORE_KEY_DEVICE: &str = "tataplay_device";
 pub const STORE_KEY_PENDING: &str = "tataplay_pending_login";
 pub const STORE_KEY_CREDENTIALS: &str = "tataplay_credentials";
+
+#[cfg(not(test))]
+const HTTP_TIMEOUT: Duration = Duration::from_secs(15);
+#[cfg(test)]
+const HTTP_TIMEOUT: Duration = Duration::from_millis(500);
+
+fn account_transition_lock() -> &'static tokio::sync::Mutex<()> {
+    static LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Device {
@@ -159,11 +171,15 @@ impl Client {
         request: reqwest::RequestBuilder,
         operation: &str,
     ) -> anyhow::Result<Value> {
-        let response = request.send().await?;
-        if !response.status().is_success() {
-            anyhow::bail!("tataplay: {operation} failed: HTTP {}", response.status());
-        }
-        Ok(response.json::<Value>().await?)
+        tokio::time::timeout(HTTP_TIMEOUT, async {
+            let response = request.send().await?;
+            if !response.status().is_success() {
+                anyhow::bail!("tataplay: {operation} failed: HTTP {}", response.status());
+            }
+            Ok(response.json::<Value>().await?)
+        })
+        .await
+        .map_err(|_| anyhow::anyhow!("tataplay: {operation} timed out"))?
     }
 
     pub async fn send_otp(
@@ -211,6 +227,7 @@ impl Client {
         ref_id: &str,
         ref_id_mode: bool,
     ) -> anyhow::Result<Credentials> {
+        let _transition = account_transition_lock().lock().await;
         let pending =
             PendingLogin::load(store).ok_or_else(|| anyhow::anyhow!("tataplay: send OTP first"))?;
         if otp.trim().is_empty() || ref_id.trim().is_empty() {
@@ -257,6 +274,7 @@ impl Client {
     }
 
     pub async fn refresh(&self, store: &crate::store::Store) -> anyhow::Result<Credentials> {
+        let _transition = account_transition_lock().lock().await;
         let current = self.credentials()?.clone();
         if current.refresh_token.is_empty() || current.subscriber_id.is_empty() {
             anyhow::bail!("tataplay: refresh token or subscriberId is missing");
@@ -351,7 +369,7 @@ impl Client {
         } else {
             content_type.trim()
         };
-        let response = self
+        let request = self
             .http
             .get(self.url(&format!(
                 "pas/api/v1/access/control/{}/{}",
@@ -366,11 +384,15 @@ impl Client {
             .header("x-device-platform", "MOBILE")
             .header("x-device-type", "ANDROID")
             .header("x-subscriber-name", "Ancfg Both")
-            .header("x-device-name", &self.device.device_name)
-            .send()
-            .await?;
-        let status = response.status();
-        let value = response.json::<Value>().await.unwrap_or(Value::Null);
+            .header("x-device-name", &self.device.device_name);
+        let (status, value) = tokio::time::timeout(HTTP_TIMEOUT, async {
+            let response = request.send().await?;
+            let status = response.status();
+            let value = response.json::<Value>().await.unwrap_or(Value::Null);
+            Ok::<_, anyhow::Error>((status, value))
+        })
+        .await
+        .map_err(|_| anyhow::anyhow!("tataplay: access control timed out"))??;
         Ok(sanitize_access_control(
             status.as_u16(),
             content_type,
@@ -632,7 +654,8 @@ fn sanitize_access_control(status: u16, content_type: &str, value: &Value) -> Va
     })
 }
 
-pub fn logout(store: &crate::store::Store) -> anyhow::Result<()> {
+pub async fn logout(store: &crate::store::Store) -> anyhow::Result<()> {
+    let _transition = account_transition_lock().lock().await;
     store.delete(STORE_KEY_PENDING)?;
     store.delete(STORE_KEY_CREDENTIALS)?;
     Ok(())
@@ -800,6 +823,27 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn checked_json_timeout_bounds_response_body_reads() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/portal-search/pub/api/v1/channels/all"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_delay(Duration::from_secs(2))
+                    .set_body_json(json!({"data":{"documentIds":{}}})),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+        let client = Client::with_base(reqwest::Client::new(), device(), &server.uri());
+
+        assert_eq!(
+            client.catalogue_seed(50, 0).await.unwrap_err().to_string(),
+            "tataplay: catalogue seed timed out"
+        );
+    }
+
+    #[tokio::test]
     async fn guide_requires_login_before_any_upstream_request() {
         let server = MockServer::start().await;
         let client = Client::with_base(reqwest::Client::new(), device(), &server.uri());
@@ -862,6 +906,90 @@ mod tests {
         assert!(!encoded.contains("cdn.invalid"));
         assert!(!encoded.contains("license.invalid"));
         assert!(!encoded.contains("session-value"));
+    }
+
+    #[tokio::test]
+    async fn access_control_timeout_is_bounded() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/pas/api/v1/access/control/LIVE/123"))
+            .respond_with(ResponseTemplate::new(200).set_delay(Duration::from_secs(2)))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let client = Client {
+            http: reqwest::Client::new(),
+            base: format!("{}/", server.uri()),
+            device: device(),
+            credentials: Some(Credentials {
+                access_token: "access-value".into(),
+                refresh_token: "refresh-value".into(),
+                subscriber_id: "sub-1".into(),
+                sid: "sid-1".into(),
+            }),
+        };
+
+        assert_eq!(
+            client
+                .access_control("123", "LIVE")
+                .await
+                .unwrap_err()
+                .to_string(),
+            "tataplay: access control timed out"
+        );
+    }
+
+    #[tokio::test]
+    async fn logout_waits_for_inflight_refresh_then_removes_the_session() {
+        use std::sync::Arc;
+        use tokio::sync::Notify;
+        use wiremock::Request;
+
+        let server = MockServer::start().await;
+        let refresh_started = Arc::new(Notify::new());
+        let refresh_started_for_response = refresh_started.clone();
+        Mock::given(method("POST"))
+            .and(path("/rest-api/pub/api/v3/refreshToken"))
+            .respond_with(move |_request: &Request| {
+                refresh_started_for_response.notify_one();
+                ResponseTemplate::new(200)
+                    .set_delay(Duration::from_millis(100))
+                    .set_body_json(json!({
+                        "data": {
+                            "accessToken":"new-access",
+                            "refreshToken":"new-refresh",
+                            "subscriberId":"sub-1",
+                            "sid":"sid-1"
+                        }
+                    }))
+            })
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(crate::store::Store::open(dir.path().to_str().unwrap()).unwrap());
+        let credentials = Credentials {
+            access_token: "old-access".into(),
+            refresh_token: "old-refresh".into(),
+            subscriber_id: "sub-1".into(),
+            sid: "sid-1".into(),
+        };
+        credentials.save(&store).unwrap();
+        let client = Client {
+            http: reqwest::Client::new(),
+            base: format!("{}/", server.uri()),
+            device: device(),
+            credentials: Some(credentials),
+        };
+
+        let refresh_store = store.clone();
+        let refresh = tokio::spawn(async move { client.refresh(&refresh_store).await });
+        refresh_started.notified().await;
+        logout(&store).await.unwrap();
+        refresh.await.unwrap().unwrap();
+
+        assert!(Credentials::load(&store).is_none());
     }
 
     #[test]

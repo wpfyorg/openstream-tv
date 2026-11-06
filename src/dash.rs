@@ -903,10 +903,22 @@ pub async fn render_dash_handler(
     let mut body = body;
     let mut ct = ct;
     if matches!(status, 401 | 403) {
-        let (s, b, c) = proxy_dash_segment(&state, &channel_id, &proxy_url, None).await;
-        status = s;
-        body = b;
-        ct = c;
+        if crate::playbox::is_playbox_channel(&channel_id) {
+            state.playbox.invalidate_playback(&channel_id).await;
+            if crate::stream::fetch_live(&state, &channel_id).await.is_ok() {
+                let (s, b, c) =
+                    proxy_dash_segment(&state, &channel_id, &proxy_url, hdnea_token.as_deref())
+                        .await;
+                status = s;
+                body = b;
+                ct = c;
+            }
+        } else {
+            let (s, b, c) = proxy_dash_segment(&state, &channel_id, &proxy_url, None).await;
+            status = s;
+            body = b;
+            ct = c;
+        }
     }
 
     let mut builder =
@@ -1273,6 +1285,86 @@ mod tests {
         assert!(!state.playbox.playlist_ready("pb_ch1"));
 
         let _ = state.playbox.live("pb_ch1").await.unwrap();
+        assert_eq!(resolve_calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn playbox_dash_segment_rejection_reresolves_before_retry() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use wiremock::matchers::{header, method, path};
+        use wiremock::{Mock, MockServer, Request, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/catalogue/v3/page/livetv2"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "statusCode": 200,
+                "livetv": [{"id": "ch1", "name": "One", "typeId": 106}]
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let resolve_calls = Arc::new(AtomicUsize::new(0));
+        let resolve_calls_for_response = resolve_calls.clone();
+        Mock::given(method("POST"))
+            .and(path("/consume/v1/playback/resolve"))
+            .respond_with(move |_request: &Request| {
+                let first = resolve_calls_for_response.fetch_add(1, Ordering::SeqCst) == 0;
+                let user_id = if first { "stale-user" } else { "fresh-user" };
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "code": 200,
+                    "data": {"url": {
+                        "playable": "https://cdn.example/ch1.mpd",
+                        "token": "media-token",
+                        "headers": {"user_id": user_id}
+                    }}
+                }))
+            })
+            .expect(2)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/dash/seg.m4s"))
+            .and(header("user_id", "stale-user"))
+            .respond_with(ResponseTemplate::new(403))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/dash/seg.m4s"))
+            .and(header("user_id", "fresh-user"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(b"segment".to_vec()))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let playbox = Arc::new(crate::playbox_state::PlayboxState::new(true));
+        let mut client =
+            crate::playbox::Client::new(reqwest::Client::new(), crate::playbox::Device::new());
+        client.set_bases_for_test(&server.uri());
+        *client.creds.write().unwrap() = crate::playbox::Credentials {
+            phone: "9876543210".into(),
+            token: "opaque-session-token".into(),
+            customer_id: "cust-1".into(),
+        };
+        playbox.set_client_for_test(Arc::new(client));
+        let state = license_test_state(playbox);
+        let _ = state.playbox.live("pb_ch1").await.unwrap();
+
+        let enc_host = state.secure.encrypt_deterministic(&server.uri());
+        let enc_path = state.secure.encrypt_deterministic("/");
+        let uri: axum::http::Uri = format!(
+            "/render.dash/channel/pb_ch1/host/{enc_host}/path/{enc_path}/dash/seg.m4s"
+        )
+        .parse()
+        .unwrap();
+        let response = render_dash_handler(State(state), uri).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert_eq!(&body[..], b"segment");
         assert_eq!(resolve_calls.load(Ordering::SeqCst), 2);
     }
 

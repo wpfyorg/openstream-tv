@@ -156,12 +156,20 @@ impl AppState {
                 Ok(self.extras.catalogue_channels())
             }
             ActiveProduct::Playbox => {
-                self.playbox.ensure_catalogue().await;
-                Ok(self.playbox.channels())
+                let loaded = self.playbox.ensure_catalogue().await;
+                let channels = self.playbox.channels();
+                if !loaded && channels.is_empty() {
+                    anyhow::bail!("playbox catalogue is unavailable");
+                }
+                Ok(channels)
             }
             ActiveProduct::Vzy => {
-                self.vzy.ensure_catalogue(&self.store).await;
-                Ok(self.vzy.channels())
+                let loaded = self.vzy.ensure_catalogue(&self.store).await;
+                let channels = self.vzy.channels();
+                if !loaded && channels.is_empty() {
+                    anyhow::bail!("vzy catalogue is unavailable");
+                }
+                Ok(channels)
             }
             ActiveProduct::Tv => Ok(self.tv.channels().await?.result),
         }
@@ -400,6 +408,33 @@ mod tests {
         assert_eq!(channels[0].id, "pb_ch1");
         assert!(s.channel_allowed("pb_ch1").await);
         assert!(!s.channel_allowed("pb_other").await);
+    }
+
+    #[tokio::test]
+    async fn cold_playbox_catalogue_failure_is_reported() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/catalogue/v3/page/livetv2"))
+            .respond_with(ResponseTemplate::new(503))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let s = state_with_providers(
+            empty_store(),
+            Arc::new(ExtrasState::new(false, None)),
+            playbox_state_with_mock(&server),
+        );
+
+        assert_eq!(
+            s.effective_upstream_channels()
+                .await
+                .unwrap_err()
+                .to_string(),
+            "playbox catalogue is unavailable"
+        );
     }
 
     #[tokio::test]
