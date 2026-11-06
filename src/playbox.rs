@@ -61,6 +61,10 @@ const CATALOGUE_TIMEOUT: Duration = Duration::from_millis(500);
 const PLAYBACK_RESOLVE_TIMEOUT: Duration = Duration::from_secs(15);
 #[cfg(test)]
 const PLAYBACK_RESOLVE_TIMEOUT: Duration = Duration::from_millis(500);
+#[cfg(not(test))]
+const ACCOUNT_HTTP_TIMEOUT: Duration = Duration::from_secs(15);
+#[cfg(test)]
+const ACCOUNT_HTTP_TIMEOUT: Duration = Duration::from_millis(500);
 
 pub const STORE_KEY_DEVICE: &str = "playbox_device";
 pub const STORE_KEY_CREDENTIALS: &str = "playbox_credentials";
@@ -432,7 +436,7 @@ impl ResolvedPlayback {
             anyhow::bail!("playbox: playback response has an empty playable URL");
         }
         if let Some(message) = &contents.message {
-            if !message.play_status && !message.validation_message.is_empty() {
+            if !message.play_status {
                 anyhow::bail!(
                     "playbox: playback refused: {}",
                     message.validation_message()
@@ -572,22 +576,26 @@ impl Client {
             anyhow::bail!("playbox: mobile number must have 10 digits");
         }
         let url = format!("{}communication", self.login_v2);
-        let resp = self
-            .http
-            .post(&url)
-            .header("X-API-Key", KEY_COMMUNICATION)
-            .form(&[
-                ("appCode", APP_CODE),
-                ("mobileNo", number),
-                ("messageId", &MESSAGE_ID.to_string()),
-                ("countryCode", COUNTRY_CODE),
-            ])
-            .send()
-            .await?;
-        if !resp.status().is_success() {
-            anyhow::bail!("playbox: send OTP failed: HTTP {}", resp.status());
-        }
-        Ok(resp.json::<OtpEnvelope>().await?)
+        tokio::time::timeout(ACCOUNT_HTTP_TIMEOUT, async {
+            let resp = self
+                .http
+                .post(&url)
+                .header("X-API-Key", KEY_COMMUNICATION)
+                .form(&[
+                    ("appCode", APP_CODE),
+                    ("mobileNo", number),
+                    ("messageId", &MESSAGE_ID.to_string()),
+                    ("countryCode", COUNTRY_CODE),
+                ])
+                .send()
+                .await?;
+            if !resp.status().is_success() {
+                anyhow::bail!("playbox: send OTP failed: HTTP {}", resp.status());
+            }
+            Ok(resp.json::<OtpEnvelope>().await?)
+        })
+        .await
+        .map_err(|_| anyhow::anyhow!("playbox: send OTP timed out"))?
     }
 
     /// `Api.OTPVerification`: `POST prod/v2/communication/otp/verify`.
@@ -596,21 +604,25 @@ impl Client {
             anyhow::bail!("playbox: bad mobile number or OTP");
         }
         let url = format!("{}communication/otp/verify", self.login_v2);
-        let resp = self
-            .http
-            .post(&url)
-            .header("X-API-Key", KEY_COMMUNICATION)
-            .form(&[
-                ("appCode", APP_CODE),
-                ("mobileNo", number),
-                ("otp", otp.trim()),
-            ])
-            .send()
-            .await?;
-        if !resp.status().is_success() {
-            anyhow::bail!("playbox: verify OTP failed: HTTP {}", resp.status());
-        }
-        Ok(resp.json::<OtpEnvelope>().await?)
+        tokio::time::timeout(ACCOUNT_HTTP_TIMEOUT, async {
+            let resp = self
+                .http
+                .post(&url)
+                .header("X-API-Key", KEY_COMMUNICATION)
+                .form(&[
+                    ("appCode", APP_CODE),
+                    ("mobileNo", number),
+                    ("otp", otp.trim()),
+                ])
+                .send()
+                .await?;
+            if !resp.status().is_success() {
+                anyhow::bail!("playbox: verify OTP failed: HTTP {}", resp.status());
+            }
+            Ok(resp.json::<OtpEnvelope>().await?)
+        })
+        .await
+        .map_err(|_| anyhow::anyhow!("playbox: verify OTP timed out"))?
     }
 
     /// Stores `data.token` from a successful verification, matching
@@ -770,16 +782,20 @@ impl Client {
             anyhow::bail!("playbox: not logged in");
         };
         let url = format!("{}customer/{phone}/hasActivePacks", self.user_v1);
-        let resp = self
-            .http
-            .get(&url)
-            .header("X-API-Key", KEY_USER)
-            .send()
-            .await?;
-        if !resp.status().is_success() {
-            anyhow::bail!("playbox: subscription check failed: HTTP {}", resp.status());
-        }
-        Ok(resp.json::<ActivePacks>().await?)
+        tokio::time::timeout(ACCOUNT_HTTP_TIMEOUT, async {
+            let resp = self
+                .http
+                .get(&url)
+                .header("X-API-Key", KEY_USER)
+                .send()
+                .await?;
+            if !resp.status().is_success() {
+                anyhow::bail!("playbox: subscription check failed: HTTP {}", resp.status());
+            }
+            Ok(resp.json::<ActivePacks>().await?)
+        })
+        .await
+        .map_err(|_| anyhow::anyhow!("playbox: subscription check timed out"))?
     }
 }
 
@@ -975,6 +991,22 @@ mod tests {
         assert!(Credentials::load(&store).is_none());
     }
 
+    #[test]
+    fn negative_play_status_is_rejected_without_validation_text() {
+        let contents: PlayContents = serde_json::from_value(serde_json::json!({
+            "message": {"playStatus": false, "validationMessage": ""},
+            "url": {"playable": "https://cdn.example/live/ch1.m3u8", "token": ""}
+        }))
+        .unwrap();
+
+        assert_eq!(
+            ResolvedPlayback::from_contents(&contents)
+                .unwrap_err()
+                .to_string(),
+            "playbox: playback refused: not playable"
+        );
+    }
+
     #[tokio::test]
     async fn resolve_uses_the_decompiled_resolve_contract() {
         let server = MockServer::start().await;
@@ -1156,6 +1188,51 @@ mod tests {
         assert_eq!(
             client.channels().await.unwrap_err().to_string(),
             "playbox: catalogue timed out"
+        );
+    }
+
+    #[tokio::test]
+    async fn account_http_timeouts_bound_send_verify_and_subscription() {
+        let server = MockServer::start().await;
+        for path_name in [
+            "/login/v2/communication",
+            "/login/v2/communication/otp/verify",
+            "/user/v1/customer/9876543210/hasActivePacks",
+        ] {
+            Mock::given(path(path_name))
+                .respond_with(
+                    ResponseTemplate::new(200)
+                        .set_delay(Duration::from_secs(2))
+                        .set_body_json(successful_session()),
+                )
+                .expect(1)
+                .mount(&server)
+                .await;
+        }
+
+        let mut client = Client::new(reqwest::Client::new(), Device::new());
+        client.set_bases_for_test(&server.uri());
+        *client.creds.write().unwrap() = Credentials {
+            phone: "9876543210".into(),
+            token: "opaque-session-token".into(),
+            customer_id: "cust-1".into(),
+        };
+
+        assert_eq!(
+            client.send_otp("9876543210").await.unwrap_err().to_string(),
+            "playbox: send OTP timed out"
+        );
+        assert_eq!(
+            client
+                .verify_otp("9876543210", "123456")
+                .await
+                .unwrap_err()
+                .to_string(),
+            "playbox: verify OTP timed out"
+        );
+        assert_eq!(
+            client.subscription().await.unwrap_err().to_string(),
+            "playbox: subscription check timed out"
         );
     }
 }

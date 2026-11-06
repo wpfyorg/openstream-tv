@@ -1498,29 +1498,44 @@ pub async fn render_key_handler(
     let hdnea = q.hdnea.clone().or_else(|| extract_hdnea_from_url(&decoded));
     let is_custom = state.custom_channels.contains(&channel_id);
 
-    let mut req = state
-        .http
-        .get(&decoded)
-        .header(header::USER_AGENT, television::PLAYER_USER_AGENT);
-    if let Some(t) = &hdnea {
-        req = req.header(header::COOKIE, format!("__hdnea__={t}"));
-    }
-    if let Some(content_id) = state
-        .extras
-        .route(&channel_id, state.tv.logged_in(), is_custom)
-    {
-        for (k, v) in state.extras.key_headers(&content_id) {
-            req = req.header(k, v);
+    let mut req = state.http.get(&decoded);
+    if crate::playbox::is_playbox_channel(&channel_id) {
+        let mut has_user_agent = false;
+        for (name, value) in state.playbox.media_headers(&channel_id).await {
+            if name.eq_ignore_ascii_case("user-agent") {
+                has_user_agent = true;
+            }
+            req = req.header(name.as_str(), value.as_str());
         }
-    } else {
-        let creds = state.tv.creds.read().unwrap().clone().unwrap_or_default();
+        if !has_user_agent {
+            req = req.header(header::USER_AGENT, television::PLAYER_USER_AGENT);
+        }
+    } else if crate::vzy::is_vzy_channel(&channel_id) {
         req = req
-            .header("srno", "230203144000")
-            .header("ssotoken", &creds.sso_token)
-            .header("channelId", &channel_id)
-            .header("accesstoken", &creds.access_token)
-            .header("crmid", &creds.crm)
-            .header("uniqueId", &creds.unique_id);
+            .header(header::USER_AGENT, "okhttp/4.12.0")
+            .header(header::ACCEPT, "*/*");
+    } else {
+        req = req.header(header::USER_AGENT, television::PLAYER_USER_AGENT);
+        if let Some(t) = &hdnea {
+            req = req.header(header::COOKIE, format!("__hdnea__={t}"));
+        }
+        if let Some(content_id) = state
+            .extras
+            .route(&channel_id, state.tv.logged_in(), is_custom)
+        {
+            for (k, v) in state.extras.key_headers(&content_id) {
+                req = req.header(k, v);
+            }
+        } else {
+            let creds = state.tv.creds.read().unwrap().clone().unwrap_or_default();
+            req = req
+                .header("srno", "230203144000")
+                .header("ssotoken", &creds.sso_token)
+                .header("channelId", &channel_id)
+                .header("accesstoken", &creds.access_token)
+                .header("crmid", &creds.crm)
+                .header("uniqueId", &creds.unique_id);
+        }
     }
 
     match req.send().await {
@@ -2448,6 +2463,77 @@ mod tests {
             listen: Default::default(),
             tunnel_origin: Default::default(),
         })
+    }
+
+    #[tokio::test]
+    async fn provider_hls_keys_use_provider_headers_without_jiotv_credentials() {
+        use wiremock::matchers::{header, method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/catalogue/v3/page/livetv2"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "livetv": [{"id": "ch1", "name": "One", "typeId": 106}]
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/consume/v1/playback/resolve"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "code": 200,
+                "data": {"url": {
+                    "playable": format!("{}/live/ch1.m3u8", server.uri()),
+                    "token": "media-token",
+                    "headers": {"user_id": "u1", "userAgent": "PlayboxUA"}
+                }}
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/playbox-key"))
+            .and(header("Authorization", "Bearer media-token"))
+            .and(header("user_id", "u1"))
+            .and(|request: &wiremock::Request| {
+                !request.headers.contains_key("ssotoken")
+                    && !request.headers.contains_key("accesstoken")
+                    && !request.headers.contains_key("crmid")
+            })
+            .respond_with(ResponseTemplate::new(200).set_body_bytes([1, 2, 3]))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/vzy-key"))
+            .and(header("User-Agent", "okhttp/4.12.0"))
+            .and(header("Accept", "*/*"))
+            .and(|request: &wiremock::Request| {
+                !request.headers.contains_key("ssotoken")
+                    && !request.headers.contains_key("accesstoken")
+                    && !request.headers.contains_key("authorization")
+            })
+            .respond_with(ResponseTemplate::new(200).set_body_bytes([4, 5, 6]))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let state = playbox_test_state(&server);
+        state.playbox.live("pb_ch1").await.unwrap();
+
+        for (channel_id, key_path) in [("pb_ch1", "/playbox-key"), ("vzy_1", "/vzy-key")] {
+            let auth = state.secure.encrypt(&format!("{}{key_path}", server.uri()));
+            let response = render_key_handler(
+                State(state.clone()),
+                Query(SegmentQuery {
+                    auth: Some(auth),
+                    channel_key_id: Some(channel_id.to_string()),
+                    hdnea: None,
+                    q: None,
+                }),
+            )
+            .await;
+            assert_eq!(response.status(), StatusCode::OK);
+        }
     }
 
     #[tokio::test]
