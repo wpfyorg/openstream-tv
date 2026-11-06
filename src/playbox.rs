@@ -12,6 +12,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::sync::RwLock;
+use std::time::Duration;
 
 pub const ID_PREFIX: &str = "pb_";
 pub const PACKAGE: &str = "playboxtv.tv.android.in";
@@ -51,6 +52,11 @@ const COUNTRY_CODE: &str = "in";
 const DEFAULT_LANGS: &str = "hi";
 /// `type` sent for live channels (`LiveTVVideoPlayerActivity.type`).
 const LIVE_TYPE: &str = "liveTV";
+
+#[cfg(not(test))]
+const PLAYBACK_RESOLVE_TIMEOUT: Duration = Duration::from_secs(15);
+#[cfg(test)]
+const PLAYBACK_RESOLVE_TIMEOUT: Duration = Duration::from_millis(500);
 
 pub const STORE_KEY_DEVICE: &str = "playbox_device";
 pub const STORE_KEY_CREDENTIALS: &str = "playbox_credentials";
@@ -660,6 +666,19 @@ impl Client {
         content_id: &str,
         type_id: i32,
     ) -> anyhow::Result<ResolvedPlayback> {
+        tokio::time::timeout(
+            PLAYBACK_RESOLVE_TIMEOUT,
+            self.resolve_with_fallback(content_id, type_id),
+        )
+        .await
+        .map_err(|_| anyhow::anyhow!("playbox: playback resolution timed out"))?
+    }
+
+    async fn resolve_with_fallback(
+        &self,
+        content_id: &str,
+        type_id: i32,
+    ) -> anyhow::Result<ResolvedPlayback> {
         let Some(bearer) = self.bearer() else {
             anyhow::bail!("playbox: not logged in");
         };
@@ -1017,6 +1036,43 @@ mod tests {
         let p = client.resolve("ch1", 106).await.unwrap();
         assert_eq!(p.playable, "https://cdn.example/live/ch1.m3u8");
         assert!(!p.is_dash);
+    }
+
+    #[tokio::test]
+    async fn resolve_timeout_bounds_the_legacy_fallback_body() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/consume/v1/playback/resolve"))
+            .respond_with(ResponseTemplate::new(503))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("PUT"))
+            .and(path("/player/v2/playableURL"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_delay(Duration::from_secs(2))
+                    .set_body_json(serde_json::json!({
+                        "message": {"playStatus": true, "validationMessage": ""},
+                        "url": {"playable": "https://cdn.example/live/ch1.m3u8", "token": ""}
+                    })),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let mut client = Client::new(reqwest::Client::new(), Device::new());
+        client.set_bases_for_test(&server.uri());
+        *client.creds.write().unwrap() = Credentials {
+            phone: "9876543210".into(),
+            token: "opaque-session-token".into(),
+            customer_id: "cust-1".into(),
+        };
+
+        assert_eq!(
+            client.resolve("ch1", 106).await.unwrap_err().to_string(),
+            "playbox: playback resolution timed out"
+        );
     }
 
     #[tokio::test]

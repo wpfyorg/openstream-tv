@@ -1120,6 +1120,7 @@ async fn render_m3u8_inner(state: Arc<AppState>, q: RenderQuery) -> Response {
         // PlayboxTV publishes no refresh endpoint; the client re-resolves on
         // retry instead of replaying a JioTV cookie-recovery flow.
         if crate::playbox::is_playbox_channel(&channel_id) {
+            state.playbox.invalidate_playback(&channel_id).await;
             return (StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_GATEWAY))
                 .into_response();
         }
@@ -2459,5 +2460,64 @@ mod tests {
             resp.headers()[axum::http::header::LOCATION],
             "/live/mpd/pb_ch1?q=auto"
         );
+    }
+
+    #[tokio::test]
+    async fn playbox_manifest_rejection_invalidates_cached_playback() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        let media_url = format!("{}/stale.m3u8", server.uri());
+        Mock::given(method("GET"))
+            .and(path("/catalogue/v3/page/livetv2"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "livetv": [{"id": "ch1", "name": "One", "typeId": 106}]
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/consume/v1/playback/resolve"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "code": 200,
+                "data": {"url": {
+                    "playable": media_url,
+                    "token": "media-token",
+                    "headers": {"user_id": "u1"}
+                }}
+            })))
+            .expect(2)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/stale.m3u8"))
+            .respond_with(ResponseTemplate::new(403))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let state = playbox_test_state(&server);
+        let first = state.playbox.live("pb_ch1").await.unwrap();
+        assert_eq!(first.bitrates.auto, media_url);
+        assert!(state.playbox.playlist_ready("pb_ch1"));
+
+        let auth = encrypt_render_auth(&state, &media_url, &identity_scope(&media_url, None));
+        let resp = render_m3u8_inner(
+            state.clone(),
+            RenderQuery {
+                auth: Some(auth),
+                channel_key_id: Some("pb_ch1".into()),
+                q: None,
+                nested: None,
+            },
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+        assert!(!state.playbox.playlist_ready("pb_ch1"));
+
+        let second = state.playbox.live("pb_ch1").await.unwrap();
+        assert_eq!(second.bitrates.auto, media_url);
+        assert!(state.playbox.playlist_ready("pb_ch1"));
     }
 }
