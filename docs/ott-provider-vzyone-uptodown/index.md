@@ -1,9 +1,16 @@
+---
+title: Mislabelled VZY Artifact Provenance
+description: Provenance record showing the original com.vzy.one.apk artifact is the Uptodown App Store rather than VZY TV.
+category: Provider Reference
+keywords: [VZY, Uptodown, provenance, artifact, reverse engineering]
+---
+
 # OTT provider: `com.vzy.one` file → Uptodown App Store (`com.uptodown` 7.44)
 
 Evidence-backed static record. No live calls. No credentials.
 
 > A **different** artifact, `VZY.zip` (`com.vzy.one.atv` 1.0.253), is a real
-> Dish/Watcho OTT app and is documented in `docs/ott-providers/vzy.md`. This
+> Dish/Watcho OTT app and is documented in `docs/ott-provider-vzy/index.md`. This
 > record describes only the original `com.vzy.one.apk` (Uptodown).
 
 ## 1. Artifact identity (observed fact)

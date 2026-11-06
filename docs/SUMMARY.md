@@ -39,6 +39,13 @@ Browse in order, or choose the task you need. The categories and article metadat
   - [Connect Fastway Live TV](account-fastway/index.md)
   - [Admin Sessions and Sign Out](account-sessions/index.md)
 
+## Beta Provider Reference
+
+- [PlayboxTV beta provider evidence](ott-provider-playbox/index.md)
+- [Tata Play Smart beta provider evidence](ott-provider-tataplay/index.md)
+- [VZY beta provider evidence](ott-provider-vzy/index.md)
+- [Mislabelled VZY artifact provenance](ott-provider-vzyone-uptodown/index.md)
+
 ## Using OpenStream TV
 
 - [Using OpenStream TV](using/index.md)

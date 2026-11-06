@@ -1,3 +1,10 @@
+---
+title: PlayboxTV Beta Provider Evidence
+description: Evidence-backed PlayboxTV API contracts, beta capabilities, runtime gaps and verification notes.
+category: Provider Reference
+keywords: [PlayboxTV, beta, provider, OTP, live TV, DRM]
+---
+
 # Beta OTT provider: PlayboxTV for Android TV (`playboxtv.tv.android.in` 5.20.1/128)
 
 Evidence-backed static record. No live calls. All account-shaped values

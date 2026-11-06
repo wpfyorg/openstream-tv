@@ -1,3 +1,10 @@
+---
+title: VZY Beta Provider Evidence
+description: Evidence-backed VZY free-tier catalogue, EPG and playback behavior plus premium and DRM gaps.
+category: Provider Reference
+keywords: [VZY, beta, provider, Kaltura, free tier, EPG]
+---
+
 # Beta OTT provider: VZY (`com.vzy.one.atv` 1.0.253)
 
 Evidence record for `/Users/arnab/Downloads/VZY.zip`. This is **not** the old
