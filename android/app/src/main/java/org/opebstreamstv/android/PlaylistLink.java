@@ -14,6 +14,7 @@ final class PlaylistLink {
         if (!key.matches("[A-Za-z0-9._~-]+")) throw new IllegalArgumentException("Invalid access key");
         return prefix;
     }
+    static String playlistContentPath(String path) { return keyedPrefix(path) + "channels?type=m3u"; }
     static String loopbackUrl(String playlistPath, int port) { return LocalServerEndpoint.baseUrl(port) + playlistPath; }
     static String readValidatedPath(InputStream input) throws IOException {
         ByteArrayOutputStream out = new ByteArrayOutputStream();

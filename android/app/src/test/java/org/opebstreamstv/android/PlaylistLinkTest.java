@@ -10,6 +10,7 @@ public class PlaylistLinkTest {
     @Test public void derivesKeyedPrefixAndLoopbackPlaylist() {
         String path = "/k/example-secret/playlist.m3u";
         assertEquals("/k/example-secret/", PlaylistLink.keyedPrefix(path));
+        assertEquals("/k/example-secret/channels?type=m3u", PlaylistLink.playlistContentPath(path));
         assertEquals("http://127.0.0.1:5001" + path, PlaylistLink.loopbackUrl(path, 5001));
         assertEquals("http://127.0.0.1:5002" + path, PlaylistLink.loopbackUrl(path, 5002));
     }

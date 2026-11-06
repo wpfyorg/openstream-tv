@@ -576,7 +576,7 @@ public final class MainActivity extends Activity {
             bootPermission.setVisibility(tvAutoStartEnabled ? View.GONE : View.VISIBLE);
             adbSetupButton.setVisibility(allowed ? View.GONE : View.VISIBLE);
             shizukuButton.setVisibility(allowed ? View.GONE : View.VISIBLE);
-            disableAutostartButton.setVisibility(tvAutoStartEnabled ? View.VISIBLE : View.GONE);
+            disableAutostartButton.setVisibility(bootStartEnabled ? View.VISIBLE : View.GONE);
             tvAutostartLabel.setVisibility(tvAutoStartEnabled ? View.VISIBLE : View.GONE);
             tvStartupCard.setVisibility(tvAutoStartEnabled ? View.VISIBLE : View.GONE);
             tvAutostartLabel.setText("Auto-start enabled");
@@ -1462,7 +1462,9 @@ public final class MainActivity extends Activity {
             // The existing validated playlist link is loopback and keyed. Never log it.
             String link = playlistUrl;
             if (!link.startsWith(LocalServerEndpoint.baseUrl(this) + "/")) throw new IOException("Invalid local playlist URL");
-            connection = (HttpURLConnection) new URL(link).openConnection();
+            URL playlistLink = new URL(link);
+            String contentPath = PlaylistLink.playlistContentPath(playlistLink.getPath());
+            connection = (HttpURLConnection) new URL(LocalServerEndpoint.baseUrl(this) + contentPath).openConnection();
             connection.setInstanceFollowRedirects(false);
             connection.setConnectTimeout(4000);
             connection.setReadTimeout(15000);
@@ -1573,7 +1575,7 @@ public final class MainActivity extends Activity {
             String restoredPath;
             try (InputStream in = new FileInputStream(keyOutput)) { restoredPath = PlaylistLink.readValidatedPath(in); }
             if (!liveData.isDirectory() && !liveData.mkdirs()) throw new IOException("Cannot access app data directory");
-            try (InputStream in = new FileInputStream(staged)) { StoreBackup.copyBounded(in, temp, 2 * 1024 * 1024); }
+            try (InputStream in = new FileInputStream(candidate)) { StoreBackup.copyBounded(in, temp, 2 * 1024 * 1024); }
             restart = isServiceRunning();
             if (restart && !stopServiceAndWait()) throw new IOException("Could not stop server safely");
             Os.rename(temp.getAbsolutePath(), new File(liveData, "store_v4.toml").getAbsolutePath());
