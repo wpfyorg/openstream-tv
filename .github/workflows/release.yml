@@ -48,7 +48,7 @@ jobs:
           - { triple: aarch64-unknown-linux-musl, os: ubuntu-latest, kind: zig }
           - { triple: armv7-unknown-linux-musleabihf, os: ubuntu-latest, kind: zig }
           - { triple: i686-unknown-linux-musl, os: ubuntu-latest, kind: zig }
-          - { triple: aarch64-apple-darwin, os: macos-14, kind: native, test: true }
+          - { triple: aarch64-apple-darwin, os: macos-15, kind: native, test: true }
           - { triple: x86_64-apple-darwin, os: macos-15-intel, kind: native }
           - { triple: x86_64-pc-windows-msvc, os: windows-2022, kind: native, test: true }
           - { triple: i686-pc-windows-msvc, os: windows-2022, kind: native }
