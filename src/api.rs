@@ -214,7 +214,10 @@ pub async fn status(State(state): State<SharedState>) -> Response {
                 "sha256": crate::playbox::ARTIFACT_SHA256,
             }
         },
-        "tataplay": crate::tataplay::status(),
+        "tataplay": crate::tataplay::status(
+            state.config.tataplay,
+            crate::tataplay::Credentials::load(&state.store).is_some(),
+        ),
         "vzy": {
             "enabled": state.vzy.enabled(),
             "connected": state.vzy.connected(),
@@ -907,9 +910,221 @@ pub async fn vzy_epg(
     }
 }
 
-/// `GET /api/tataplay/status` — identity and the exact runtime evidence gap.
-pub async fn tataplay_status() -> Response {
-    Json(json!({"status": true, "tataplay": crate::tataplay::status()})).into_response()
+/// Tata Play Smart beta status. The provider is deliberately excluded from
+/// shared catalogue selection and the /live pipeline.
+pub async fn tataplay_status(State(state): State<SharedState>) -> Response {
+    Json(json!({
+        "status": true,
+        "tataplay": crate::tataplay::status(
+            state.config.tataplay,
+            crate::tataplay::Credentials::load(&state.store).is_some(),
+        )
+    }))
+    .into_response()
+}
+
+#[derive(Deserialize)]
+pub struct TataplaySendOtpBody {
+    pub number: String,
+    #[serde(default)]
+    pub sid: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TataplayVerifyOtpBody {
+    pub otp: String,
+    pub ref_id: String,
+    pub ref_id_mode: bool,
+}
+
+#[derive(Deserialize)]
+pub struct TataplayCatalogueQuery {
+    #[serde(default)]
+    pub limit: Option<u32>,
+    #[serde(default)]
+    pub offset: Option<u32>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TataplayEntitlementQuery {
+    #[serde(default)]
+    pub force_refresh: Option<bool>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TataplayPlayQuery {
+    #[serde(default)]
+    pub content_type: Option<String>,
+}
+
+fn tataplay_enabled(state: &AppState) -> Option<Response> {
+    if state.config.tataplay {
+        None
+    } else {
+        Some(err(StatusCode::BAD_REQUEST, "tataplay beta is not enabled"))
+    }
+}
+
+fn tataplay_connected(state: &AppState) -> Option<Response> {
+    if let Some(response) = tataplay_enabled(state) {
+        return Some(response);
+    }
+    if crate::tataplay::Credentials::load(&state.store).is_some() {
+        None
+    } else {
+        Some(err(StatusCode::UNAUTHORIZED, "tataplay is not logged in"))
+    }
+}
+
+pub async fn tataplay_send_otp(
+    State(state): State<SharedState>,
+    Json(body): Json<TataplaySendOtpBody>,
+) -> Response {
+    if let Some(response) = tataplay_enabled(&state) {
+        return response;
+    }
+    let client = match crate::tataplay::Client::from_store(state.http.clone(), &state.store) {
+        Ok(client) => client,
+        Err(e) => return err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    };
+    match client
+        .send_otp(
+            &state.store,
+            &body.number,
+            body.sid.as_deref().unwrap_or(""),
+        )
+        .await
+    {
+        Ok(refs) => Json(json!({"status": true, "accounts": refs})).into_response(),
+        Err(e) => err(StatusCode::BAD_REQUEST, e.to_string()),
+    }
+}
+
+pub async fn tataplay_verify_otp(
+    State(state): State<SharedState>,
+    Json(body): Json<TataplayVerifyOtpBody>,
+) -> Response {
+    if let Some(response) = tataplay_enabled(&state) {
+        return response;
+    }
+    let client = match crate::tataplay::Client::from_store(state.http.clone(), &state.store) {
+        Ok(client) => client,
+        Err(e) => return err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    };
+    match client
+        .verify_otp(&state.store, &body.otp, &body.ref_id, body.ref_id_mode)
+        .await
+    {
+        Ok(_) => Json(json!({"status": true, "connected": true})).into_response(),
+        Err(e) => err(StatusCode::BAD_REQUEST, e.to_string()),
+    }
+}
+
+pub async fn tataplay_refresh(State(state): State<SharedState>) -> Response {
+    if let Some(response) = tataplay_connected(&state) {
+        return response;
+    }
+    let client = match crate::tataplay::Client::from_store(state.http.clone(), &state.store) {
+        Ok(client) => client,
+        Err(e) => return err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    };
+    match client.refresh(&state.store).await {
+        Ok(_) => Json(json!({"status": true})).into_response(),
+        Err(e) => err(StatusCode::BAD_GATEWAY, e.to_string()),
+    }
+}
+
+pub async fn tataplay_logout(State(state): State<SharedState>) -> Response {
+    if state.config.disable_logout {
+        return err(StatusCode::FORBIDDEN, "logout is disabled");
+    }
+    if let Some(response) = tataplay_enabled(&state) {
+        return response;
+    }
+    match crate::tataplay::logout(&state.store) {
+        Ok(()) => Json(json!({"status": true})).into_response(),
+        Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    }
+}
+
+pub async fn tataplay_catalogue_seed(
+    State(state): State<SharedState>,
+    Query(query): Query<TataplayCatalogueQuery>,
+) -> Response {
+    if let Some(response) = tataplay_enabled(&state) {
+        return response;
+    }
+    let client = match crate::tataplay::Client::from_store(state.http.clone(), &state.store) {
+        Ok(client) => client,
+        Err(e) => return err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    };
+    match client
+        .catalogue_seed(query.limit.unwrap_or(100), query.offset.unwrap_or(0))
+        .await
+    {
+        Ok(seed) => Json(json!({"status": true, "seed": seed})).into_response(),
+        Err(e) => err(StatusCode::BAD_GATEWAY, e.to_string()),
+    }
+}
+
+pub async fn tataplay_epg(
+    State(state): State<SharedState>,
+    Query(query): Query<crate::tataplay::GuideQuery>,
+) -> Response {
+    if let Some(response) = tataplay_enabled(&state) {
+        return response;
+    }
+    let client = match crate::tataplay::Client::from_store(state.http.clone(), &state.store) {
+        Ok(client) => client,
+        Err(e) => return err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    };
+    match client.guide(&query).await {
+        Ok(guide) => Json(json!({"status": true, "guide": guide})).into_response(),
+        Err(e) => err(StatusCode::BAD_GATEWAY, e.to_string()),
+    }
+}
+
+pub async fn tataplay_entitlement(
+    State(state): State<SharedState>,
+    Query(query): Query<TataplayEntitlementQuery>,
+) -> Response {
+    if let Some(response) = tataplay_connected(&state) {
+        return response;
+    }
+    let client = match crate::tataplay::Client::from_store(state.http.clone(), &state.store) {
+        Ok(client) => client,
+        Err(e) => return err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    };
+    match client.entitlement(query.force_refresh).await {
+        Ok(entitlement) => {
+            Json(json!({"status": true, "entitlement": entitlement})).into_response()
+        }
+        Err(e) => err(StatusCode::BAD_GATEWAY, e.to_string()),
+    }
+}
+
+pub async fn tataplay_play(
+    Path(id): Path<String>,
+    State(state): State<SharedState>,
+    Query(query): Query<TataplayPlayQuery>,
+) -> Response {
+    if let Some(response) = tataplay_connected(&state) {
+        return response;
+    }
+    let client = match crate::tataplay::Client::from_store(state.http.clone(), &state.store) {
+        Ok(client) => client,
+        Err(e) => return err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    };
+    match client
+        .access_control(&id, query.content_type.as_deref().unwrap_or("LIVE"))
+        .await
+    {
+        Ok(access) => Json(json!({"status": true, "access": access})).into_response(),
+        Err(e) => err(StatusCode::BAD_GATEWAY, e.to_string()),
+    }
 }
 
 /// `GET /api/vzyone/status` — provenance record for the mislabelled artifact.
@@ -1629,7 +1844,8 @@ mod tests {
         assert!(json.get("tataplay").is_some());
         assert!(json.get("vzyone").is_some());
         assert_eq!(json["playbox"]["connected"], false);
-        assert_eq!(json["tataplay"]["available"], false);
+        assert_eq!(json["tataplay"]["enabled"], false);
+        assert_eq!(json["tataplay"]["sharedPlayback"], false);
         assert_eq!(json["vzyone"]["provider"], false);
         assert_eq!(json["vzyone"]["package"], "com.uptodown");
     }
@@ -1646,6 +1862,15 @@ mod tests {
         .await;
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
         let resp = playbox_play(Path("pb_x".into()), State(s.clone())).await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let resp = tataplay_send_otp(
+            State(s),
+            Json(TataplaySendOtpBody {
+                number: "9876543210".into(),
+                sid: None,
+            }),
+        )
+        .await;
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     }
 
@@ -1789,14 +2014,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn tataplay_status_reports_the_runtime_gap_not_a_provider() {
-        let json = response_json(tataplay_status().await).await;
-        assert_eq!(json["tataplay"]["available"], false);
-        assert_eq!(json["tataplay"]["implemented"]["catalogue"], false);
-        assert!(json["tataplay"]["gap"]
-            .as_str()
-            .unwrap()
-            .contains("runtime API"));
+    async fn tataplay_status_reports_isolated_beta_capabilities() {
+        let s = state();
+        let json = response_json(tataplay_status(State(s)).await).await;
+        assert_eq!(json["tataplay"]["enabled"], false);
+        assert_eq!(json["tataplay"]["beta"], true);
+        assert_eq!(json["tataplay"]["implemented"]["login"], true);
+        assert_eq!(json["tataplay"]["implemented"]["catalogueSeed"], true);
+        assert_eq!(json["tataplay"]["implemented"]["sharedCatalogue"], false);
+        assert_eq!(json["tataplay"]["implemented"]["liveProxy"], false);
+        assert_eq!(json["tataplay"]["implemented"]["licenseProxy"], false);
     }
 
     #[tokio::test]

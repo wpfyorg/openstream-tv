@@ -1,7 +1,43 @@
-# OTT provider: Tata Play Smart (`com.ryzmedia.tatasky` 509.0/894)
+# OTT provider: Tata Play Smart
 
-Evidence-backed static record. No live calls. All secret-shaped values
-redacted. Content/auth paths are **unknown statically** (encrypted RN bundle).
+This record covers two app generations: the older `com.ryzmedia.tatasky`
+509.0/894 installed on the A15, and the newer `com.tataplay.livetv` 1.0.10/101
+artifact whose native Retrofit layer is recoverable.
+
+## Experimental backend status
+
+The newer app's verified Retrofit contracts are now implemented behind
+`tataplay = true` / `JIOTV_TATAPLAY=true` as a diagnostic beta. No live
+Tata Play request has been made by this implementation yet.
+
+Implemented beta routes:
+
+- `GET /api/tataplay/status`
+- `POST /api/tataplay/login/sendOTP`
+- `POST /api/tataplay/login/verifyOTP`
+- `POST /api/tataplay/refresh`
+- `POST /api/tataplay/logout`
+- `GET /api/tataplay/catalogue-seed`
+- `GET /api/tataplay/epg`
+- `GET /api/tataplay/entitlement`
+- `GET /api/tataplay/play/:id?contentType=LIVE`
+
+The beta persists a stable synthetic device identity because the server is not
+running inside the Android APK. OTP/session credentials remain server-side.
+The app's `device_details` header is an opaque persisted string whose producer
+was not recovered; the beta therefore sends the app's observed missing-value
+form (an empty string) instead of inventing an encoding.
+The playback diagnostic returns only booleans/counts such as whether a
+Widevine play URL, license URL or session ID was present; it never returns
+those values. Tata Play is not added to `ActiveProduct`, playlists, shared
+catalogues, `/live`, or the DRM/license proxy.
+
+The `channels/all` contract exposes only ordered `documentIds`; no per-ID
+hydration endpoint has been proven, so `catalogue-seed` deliberately does not
+pretend they are channel objects. EPG date/timestamp encodings are also not
+guessed: testers must pass the app-observed `date`, `epgStartTime` and
+`epgEndTime` values.
+
 
 ## 1. Artifact identity (observed fact)
 
@@ -82,14 +118,14 @@ Observed through the device UI, without capturing tokens:
   interception would require patching the app (not done). No OTP was entered by
   the agent.
 
-### New app static contracts (recovered, **not enabled**)
+### New app static contracts (recovered, beta-enabled)
 
 The new `com.tataplay.livetv` app has a native `NetworkApi` with explicit
 Retrofit annotations on `https://tm.tapi.videoready.tv/`:
 
 - `POST login-service/pub/api/v3/signin/generate/otp` (`GenerateBody{rmn,sid}`)
 - `POST login-service/pub/api/v3/signin/validate/otp` (`ValidateOtpPayLoad{…}`)
-- `POST rest-api/api/v3/refreshToken` (`RefreshTokenRequest{refreshToken,subscriberId}`)
+- `POST rest-api/pub/api/v3/refreshToken` (`RefreshTokenRequest{refreshToken,subscriberId}`)
 - `GET lit-subscription-service/api/v1/lit/getEntitlementDetails`
 - `GET portal-search/pub/api/v1/channels/all?limit&offset`
 - `GET lit-mobile-common-bff/api/v2/channels/guide?…`
@@ -103,10 +139,13 @@ Header injection is explicit (`RD0` interceptor): `Authorization: bearer <KS>`,
 `sid`, `countryRegion`, `profileId`. Token expiry is `expiresIn` (epoch millis
 or duration) and refresh uses the `refreshToken`/`subscriberId` body.
 
-**These are not enabled.** They were recovered statically, not exercised
-against the live service. In particular `sid`, `refId`, `loginOption`,
-`jwtToken` and the OTP/session-update sequence still need a real
-request/response capture. The existing status-only surface is therefore kept.
+These contracts are enabled only inside the isolated diagnostic beta. They
+were recovered statically and still need runtime request/response proof. The
+OTP implementation follows the app's recovered payload construction, including
+`loginOption=OTP`, the pending JWT, selectable LIT/DTH `refId` values, and
+the observed `refIdMode` behavior. Analytics IDs are sent as empty strings
+because no backend equivalent exists and the app does not prove they must be
+non-empty.
 
 ## 2. API bases (observed static strings)
 

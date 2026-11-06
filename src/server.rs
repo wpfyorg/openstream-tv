@@ -116,6 +116,26 @@ fn api_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/api/vzy/epg/:id", get(crate::api::vzy_epg))
         .route("/api/vzy/logout", post(crate::api::vzy_logout))
         .route("/api/tataplay/status", get(crate::api::tataplay_status))
+        .route(
+            "/api/tataplay/login/sendOTP",
+            post(crate::api::tataplay_send_otp),
+        )
+        .route(
+            "/api/tataplay/login/verifyOTP",
+            post(crate::api::tataplay_verify_otp),
+        )
+        .route("/api/tataplay/refresh", post(crate::api::tataplay_refresh))
+        .route("/api/tataplay/logout", post(crate::api::tataplay_logout))
+        .route(
+            "/api/tataplay/catalogue-seed",
+            get(crate::api::tataplay_catalogue_seed),
+        )
+        .route("/api/tataplay/epg", get(crate::api::tataplay_epg))
+        .route(
+            "/api/tataplay/entitlement",
+            get(crate::api::tataplay_entitlement),
+        )
+        .route("/api/tataplay/play/:id", get(crate::api::tataplay_play))
         .route("/api/vzyone/status", get(crate::api::vzyone_status))
         .route("/api/ott/search", get(crate::vod::api_ott_search))
         .route("/api/ott/screen/:id", get(crate::vod::api_ott_screen))
