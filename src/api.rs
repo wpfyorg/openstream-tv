@@ -1223,7 +1223,7 @@ fn live_play_response_from_live(
             &live_url,
             crate::stream::absolute_base_from_live(live).as_deref(),
         );
-        let encrypted = state.secure.encrypt(&abs);
+        let encrypted = crate::stream::encrypt_root_render_auth(state, &abs, id);
         // Carry a forced quality so a 404 recovery retries it before `auto`.
         let q = if hls_quality == "auto" {
             String::new()
@@ -1809,7 +1809,7 @@ mod tests {
         }
     }
 
-    fn decrypted_hls(s: &AppState, url: &str) -> (String, String) {
+    fn decrypted_hls(s: &AppState, url: &str) -> (String, String, String) {
         let query = url.split_once('?').unwrap().1;
         let param = |name: &str| {
             query
@@ -1818,7 +1818,9 @@ mod tests {
                 .unwrap_or_default()
                 .to_string()
         };
-        (s.secure.decrypt(&param("auth")).unwrap(), param("q"))
+        let (source, _, channel_id) =
+            crate::stream::decrypt_render_auth(s, &param("auth")).unwrap();
+        (source, param("q"), channel_id.unwrap_or_default())
     }
 
     #[tokio::test]
@@ -1831,9 +1833,10 @@ mod tests {
             "high",
         ))
         .await;
-        let (source, q) = decrypted_hls(&s, json["url"].as_str().unwrap());
+        let (source, q, channel_id) = decrypted_hls(&s, json["url"].as_str().unwrap());
         assert!(source.ends_with("/high.m3u8"));
         assert_eq!(q, "high");
+        assert_eq!(channel_id, "ex_hls");
     }
 
     #[tokio::test]
@@ -1847,9 +1850,10 @@ mod tests {
                 "high",
             ))
             .await;
-            let (source, q) = decrypted_hls(&s, json["url"].as_str().unwrap());
+            let (source, q, channel_id) = decrypted_hls(&s, json["url"].as_str().unwrap());
             assert!(source.ends_with("/auto.m3u8"), "channel {id}");
             assert_eq!(q, "", "channel {id}");
+            assert_eq!(channel_id, id);
         }
     }
 

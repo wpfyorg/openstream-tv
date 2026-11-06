@@ -54,6 +54,10 @@ fn manifest_identity(scope: &str) -> Option<ManifestIdentity> {
     serde_json::from_slice(&hex::decode(scope.strip_prefix("identity:")?).ok()?).ok()
 }
 
+pub(crate) fn encrypt_root_render_auth(state: &AppState, url: &str, channel_id: &str) -> String {
+    encrypt_render_auth(state, url, &identity_scope(url, None), channel_id)
+}
+
 // Split HLS attributes without splitting commas inside quoted values.
 fn rendition_selector(line: &str) -> Option<String> {
     let (tag, attrs) = line.split_once(':')?;
@@ -740,7 +744,7 @@ async fn live_impl_inner(
             .set_hdnea(cache_gen, &hdnea_key, &live_hdnea);
     }
 
-    let encrypted = encrypt_render_auth(state, &live_url, &identity_scope(&live_url, None), id);
+    let encrypted = encrypt_root_render_auth(state, &live_url, id);
     let prefix_str = prefix.as_ref().map(|p| p.0 .0.clone()).unwrap_or_default();
     let q = if quality == "auto" {
         String::new()
@@ -1038,7 +1042,7 @@ fn encrypt_render_auth(state: &AppState, url: &str, scope: &str, channel_id: &st
         .encrypt(&format!("{RENDER_AUTH_PREFIX}{serialized}"))
 }
 
-fn decrypt_render_auth(
+pub(crate) fn decrypt_render_auth(
     state: &AppState,
     auth: &str,
 ) -> Option<(String, Option<String>, Option<String>)> {
@@ -1086,10 +1090,7 @@ async fn render_m3u8_inner(state: Arc<AppState>, q: RenderQuery) -> Response {
             Some(decoded) => decoded,
             None => return (StatusCode::BAD_REQUEST, "invalid auth parameter").into_response(),
         };
-    if authenticated_channel
-        .as_deref()
-        .is_some_and(|bound| bound != channel_id)
-    {
+    if authenticated_channel.as_deref() != Some(channel_id.as_str()) {
         return (
             StatusCode::BAD_REQUEST,
             "channel_key_id does not match auth",
@@ -2603,6 +2604,44 @@ mod tests {
                 hdnea: None,
                 q: None,
             }),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        server.verify().await;
+    }
+
+    #[tokio::test]
+    async fn initial_hls_manifest_rejects_unbound_auth_before_upstream_calls() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/consume/v1/playback/resolve"))
+            .respond_with(ResponseTemplate::new(500))
+            .expect(0)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/foreign.m3u8"))
+            .respond_with(ResponseTemplate::new(500))
+            .expect(0)
+            .mount(&server)
+            .await;
+
+        let state = playbox_test_state(&server);
+        let auth = state
+            .secure
+            .encrypt(&format!("{}/foreign.m3u8", server.uri()));
+        let response = render_m3u8_inner(
+            state,
+            RenderQuery {
+                auth: Some(auth),
+                channel_key_id: Some("pb_target".into()),
+                q: None,
+                nested: None,
+            },
         )
         .await;
 
