@@ -88,7 +88,8 @@ public final class ServerService extends Service {
             updateNotification("Local server: 127.0.0.1:" + port);
         } catch (Exception e) {
             Log.e(TAG, "Native server launch failed: " + e.getClass().getSimpleName());
-            updateNotification("Could not start server. Open Openstream TV Slim for details.");
+            stopForeground(true);
+            sendBroadcast(new Intent(ACTION_EXITED).setPackage(getPackageName()));
             stopSelf();
         }
     }

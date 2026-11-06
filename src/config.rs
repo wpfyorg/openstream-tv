@@ -11,7 +11,6 @@ pub struct Config {
     pub epg: bool,
     pub debug: bool,
     pub disable_ts_handler: bool,
-    #[serde(default = "default_true")]
     pub disable_logout: bool,
     pub drm: bool,
     /// `tv_plus` is the documented config key. `extras` (the previous name)
@@ -145,7 +144,11 @@ impl Config {
             "OPENSTREAM_DISABLE_URL_ENCRYPTION"
         );
         env_str!(proxy, "JIOTV_PROXY", "OPENSTREAM_PROXY");
-        env_str!(public_origin, "JIOTV_PUBLIC_ORIGIN", "OPENSTREAM_PUBLIC_ORIGIN");
+        env_str!(
+            public_origin,
+            "JIOTV_PUBLIC_ORIGIN",
+            "OPENSTREAM_PUBLIC_ORIGIN"
+        );
         env_str!(path_prefix, "JIOTV_PATH_PREFIX", "OPENSTREAM_PATH_PREFIX");
         env_str!(log_path, "JIOTV_LOG_PATH", "OPENSTREAM_LOG_PATH");
         env_bool!(
@@ -211,6 +214,21 @@ mod tests {
     #[test]
     fn default_drm_is_true() {
         assert!(Config::default().drm);
+    }
+
+    #[test]
+    fn disable_logout_defaults_false_and_respects_explicit_toml() {
+        assert!(!toml::from_str::<Config>("").unwrap().disable_logout);
+        assert!(
+            !toml::from_str::<Config>("disable_logout = false\n")
+                .unwrap()
+                .disable_logout
+        );
+        assert!(
+            toml::from_str::<Config>("disable_logout = true\n")
+                .unwrap()
+                .disable_logout
+        );
     }
 
     #[test]

@@ -125,6 +125,7 @@ public final class MainActivity extends Activity {
     private Button copyButton, saveM3uButton, openButton, importConfigButton, exportConfigButton, importStoreButton;
     private Button disableAutostartButton, logoutButton;
     private TextView tvServerBadge, tvLoginHeading, tvLoginHelper, tvOtpLabel, tvAccountName, tvAccountNote;
+    private TextView tvAccountRetentionNote;
     private TextView tvProviderHeading, tvProviderHelper, tvMobileLabel, tvAutostartLabel, tvOtpHint;
     private View tvStartupCard, tvAccountCard;
     private FrameLayout tvCanvas;
@@ -135,7 +136,7 @@ public final class MainActivity extends Activity {
     private final java.util.Map<View,Integer> tvBaseY = new java.util.IdentityHashMap<>();
     private final java.util.Map<View,View[]> tvFocusGraph = new java.util.IdentityHashMap<>();
     private float tvScale = 1f;
-    private boolean tvOtpRequested, tvAuthenticated;
+    private boolean tvOtpRequested, tvAuthenticated, tvLoginBusy;
     private boolean tvAutoStartEnabled, tvServerStarted, tvLogoutDisabled;
     private String authenticatedProvider = "";
     private final Handler healthHandler = new Handler(Looper.getMainLooper());
@@ -267,6 +268,22 @@ public final class MainActivity extends Activity {
         states.addState(new int[]{}, tvSurface(fill, 0, 12));
         return states;
     }
+    private StateListDrawable tvBorderedActionSurface(int fill) {
+        StateListDrawable states = new StateListDrawable();
+        states.addState(new int[]{-android.R.attr.state_enabled}, tvSurface(fill, TV_BORDER, 12));
+        states.addState(new int[]{android.R.attr.state_focused}, tvSurface(TV_ACCENT, 0xffd2fff1, 12));
+        states.addState(new int[]{android.R.attr.state_pressed}, tvSurface(TV_ACCENT, 0xffd2fff1, 12));
+        states.addState(new int[]{}, tvSurface(fill, TV_BORDER, 12));
+        return states;
+    }
+    private StateListDrawable tvPrimaryActionSurface() {
+        StateListDrawable states = new StateListDrawable();
+        states.addState(new int[]{-android.R.attr.state_enabled}, tvSurface(0xff355b58, TV_BORDER, 12));
+        states.addState(new int[]{android.R.attr.state_focused}, tvSurface(0xffa7f8de, 0xffd2fff1, 12));
+        states.addState(new int[]{android.R.attr.state_pressed}, tvSurface(0xff8cebd3, 0xffd2fff1, 12));
+        states.addState(new int[]{}, tvSurface(TV_ACCENT, 0xffd2fff1, 12));
+        return states;
+    }
     private <T extends View> T tvPlace(T view, int x, int y, int width, int height) {
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(tvPx(width), tvPx(height));
         lp.leftMargin = tvPx(x); lp.topMargin = tvPx(y);
@@ -351,6 +368,7 @@ public final class MainActivity extends Activity {
         shizukuButton.setOnClickListener(v -> requestShizukuGrant());
         disableAutostartButton = tvAction("Disable auto-start", 630, 371, 245, 65, false);
         disableAutostartButton.setGravity(Gravity.CENTER);
+        disableAutostartButton.setBackground(tvBorderedActionSurface(0xff202d3e));
         disableAutostartButton.setOnClickListener(v -> {
             if (ServerService.setBootStartEnabled(this, false)) {
                 say("Auto-start disabled. The current server keeps running; Android's overlay permission remains granted.");
@@ -424,10 +442,15 @@ public final class MainActivity extends Activity {
         send.setOnClickListener(v -> otpRequest(tvOtpRequested));
         verify = send; // TV uses one changing action; phone retains separate buttons.
         tvAccountName = tvLabel("JioTV", 1040, 289, 470, 39, 30, TV_TEXT, true);
-        tvAccountNote = tvLabel("Account connected", 1040, 333, 500, 30, 21, 0xff98e5c7, false);
+        tvAccountNote = tvLabel("●  Signed in", 1040, 333, 500, 30, 21, 0xff98e5c7, true);
         logoutButton = tvAction("Log out", 1570, 303, 245, 65, true);
         logoutButton.setGravity(Gravity.CENTER);
-        logoutButton.setOnClickListener(v -> logoutProvider());
+        logoutButton.setBackground(tvPrimaryActionSurface());
+        logoutButton.setTextColor(new android.content.res.ColorStateList(
+                new int[][]{{-android.R.attr.state_enabled}, {}},
+                new int[]{TV_MUTED, 0xff071e1b}));
+        logoutButton.setOnClickListener(v -> confirmLogoutProvider());
+        tvAccountRetentionNote = tvLabel("Your login remains saved on this device.", 1010, 471, 840, 32, 20, TV_MUTED, false);
         setContentView(tvScroll);
         configureTvFocus(tvScroll);
         updateTvLoginState();
@@ -438,6 +461,8 @@ public final class MainActivity extends Activity {
     private void updateTvLoginState() {
         if (!television || tvAccountCard == null) return;
         View focused = getCurrentFocus();
+        tvProviderHeading.setText(tvAuthenticated ? "Provider account" : "Provider");
+        tvProviderHelper.setText(tvAuthenticated ? "Your provider is connected." : "Select the account you want to use");
         tvLoginHeading.setText(tvAuthenticated ? "Connected account" : "Provider login");
         tvLoginHelper.setText(tvAuthenticated ? "You're signed in and ready to watch" :
                 tvOtpRequested ? "OTP requested · Enter the six-digit code" : "Enter your mobile number to receive an OTP");
@@ -448,8 +473,9 @@ public final class MainActivity extends Activity {
         for (View view : new View[]{tvMobileLabel, number, send}) view.setVisibility(tvAuthenticated ? View.GONE : View.VISIBLE);
         for (View view : new View[]{tvOtpLabel, otp, tvOtpHint})
             view.setVisibility(!tvAuthenticated && tvOtpRequested ? View.VISIBLE : View.GONE);
-        send.setText(tvOtpRequested ? "Login" : "Send OTP");
-        for (View view : new View[]{tvAccountName, tvAccountNote, logoutButton})
+        send.setText(tvLoginBusy ? (tvOtpRequested ? "Logging in…" : "Sending OTP…") :
+                tvOtpRequested ? "Login" : "Send OTP");
+        for (View view : new View[]{tvAccountName, tvAccountNote, logoutButton, tvAccountRetentionNote})
             view.setVisibility(tvAuthenticated ? View.VISIBLE : View.GONE);
         tvAccountName.setText(authenticatedProvider);
         logoutButton.setEnabled(!tvLogoutDisabled);
@@ -471,7 +497,7 @@ public final class MainActivity extends Activity {
         tvServerBadge.setText(running ? "●  Server started" : "●  Server stopped");
         tvServerBadge.setTextColor(running ? 0xff8be7c5 : 0xffffa3a8);
         tvServerBadge.setBackground(tvSurface(running ? 0xff183b30 : 0xff3b2029, 0, 14));
-        service.setText(running ? "Stop local server" : "Start local server");
+        service.setText(isServiceRunning() ? "Stop local server" : "Start local server");
     }
     private void refreshServerAndAccount() {
         JSONObject response = null;
@@ -792,6 +818,18 @@ public final class MainActivity extends Activity {
                 if (edges[index] != null) setTvFocusTarget(from, directions[index], edges[index]);
             }
             tvFocusGraph.put(from, edges);
+        }
+        if (tvAuthenticated && isTvFocusable(logoutButton)) {
+            for (View left : new View[]{service, disableAutostartButton, bootPermission, shizukuButton}) {
+                if (!isTvFocusable(left)) continue;
+                View[] edges = tvFocusGraph.get(left);
+                if (edges != null) edges[3] = logoutButton;
+                setTvFocusTarget(left, View.FOCUS_RIGHT, logoutButton);
+            }
+            View returnTarget = firstTvFocusable(disableAutostartButton, bootPermission, shizukuButton, service);
+            View[] logoutEdges = tvFocusGraph.get(logoutButton);
+            if (logoutEdges != null && returnTarget != null) logoutEdges[2] = returnTarget;
+            setTvFocusTarget(logoutButton, View.FOCUS_LEFT, returnTarget);
         }
     }
     private View nearestTvControl(View from, java.util.List<View> controls, int direction) {
@@ -1146,12 +1184,18 @@ public final class MainActivity extends Activity {
     private String runKeyShow() throws Exception { File binary=new File(getApplicationInfo().nativeLibraryDir,"libopenstream_exec.so"); java.util.List<String> command=new java.util.ArrayList<>(); command.add(binary.getAbsolutePath()); command.add("--skip-update-check"); File config=new File(getFilesDir(),"config.toml"); if(config.isFile()) { command.add("--config"); command.add(config.getAbsolutePath()); } command.add("key"); command.add("show"); ProcessBuilder b=new ProcessBuilder(command); b.directory(getFilesDir()); b.redirectError(new File("/dev/null")); b.environment().put("JIOTV_PATH_PREFIX",new File(getFilesDir(),"data").getAbsolutePath()); b.environment().put("HOME",getFilesDir().getAbsolutePath()); Process p=b.start(); String result; try (InputStream in=p.getInputStream()) { result=PlaylistLink.readValidatedPath(in); } catch (Exception e) { p.destroy(); throw e; } if(p.waitFor()!=0) throw new IOException("key command failed"); keyedPrefix=PlaylistLink.keyedPrefix(result); return result; }
 
     private void otpRequest(boolean verifyRequest) {
+        if (television && tvLoginBusy) return;
         String n = number.getText().toString().trim(), code = otp.getText().toString().trim();
         if (!n.matches("[0-9]{10}")) { say("Enter exactly 10 digits for the mobile number."); return; }
         if (verifyRequest && !code.matches("[0-9]{6}")) { say("Enter exactly 6 digits for the OTP."); return; }
         final boolean tvPlus = tvPlusProvider != null && tvPlusProvider.isChecked();
-        send.setEnabled(false); verify.setEnabled(false); say((verifyRequest ? "Verifying " : "Requesting ") + (tvPlus ? "JioTV+" : "JioTV") + " OTP…");
-        if (television) updateTvFocusGraph();
+        if (television) {
+            tvLoginBusy = true;
+            updateTvLoginState();
+        } else {
+            send.setEnabled(false); verify.setEnabled(false);
+        }
+        say((verifyRequest ? "Verifying " : "Requesting ") + (tvPlus ? "JioTV+" : "JioTV") + " OTP…");
         io.execute(() -> {
             try {
                 if(keyedPrefix.isEmpty()) runKeyShow();
@@ -1175,7 +1219,14 @@ public final class MainActivity extends Activity {
             } catch(Exception e) {
                 say("Could not complete " + (tvPlus ? "JioTV+" : "JioTV") + " login. Check your connection and try again.");
             } finally {
-                runOnUiThread(() -> { send.setEnabled(true); verify.setEnabled(true); if (television) updateTvFocusGraph(); });
+                runOnUiThread(() -> {
+                    if (television) {
+                        tvLoginBusy = false;
+                        updateTvLoginState();
+                    } else {
+                        send.setEnabled(true); verify.setEnabled(true);
+                    }
+                });
             }
         });
     }
@@ -1232,8 +1283,14 @@ public final class MainActivity extends Activity {
         dialog.show();
     }
     private void sendTvPlusOtpForConnection(String number, int connectionIndex) {
-        send.setEnabled(false); verify.setEnabled(false); say("Sending JioTV+ OTP…");
-        if (television) updateTvFocusGraph();
+        if (television) {
+            if (tvLoginBusy) return;
+            tvLoginBusy = true;
+            updateTvLoginState();
+        } else {
+            send.setEnabled(false); verify.setEnabled(false);
+        }
+        say("Sending JioTV+ OTP…");
         io.execute(() -> {
             try {
                 if(keyedPrefix.isEmpty()) runKeyShow();
@@ -1247,17 +1304,44 @@ public final class MainActivity extends Activity {
                 say("Could not send the JioTV+ OTP. Check your connection and try again.");
             } finally {
                 runOnUiThread(() -> {
-                    send.setEnabled(true); verify.setEnabled(true);
-                    if (television) updateTvFocusGraph();
+                    if (television) {
+                        tvLoginBusy = false;
+                        updateTvLoginState();
+                    } else {
+                        send.setEnabled(true); verify.setEnabled(true);
+                    }
                 });
             }
         });
     }
     private JSONObject post(String path, JSONObject data) throws Exception { HttpURLConnection c=(HttpURLConnection)new URL(LocalServerEndpoint.baseUrl(this)+path).openConnection(); c.setRequestMethod("POST"); c.setConnectTimeout(8000); c.setReadTimeout(20000); c.setDoOutput(true); c.setRequestProperty("Content-Type","application/json"); try(OutputStream o=c.getOutputStream()){o.write(data.toString().getBytes(StandardCharsets.UTF_8));} InputStream in=c.getResponseCode()<400?c.getInputStream():c.getErrorStream(); ByteArrayOutputStream out=new ByteArrayOutputStream(); byte[] buf=new byte[512]; int n; while((n=in.read(buf))!=-1) out.write(buf,0,n); return new JSONObject(out.toString("UTF-8")); }
     private void copyUrl() { if(playlistUrl.isEmpty()) return; ((android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("JioTV playlist",playlistUrl)); say("Playlist URL copied"); }
-    private void logoutProvider() {
+    private void confirmLogoutProvider() {
         if (tvLogoutDisabled) { say("Logout is currently unavailable."); return; }
         final boolean plus = tvPlusProvider != null && tvPlusProvider.isChecked();
+        rememberTvReturnFocus(logoutButton);
+        AlertDialog alert = new AlertDialog.Builder(this)
+                .setTitle("Log out of " + (plus ? "JioTV+" : "JioTV") + "?")
+                .setMessage("You will need to sign in with OTP again to reconnect this provider.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Log out", null)
+                .create();
+        alert.setOnShowListener(dialog -> {
+            Button cancel = alert.getButton(AlertDialog.BUTTON_NEGATIVE);
+            Button logout = alert.getButton(AlertDialog.BUTTON_POSITIVE);
+            if (logout != null) logout.post(() -> logout.setOnClickListener(v -> {
+                alert.dismiss();
+                logoutProvider(plus);
+            }));
+            if (television) {
+                configureTvDialogFocus(new View[0], cancel, null, logout);
+                if (cancel != null) cancel.requestFocus();
+            }
+        });
+        alert.setOnDismissListener(dialog -> restoreTvReturnFocus());
+        alert.show();
+    }
+    private void logoutProvider(boolean plus) {
         logoutButton.setEnabled(false);
         say("Signing out of " + (plus ? "JioTV+" : "JioTV") + "…");
         io.execute(() -> {
@@ -1279,8 +1363,12 @@ public final class MainActivity extends Activity {
                     say((plus ? "JioTV+" : "JioTV") + " signed out.");
                     updateTvLoginState();
                     requestTvFocus(number);
-                } else say("Logout failed. Check the server and try again.");
+                }
                 logoutButton.setEnabled(!tvLogoutDisabled);
+                if (!loggedOut) {
+                    say("Logout failed. Check the server and try again.");
+                    requestTvFocus(logoutButton);
+                }
                 if (!io.isShutdown()) io.execute(this::refreshServerAndAccount);
             });
         });

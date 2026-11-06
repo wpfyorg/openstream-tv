@@ -24,10 +24,22 @@ const CACHE_MAX_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 pub const STORE_KEY_ENABLED: &str = "epg_enabled";
 
 pub fn enabled_with_override(config_enabled: bool, stored: Option<&str>) -> bool {
-    if config_enabled {
+    enabled_with_platform_override(config_enabled, stored, cfg!(target_os = "android"))
+}
+
+fn enabled_with_platform_override(
+    config_enabled: bool,
+    stored: Option<&str>,
+    android: bool,
+) -> bool {
+    if android {
         return true;
     }
-    matches!(stored, Some("true"))
+    match stored {
+        Some("true") => true,
+        Some("false") => false,
+        _ => config_enabled,
+    }
 }
 
 #[derive(Default)]
@@ -752,17 +764,25 @@ mod tests {
     use std::collections::HashMap;
 
     #[test]
-    fn config_enable_cannot_be_disabled_by_persisted_override() {
-        assert!(enabled_with_override(true, Some("false")));
-        assert!(enabled_with_override(true, Some("invalid")));
-        assert!(enabled_with_override(true, None));
+    fn android_forces_epg_on_regardless_of_config_or_persisted_override() {
+        assert!(enabled_with_platform_override(false, Some("false"), true));
+        assert!(enabled_with_platform_override(false, Some("invalid"), true));
+        assert!(enabled_with_platform_override(false, None, true));
     }
 
     #[test]
-    fn persisted_enable_can_enable_config_disabled_epg() {
-        assert!(enabled_with_override(false, Some("true")));
-        assert!(!enabled_with_override(false, Some("false")));
-        assert!(!enabled_with_override(false, Some("invalid")));
+    fn non_android_stored_override_takes_precedence_over_config() {
+        assert!(!enabled_with_platform_override(true, Some("false"), false));
+        assert!(enabled_with_platform_override(false, Some("true"), false));
+        assert!(enabled_with_platform_override(true, Some("invalid"), false));
+        assert!(enabled_with_platform_override(true, None, false));
+        assert!(!enabled_with_platform_override(false, Some("false"), false));
+        assert!(!enabled_with_platform_override(
+            false,
+            Some("invalid"),
+            false
+        ));
+        assert!(!enabled_with_platform_override(false, None, false));
     }
 
     fn tv_channel(id: &str, name: &str) -> crate::television::Channel {
