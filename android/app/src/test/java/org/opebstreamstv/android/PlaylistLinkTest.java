@@ -10,7 +10,8 @@ public class PlaylistLinkTest {
     @Test public void derivesKeyedPrefixAndLoopbackPlaylist() {
         String path = "/k/example-secret/playlist.m3u";
         assertEquals("/k/example-secret/", PlaylistLink.keyedPrefix(path));
-        assertEquals("http://127.0.0.1:5001" + path, PlaylistLink.loopbackUrl(path));
+        assertEquals("http://127.0.0.1:5001" + path, PlaylistLink.loopbackUrl(path, 5001));
+        assertEquals("http://127.0.0.1:5002" + path, PlaylistLink.loopbackUrl(path, 5002));
     }
     @Test(expected = IllegalArgumentException.class) public void rejectsUnkeyedPath() { PlaylistLink.keyedPrefix("/playlist.m3u"); }
     @Test(expected = IllegalArgumentException.class) public void rejectsEmptyKey() { PlaylistLink.keyedPrefix("/k//playlist.m3u"); }

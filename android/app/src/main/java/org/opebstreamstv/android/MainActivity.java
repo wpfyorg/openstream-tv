@@ -17,6 +17,13 @@ import android.content.IntentFilter;
 import android.system.Os;
 import android.view.*;
 import android.view.inputmethod.InputMethodManager;
+import android.text.InputFilter;
+import android.text.InputType;
+import android.util.TypedValue;
+import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.StateListDrawable;
+import android.graphics.Typeface;
+import android.graphics.Color;
 import android.widget.*;
 import org.json.JSONObject;
 import java.io.*;
@@ -45,6 +52,7 @@ public final class MainActivity extends Activity {
     private static final int PICK_STORE = 22;
     private static final int CREATE_CONFIG = 23;
     private static final int STORAGE_PERMISSION = 24;
+    private static final int CREATE_PLAYLIST = 25;
     private final ExecutorService io = Executors.newSingleThreadExecutor();
     private EditText number, otp;
     private TextView status, playlist;
@@ -114,7 +122,30 @@ public final class MainActivity extends Activity {
         Future<?> task = setupTask;
         if (task != null) task.cancel(true);
     }
-    private Button copyButton, shareButton, openButton, importConfigButton, exportConfigButton, importStoreButton;
+    private Button copyButton, saveM3uButton, openButton, importConfigButton, exportConfigButton, importStoreButton;
+    private Button disableAutostartButton, logoutButton;
+    private TextView tvServerBadge, tvLoginHeading, tvLoginHelper, tvOtpLabel, tvAccountName, tvAccountNote;
+    private TextView tvProviderHeading, tvProviderHelper, tvMobileLabel, tvAutostartLabel, tvOtpHint;
+    private View tvStartupCard, tvAccountCard;
+    private FrameLayout tvCanvas;
+    private final java.util.List<View> tvLeftControls = new java.util.ArrayList<>();
+    private final java.util.List<View> tvRightControls = new java.util.ArrayList<>();
+    private final java.util.List<View> tvPlaylistViews = new java.util.ArrayList<>();
+    private final java.util.List<View> tvConfigViews = new java.util.ArrayList<>();
+    private final java.util.Map<View,Integer> tvBaseY = new java.util.IdentityHashMap<>();
+    private final java.util.Map<View,View[]> tvFocusGraph = new java.util.IdentityHashMap<>();
+    private float tvScale = 1f;
+    private boolean tvOtpRequested, tvAuthenticated;
+    private boolean tvAutoStartEnabled, tvServerStarted, tvLogoutDisabled;
+    private String authenticatedProvider = "";
+    private final Handler healthHandler = new Handler(Looper.getMainLooper());
+    private final Runnable healthRefresh = new Runnable() {
+        @Override public void run() {
+            if (activityDestroyed || !television || io.isShutdown()) return;
+            io.execute(() -> refreshServerAndAccount());
+            healthHandler.postDelayed(this, 4000);
+        }
+    };
     private String playlistUrl = "", keyedPrefix = "";
     private boolean television;
     private RadioButton jiotvProvider, tvPlusProvider;
@@ -125,6 +156,7 @@ public final class MainActivity extends Activity {
     private final BroadcastReceiver serverExitedReceiver = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
             service.setText("Start local server");
+            if (television) updateServerBadge(false);
             say("Server stopped unexpectedly. Start it again.");
         }
     };
@@ -138,13 +170,17 @@ public final class MainActivity extends Activity {
         Shizuku.addRequestPermissionResultListener(shizukuPermissionListener);
         Shizuku.addBinderDeadListener(shizukuBinderDeadListener);
         service.setText(isServiceRunning() ? "Stop local server" : "Start local server");
-        if (television) service.post(service::requestFocus);
+        if (television) {
+            service.post(service::requestFocus);
+            healthHandler.post(healthRefresh);
+        }
         refreshUrl();
     }
     @Override protected void onResume() {
         super.onResume();
         refreshPermissionButtons();
         restoreTvReturnFocus();
+        if (television) io.execute(() -> refreshServerAndAccount());
     }
     @Override public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
@@ -153,6 +189,7 @@ public final class MainActivity extends Activity {
     }
     private void render() {
         television = (getResources().getConfiguration().uiMode & Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION;
+        if (television) { renderTv(); return; }
         int inset = dp(television ? 32 : 24);
         ScrollView scroll = new ScrollView(this); scroll.setFillViewport(true); scroll.setDescendantFocusability(ViewGroup.FOCUS_AFTER_DESCENDANTS); scroll.setSmoothScrollingEnabled(true); LinearLayout root = new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL); root.setPadding(inset, dp(television ? 16 : 20), inset, dp(television ? 16 : 20)); root.setFocusableInTouchMode(!television); scroll.addView(root); scroll.setBackgroundColor(0xff101827); if (television) { root.setFocusable(false); scroll.setFocusable(false); }
         addText(root, "Openstream TV Slim", television ? 28 : 28, 0xff43d9b0); status = addText(root, "Starting…", television ? 15 : 15, 0xffc5d0dd);
@@ -171,6 +208,13 @@ public final class MainActivity extends Activity {
         bootPermission = button(left, "Enable startup screen (Android 10+)"); bootPermission.setOnClickListener(v -> requestBootPermission());
         adbSetupButton = button(left, "Setup startup permissions using ADB"); adbSetupButton.setOnClickListener(v -> runLocalAdbSetup());
         shizukuButton = button(left, "Setup using Shizuku"); shizukuButton.setOnClickListener(v -> requestShizukuGrant());
+        disableAutostartButton = button(left, "Disable auto-start");
+        disableAutostartButton.setOnClickListener(v -> {
+            if (ServerService.setBootStartEnabled(this, false)) {
+                say("Auto-start disabled. The current server keeps running; Android's overlay permission remains granted.");
+                refreshPermissionButtons();
+            } else say("Could not save the auto-start setting.");
+        });
         RadioGroup providers = new RadioGroup(this); providers.setOrientation(RadioGroup.HORIZONTAL); left.addView(providers, spacedParams(0, 0));
         jiotvProvider = providerChoice("JioTV", true); tvPlusProvider = providerChoice("JioTV+", false);
         providers.addView(jiotvProvider); providers.addView(tvPlusProvider);
@@ -179,7 +223,7 @@ public final class MainActivity extends Activity {
         playlist = addText(left, "Start the server to get your keyed link.", television ? 14 : 14, 0xffc5d0dd);
         LinearLayout actions = new LinearLayout(this); actions.setOrientation(LinearLayout.HORIZONTAL); left.addView(actions, spacedParams(0, 0));
         copyButton = button(actions, "Copy"); copyButton.setOnClickListener(v -> copyUrl());
-        shareButton = button(actions, "Share"); shareButton.setOnClickListener(v -> shareUrl());
+        saveM3uButton = button(actions, "Save M3U"); saveM3uButton.setOnClickListener(v -> createPlaylistDocument());
         openButton = button(left, "Open in IPTV app"); openButton.setOnClickListener(v -> openUrl());
 
         addText(right, "Provider login", television ? 19 : 20, 0xffffffff);
@@ -195,9 +239,284 @@ public final class MainActivity extends Activity {
         if (television) configureTvFocus(scroll);
         refreshPermissionButtons();
     }
+    // All five Pen frames describe states of this single TV Activity. Positions are
+    // specified on a 1920px design canvas and scaled to the current display.
+    private static final int TV_BG = 0xff0b1220, TV_PANEL = 0xff152234;
+    private static final int TV_ACCENT = 0xff42d7ae, TV_TEXT = 0xffeaf2f5;
+    private static final int TV_MUTED = 0xff93a6b7, TV_BORDER = 0xff34485b;
+
+    private int tvPx(int pixels) { return Math.round(pixels * tvScale); }
+    private GradientDrawable tvSurface(int fill, int border, int radius) {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(fill);
+        drawable.setCornerRadius(tvPx(radius));
+        if (border != 0) drawable.setStroke(Math.max(1, tvPx(2)), border);
+        return drawable;
+    }
+    private StateListDrawable tvFocusSurface(int fill) {
+        StateListDrawable states = new StateListDrawable();
+        states.addState(new int[]{android.R.attr.state_focused}, tvSurface(TV_ACCENT, TV_ACCENT, 12));
+        states.addState(new int[]{android.R.attr.state_pressed}, tvSurface(TV_ACCENT, TV_ACCENT, 12));
+        states.addState(new int[]{}, tvSurface(fill, 0, 12));
+        return states;
+    }
+    private StateListDrawable tvOutlinedFocusSurface(int fill) {
+        StateListDrawable states = new StateListDrawable();
+        states.addState(new int[]{android.R.attr.state_focused}, tvSurface(0xff203b40, TV_ACCENT, 12));
+        states.addState(new int[]{android.R.attr.state_pressed}, tvSurface(0xff203b40, TV_ACCENT, 12));
+        states.addState(new int[]{}, tvSurface(fill, 0, 12));
+        return states;
+    }
+    private <T extends View> T tvPlace(T view, int x, int y, int width, int height) {
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(tvPx(width), tvPx(height));
+        lp.leftMargin = tvPx(x); lp.topMargin = tvPx(y);
+        tvCanvas.addView(view, lp);
+        tvBaseY.put(view, y);
+        return view;
+    }
+    private TextView tvText(String value, int size, int color, boolean bold) {
+        TextView view = new TextView(this);
+        view.setText(value); view.setTextColor(color);
+        view.setTextSize(TypedValue.COMPLEX_UNIT_PX, tvPx(size));
+        view.setGravity(Gravity.CENTER_VERTICAL);
+        if (bold) view.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        return view;
+    }
+    private TextView tvLabel(String value, int x, int y, int width, int height, int size, int color, boolean bold) {
+        return tvPlace(tvText(value, size, color, bold), x, y, width, height);
+    }
+    private View tvCard(int x, int y, int width, int height) {
+        View view = new View(this); view.setBackground(tvSurface(TV_PANEL, TV_BORDER, 22));
+        return tvPlace(view, x, y, width, height);
+    }
+    private Button tvAction(String label, int x, int y, int width, int height, boolean right) {
+        Button action = new Button(this);
+        action.setId(View.generateViewId()); action.setText(label); action.setAllCaps(false);
+        action.setTextSize(TypedValue.COMPLEX_UNIT_PX, tvPx(23));
+        action.setTextColor(new android.content.res.ColorStateList(
+                new int[][]{{android.R.attr.state_focused}, {android.R.attr.state_pressed}, {}},
+                new int[]{0xff071e1b, 0xff071e1b, TV_TEXT}));
+        action.setBackground(tvFocusSurface(0xff202d3e));
+        action.setPadding(tvPx(22), 0, tvPx(18), 0);
+        action.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
+        action.setFocusable(true); action.setFocusableInTouchMode(false);
+        tvPlace(action, x, y, width, height);
+        (right ? tvRightControls : tvLeftControls).add(action);
+        configureTvFocusable(action);
+        return action;
+    }
+    private EditText tvInput(String hint, int x, int y, int width) {
+        EditText field = new EditText(this);
+        field.setId(View.generateViewId()); field.setSingleLine(true);
+        field.setHint(hint); field.setTextColor(TV_TEXT); field.setHintTextColor(TV_MUTED);
+        field.setTextSize(TypedValue.COMPLEX_UNIT_PX, tvPx(23));
+        field.setPadding(tvPx(20), 0, tvPx(20), 0);
+        field.setBackground(tvOutlinedFocusSurface(0xff0e1b2b));
+        tvPlace(field, x, y, width, 64);
+        tvRightControls.add(field);
+        return field;
+    }
+    private void renderTv() {
+        tvScale = Math.min(1.3f, getResources().getDisplayMetrics().widthPixels / 1920f);
+        tvScroll = new ScrollView(this);
+        tvScroll.setFillViewport(true); tvScroll.setSmoothScrollingEnabled(true);
+        tvScroll.setBackgroundColor(TV_BG); tvScroll.setFocusable(false);
+        tvCanvas = new FrameLayout(this); tvCanvas.setFocusable(false);
+        tvScroll.addView(tvCanvas, new ScrollView.LayoutParams(tvPx(1920), tvPx(1080)));
+        View brand = new View(this);
+        brand.setBackground(tvSurface(TV_ACCENT, 0, 12));
+        tvPlace(brand, 70, 54, 52, 52);
+        tvLabel("▶", 84, 61, 38, 42, 28, 0xff092820, true);
+        tvLabel("Openstream TV Slim", 140, 50, 950, 51, 38, TV_TEXT, true);
+        status = tvLabel("Local TV server · Ready", 141, 101, 1300, 32, 20, TV_MUTED, false);
+        View line = new View(this); line.setBackgroundColor(TV_BORDER);
+        tvPlace(line, 70, 145, 1780, 2);
+
+        tvServerBadge = tvLabel("●  Server stopped", 1515, 61, 325, 50, 23, 0xffffa3a8, true);
+        tvServerBadge.setGravity(Gravity.CENTER);
+        tvServerBadge.setBackground(tvSurface(0xff3b2029, 0, 14));
+        tvLabel("Local server", 70, 180, 800, 38, 32, TV_TEXT, true);
+        tvLabel("Start the local server to use playlists, EPG and account login", 70, 222, 840, 31, 20, TV_MUTED, false);
+        service = tvAction("Start local server", 70, 270, 840, 68, false);
+        service.setOnClickListener(v -> toggleService());
+
+        tvStartupCard = tvCard(70, 352, 840, 104);
+        tvStartupCard.setBackground(tvSurface(0xff182b33, 0, 14));
+        tvAutostartLabel = tvLabel("Auto-start enabled", 100, 388, 490, 48, 26, 0xff9ae8c9, true);
+        bootPermission = tvAction("Enable startup screen (Android 10+)", 70, 428, 840, 62, false);
+        bootPermission.setOnClickListener(v -> requestBootPermission());
+        adbSetupButton = tvAction("Set up using ADB", 70, 352, 410, 62, false);
+        adbSetupButton.setOnClickListener(v -> runLocalAdbSetup());
+        shizukuButton = tvAction("Set up using Shizuku", 500, 352, 410, 62, false);
+        shizukuButton.setOnClickListener(v -> requestShizukuGrant());
+        disableAutostartButton = tvAction("Disable auto-start", 630, 371, 245, 65, false);
+        disableAutostartButton.setGravity(Gravity.CENTER);
+        disableAutostartButton.setOnClickListener(v -> {
+            if (ServerService.setBootStartEnabled(this, false)) {
+                say("Auto-start disabled. The current server keeps running; Android's overlay permission remains granted.");
+                refreshPermissionButtons();
+            } else say("Could not save the auto-start setting.");
+        });
+
+        tvPlaylistViews.add(tvLabel("Playlist", 70, 530, 800, 40, 32, TV_TEXT, true));
+        playlist = tvLabel("Start the server to get your playlist.", 70, 572, 840, 60, 20, TV_MUTED, false);
+        playlist.setPadding(tvPx(20), 0, tvPx(20), 0);
+        playlist.setBackground(tvSurface(0xff131f2e, 0, 12));
+        playlist.setSingleLine(true); playlist.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
+        tvPlaylistViews.add(playlist);
+        copyButton = tvAction("Copy", 70, 647, 267, 60, false); copyButton.setOnClickListener(v -> copyUrl());
+        saveM3uButton = tvAction("Save M3U", 353, 647, 267, 60, false); saveM3uButton.setOnClickListener(v -> createPlaylistDocument());
+        openButton = tvAction("Open in IPTV app", 636, 647, 274, 60, false); openButton.setOnClickListener(v -> openUrl());
+        tvPlaylistViews.add(copyButton); tvPlaylistViews.add(saveM3uButton); tvPlaylistViews.add(openButton);
+
+        tvConfigViews.add(tvLabel("Configuration & backup", 70, 757, 810, 39, 32, TV_TEXT, true));
+        tvConfigViews.add(tvLabel("Import or export configuration files on this device", 70, 796, 840, 33, 20, TV_MUTED, false));
+        importConfigButton = tvAction("Import TOML config", 70, 835, 410, 62, false);
+        exportConfigButton = tvAction("Export TOML config", 500, 835, 410, 62, false);
+        importStoreButton = tvAction("Import login store backup", 70, 913, 840, 62, false);
+        importConfigButton.setOnClickListener(v -> pickFile("application/toml", PICK_CONFIG));
+        exportConfigButton.setOnClickListener(v -> createConfigDocument());
+        importStoreButton.setOnClickListener(v -> pickFile("application/toml", PICK_STORE));
+        tvConfigViews.add(importConfigButton); tvConfigViews.add(exportConfigButton); tvConfigViews.add(importStoreButton);
+
+        View divider = new View(this); divider.setBackgroundColor(TV_BORDER);
+        tvPlace(divider, 958, 181, 2, 755);
+        tvProviderHeading = tvLabel("Provider", 1010, 180, 680, 38, 32, TV_TEXT, true);
+        tvProviderHelper = tvLabel("Select the account you want to use", 1010, 220, 825, 32, 20, TV_MUTED, false);
+        RadioGroup providers = new RadioGroup(this); providers.setOrientation(RadioGroup.HORIZONTAL);
+        tvPlace(providers, 1010, 258, 840, 62);
+        jiotvProvider = providerChoice("JioTV", true); tvPlusProvider = providerChoice("JioTV+", false);
+        for (RadioButton choice : new RadioButton[]{jiotvProvider, tvPlusProvider}) {
+            choice.setTextSize(TypedValue.COMPLEX_UNIT_PX, tvPx(23));
+            choice.setBackground(tvOutlinedFocusSurface(0xff1b2b3b));
+            choice.setPadding(tvPx(18), 0, tvPx(10), 0);
+            RadioGroup.LayoutParams option = new RadioGroup.LayoutParams(tvPx(410), tvPx(62));
+            if (choice == tvPlusProvider) option.leftMargin = tvPx(20);
+            providers.addView(choice, option);
+            tvRightControls.add(choice);
+        }
+        boolean plus = getSharedPreferences("tv_provider", MODE_PRIVATE).getBoolean("plus", false);
+        (plus ? tvPlusProvider : jiotvProvider).setChecked(true);
+        providers.setOnCheckedChangeListener((g, checkedId) -> {
+            boolean selectedPlus = checkedId == tvPlusProvider.getId();
+            getSharedPreferences("tv_provider", MODE_PRIVATE).edit().putBoolean("plus", selectedPlus).apply();
+            tvOtpRequested = false; tvAuthenticated = false;
+            authenticatedProvider = selectedPlus ? "JioTV+" : "JioTV";
+            otp.setText("");
+            updateTvLoginState();
+            if (!io.isShutdown()) io.execute(() -> refreshServerAndAccount());
+        });
+
+        tvAccountCard = tvCard(1010, 263, 840, 160);
+        tvAccountCard.setBackground(tvSurface(0xff182b33, 0, 14));
+        tvLoginHeading = tvLabel("Provider login", 1010, 370, 800, 39, 32, TV_TEXT, true);
+        tvLoginHelper = tvLabel("Enter your mobile number to receive an OTP", 1010, 411, 840, 33, 20, TV_MUTED, false);
+        tvMobileLabel = tvLabel("Mobile number", 1010, 471, 810, 30, 22, TV_TEXT, true);
+        number = tvInput("10-digit mobile number", 1010, 503, 840);
+        number.setInputType(InputType.TYPE_CLASS_NUMBER);
+        number.setFilters(new InputFilter[]{new InputFilter.LengthFilter(10)});
+        tvOtpLabel = tvLabel("One-time password", 1010, 590, 800, 30, 22, TV_TEXT, true);
+        otp = tvInput("6-digit OTP", 1010, 622, 840);
+        otp.setInputType(InputType.TYPE_CLASS_NUMBER);
+        otp.setFilters(new InputFilter[]{new InputFilter.LengthFilter(6)});
+        tvOtpHint = tvLabel("", 1010, 785, 810, 28, 17, TV_MUTED, false);
+        send = tvAction("Send OTP", 1010, 708, 840, 62, true);
+        send.setOnClickListener(v -> otpRequest(tvOtpRequested));
+        verify = send; // TV uses one changing action; phone retains separate buttons.
+        tvAccountName = tvLabel("JioTV", 1040, 289, 470, 39, 30, TV_TEXT, true);
+        tvAccountNote = tvLabel("Account connected", 1040, 333, 500, 30, 21, 0xff98e5c7, false);
+        logoutButton = tvAction("Log out", 1570, 303, 245, 65, true);
+        logoutButton.setGravity(Gravity.CENTER);
+        logoutButton.setOnClickListener(v -> logoutProvider());
+        setContentView(tvScroll);
+        configureTvFocus(tvScroll);
+        updateTvLoginState();
+        refreshPermissionButtons();
+        tvCanvas.post(this::updateTvFocusGraph);
+    }
+
+    private void updateTvLoginState() {
+        if (!television || tvAccountCard == null) return;
+        View focused = getCurrentFocus();
+        tvLoginHeading.setText(tvAuthenticated ? "Connected account" : "Provider login");
+        tvLoginHelper.setText(tvAuthenticated ? "You're signed in and ready to watch" :
+                tvOtpRequested ? "OTP requested · Enter the six-digit code" : "Enter your mobile number to receive an OTP");
+        tvLoginHeading.setVisibility(tvAuthenticated ? View.GONE : View.VISIBLE);
+        tvLoginHelper.setVisibility(tvAuthenticated ? View.GONE : View.VISIBLE);
+        tvAccountCard.setVisibility(tvAuthenticated ? View.VISIBLE : View.GONE);
+        ((View) jiotvProvider.getParent()).setVisibility(tvAuthenticated ? View.GONE : View.VISIBLE);
+        for (View view : new View[]{tvMobileLabel, number, send}) view.setVisibility(tvAuthenticated ? View.GONE : View.VISIBLE);
+        for (View view : new View[]{tvOtpLabel, otp, tvOtpHint})
+            view.setVisibility(!tvAuthenticated && tvOtpRequested ? View.VISIBLE : View.GONE);
+        send.setText(tvOtpRequested ? "Login" : "Send OTP");
+        for (View view : new View[]{tvAccountName, tvAccountNote, logoutButton})
+            view.setVisibility(tvAuthenticated ? View.VISIBLE : View.GONE);
+        tvAccountName.setText(authenticatedProvider);
+        logoutButton.setEnabled(!tvLogoutDisabled);
+        logoutButton.setFocusable(!tvLogoutDisabled);
+        // Move the action directly below the mobile field until an OTP is requested.
+        tvMove(send, tvOtpRequested ? 708 : 590);
+        tvCanvas.post(this::updateTvFocusGraph);
+        if (focused != null && !isTvFocusable(focused))
+            requestTvFocus(firstTvFocusable(tvAuthenticated ? logoutButton : send, number, jiotvProvider, service));
+    }
+    private void tvMove(View view, int y) {
+        if (view == null) return;
+        FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) view.getLayoutParams();
+        lp.topMargin = tvPx(y); view.setLayoutParams(lp);
+    }
+    private void updateServerBadge(boolean running) {
+        tvServerStarted = running;
+        if (!television || tvServerBadge == null) return;
+        tvServerBadge.setText(running ? "●  Server started" : "●  Server stopped");
+        tvServerBadge.setTextColor(running ? 0xff8be7c5 : 0xffffa3a8);
+        tvServerBadge.setBackground(tvSurface(running ? 0xff183b30 : 0xff3b2029, 0, 14));
+        service.setText(running ? "Stop local server" : "Start local server");
+    }
+    private void refreshServerAndAccount() {
+        JSONObject response = null;
+        try {
+            if (keyedPrefix.isEmpty()) runKeyShow();
+            HttpURLConnection conn = (HttpURLConnection) new URL(LocalServerEndpoint.baseUrl(this) + keyedPrefix + "api/status").openConnection();
+            conn.setConnectTimeout(1200); conn.setReadTimeout(1800);
+            try {
+                if (conn.getResponseCode() == 200) {
+                    ByteArrayOutputStream out = new ByteArrayOutputStream();
+                    try (InputStream in = conn.getInputStream()) {
+                        byte[] buffer = new byte[1024]; int count;
+                        while ((count = in.read(buffer)) > 0) {
+                            if (out.size() + count > 64 * 1024) throw new IOException("Status too large");
+                            out.write(buffer, 0, count);
+                        }
+                    }
+                    response = new JSONObject(out.toString("UTF-8"));
+                }
+            } finally { conn.disconnect(); }
+        } catch (Exception ignored) { }
+        JSONObject current = response;
+        runOnUiThread(() -> {
+            if (activityDestroyed || !television) return;
+            boolean healthy = current != null && current.has("jiotv");
+            updateServerBadge(healthy);
+            if (healthy) {
+                boolean plus = tvPlusProvider.isChecked();
+                JSONObject provider = current.optJSONObject(plus ? "extras" : "jiotv");
+                tvAuthenticated = provider != null && provider.optBoolean(plus ? "connected" : "loggedIn", false);
+                authenticatedProvider = plus ? "JioTV+" : "JioTV";
+                tvLogoutDisabled = current.optBoolean("logoutDisabled", false);
+                if (tvAuthenticated) tvOtpRequested = false;
+            } else {
+                tvAuthenticated = false;
+            }
+            updateTvLoginState();
+        });
+    }
     private void requestBootPermission() {
         if (Build.VERSION.SDK_INT < 29 || android.provider.Settings.canDrawOverlays(this)) {
-            say("Startup screen permission enabled. Start the server to enable boot startup.");
+            if (ServerService.setBootStartEnabled(this, true)) {
+                say("Auto-start enabled. The current server state is unchanged.");
+                refreshPermissionButtons();
+            } else say("Could not save the auto-start setting.");
             return;
         }
         try {
@@ -210,21 +529,38 @@ public final class MainActivity extends Activity {
     }
     private void refreshPermissionButtons() {
         boolean allowed = Build.VERSION.SDK_INT < 29 || android.provider.Settings.canDrawOverlays(this);
-        boolean needsStartupPermission = !allowed;
         boolean permissionControlHadFocus = television && ((bootPermission != null && bootPermission.hasFocus()) || (adbSetupButton != null && adbSetupButton.hasFocus()) || (shizukuButton != null && shizukuButton.hasFocus()));
-        bootPermission.setText(allowed ? "Startup screen permission enabled" : "Enable startup screen (Android 10+)");
-        bootPermission.setEnabled(needsStartupPermission);
+        boolean bootStartEnabled = ServerService.isBootStartEnabled(this);
+        tvAutoStartEnabled = allowed && bootStartEnabled;
+        bootPermission.setText(allowed ? "Enable auto-start" : "Enable startup screen (Android 10+)");
+        bootPermission.setEnabled(true);
         if (adbSetupButton != null) {
-            adbSetupButton.setEnabled(needsStartupPermission);
-            if (television) adbSetupButton.setFocusable(needsStartupPermission);
+            adbSetupButton.setEnabled(!allowed);
+            if (television) adbSetupButton.setFocusable(!allowed);
         }
         if (shizukuButton != null) {
-            shizukuButton.setEnabled(needsStartupPermission);
-            if (television) shizukuButton.setFocusable(needsStartupPermission);
+            shizukuButton.setEnabled(!allowed);
+            if (television) shizukuButton.setFocusable(!allowed);
+        }
+        if (!television && disableAutostartButton != null) {
+            disableAutostartButton.setVisibility(bootStartEnabled ? View.VISIBLE : View.GONE);
+            bootPermission.setVisibility(allowed && bootStartEnabled ? View.GONE : View.VISIBLE);
         }
         if (television) {
+            bootPermission.setVisibility(tvAutoStartEnabled ? View.GONE : View.VISIBLE);
+            adbSetupButton.setVisibility(allowed ? View.GONE : View.VISIBLE);
+            shizukuButton.setVisibility(allowed ? View.GONE : View.VISIBLE);
+            disableAutostartButton.setVisibility(tvAutoStartEnabled ? View.VISIBLE : View.GONE);
+            tvAutostartLabel.setVisibility(tvAutoStartEnabled ? View.VISIBLE : View.GONE);
+            tvStartupCard.setVisibility(tvAutoStartEnabled ? View.VISIBLE : View.GONE);
+            tvAutostartLabel.setText("Auto-start enabled");
+            tvMove(bootPermission, allowed ? 352 : 428);
+            int playlistShift = tvAutoStartEnabled ? -17 : allowed ? -55 : 0;
+            int configShift = tvAutoStartEnabled ? -21 : allowed ? -55 : 0;
+            for (View view : tvPlaylistViews) tvMove(view, tvBaseY.get(view) + playlistShift);
+            for (View view : tvConfigViews) tvMove(view, tvBaseY.get(view) + configShift);
             updateTvFocusGraph();
-            if (allowed && permissionControlHadFocus) requestTvFocus(firstTvFocusable(jiotvProvider, service, number));
+            if (allowed && permissionControlHadFocus) requestTvFocus(firstTvFocusable(disableAutostartButton, bootPermission, service));
         }
     }
     private void showAdbSetup() {
@@ -430,68 +766,86 @@ public final class MainActivity extends Activity {
     }
     private void configureTvFocus(ScrollView scroll) {
         tvScroll = scroll;
-        View[] controls = {service, bootPermission, adbSetupButton, shizukuButton, jiotvProvider, tvPlusProvider, copyButton, shareButton, openButton, number, otp, send, verify, importConfigButton, exportConfigButton, importStoreButton};
-        for (View control : controls) {
+        for (View control : allTvControls()) {
             if (control instanceof EditText) configureTvEditField((EditText) control);
             else configureTvFocusable(control);
         }
         updateTvFocusGraph();
     }
+    private java.util.List<View> allTvControls() {
+        java.util.LinkedHashSet<View> controls = new java.util.LinkedHashSet<>();
+        controls.addAll(tvLeftControls);
+        controls.addAll(tvRightControls);
+        return new java.util.ArrayList<>(controls);
+    }
     private void updateTvFocusGraph() {
-        if (!television || service == null || importStoreButton == null) return;
-        View[] controls = {service, bootPermission, adbSetupButton, shizukuButton, jiotvProvider, tvPlusProvider, copyButton, shareButton, openButton, number, otp, send, verify, importConfigButton, exportConfigButton, importStoreButton};
-        for (View control : controls) clearTvFocusTargets(control);
-
-        setTvFocusTarget(service, View.FOCUS_DOWN, bootPermission, adbSetupButton, shizukuButton, jiotvProvider);
-        setTvFocusTarget(bootPermission, View.FOCUS_UP, service);
-        setTvFocusTarget(bootPermission, View.FOCUS_DOWN, adbSetupButton, shizukuButton, jiotvProvider);
-        setTvFocusTarget(adbSetupButton, View.FOCUS_UP, bootPermission, service);
-        setTvFocusTarget(adbSetupButton, View.FOCUS_DOWN, shizukuButton, jiotvProvider);
-        setTvFocusTarget(shizukuButton, View.FOCUS_UP, adbSetupButton, bootPermission, service);
-        setTvFocusTarget(shizukuButton, View.FOCUS_DOWN, jiotvProvider);
-        setTvFocusTarget(jiotvProvider, View.FOCUS_UP, shizukuButton, adbSetupButton, bootPermission, service);
-        setTvFocusTarget(tvPlusProvider, View.FOCUS_UP, shizukuButton, adbSetupButton, bootPermission, service);
-        setTvFocusTarget(jiotvProvider, View.FOCUS_DOWN, copyButton, shareButton, openButton);
-        setTvFocusTarget(tvPlusProvider, View.FOCUS_DOWN, copyButton, shareButton, openButton);
-        setTvFocusTarget(copyButton, View.FOCUS_UP, jiotvProvider);
-        setTvFocusTarget(shareButton, View.FOCUS_UP, jiotvProvider);
-        setTvFocusTarget(copyButton, View.FOCUS_DOWN, openButton);
-        setTvFocusTarget(shareButton, View.FOCUS_DOWN, openButton);
-        setTvFocusTarget(openButton, View.FOCUS_UP, copyButton, shareButton, tvPlusProvider, jiotvProvider);
-
-        setTvFocusTarget(number, View.FOCUS_DOWN, otp);
-        setTvFocusTarget(otp, View.FOCUS_UP, number);
-        setTvFocusTarget(otp, View.FOCUS_DOWN, send, verify, importConfigButton);
-        setTvFocusTarget(send, View.FOCUS_UP, otp);
-        setTvFocusTarget(verify, View.FOCUS_UP, otp);
-        setTvFocusTarget(send, View.FOCUS_DOWN, importConfigButton);
-        setTvFocusTarget(verify, View.FOCUS_DOWN, importConfigButton);
-        setTvFocusTarget(importConfigButton, View.FOCUS_UP, send, verify, otp);
-        setTvFocusTarget(importConfigButton, View.FOCUS_DOWN, exportConfigButton, importStoreButton);
-        setTvFocusTarget(exportConfigButton, View.FOCUS_UP, importConfigButton, send, verify, otp);
-        setTvFocusTarget(exportConfigButton, View.FOCUS_DOWN, importStoreButton);
-        setTvFocusTarget(importStoreButton, View.FOCUS_UP, exportConfigButton, importConfigButton);
-
-        setTvFocusTarget(service, View.FOCUS_RIGHT, number);
-        setTvFocusTarget(bootPermission, View.FOCUS_RIGHT, number);
-        setTvFocusTarget(adbSetupButton, View.FOCUS_RIGHT, number, otp);
-        setTvFocusTarget(shizukuButton, View.FOCUS_RIGHT, otp, number);
-        setTvFocusTarget(jiotvProvider, View.FOCUS_RIGHT, tvPlusProvider);
-        setTvFocusTarget(tvPlusProvider, View.FOCUS_LEFT, jiotvProvider);
-        setTvFocusTarget(tvPlusProvider, View.FOCUS_RIGHT, otp, number);
-        setTvFocusTarget(number, View.FOCUS_LEFT, service);
-        setTvFocusTarget(otp, View.FOCUS_LEFT, tvPlusProvider, jiotvProvider, shizukuButton, service);
-
-        setTvFocusTarget(copyButton, View.FOCUS_RIGHT, shareButton);
-        setTvFocusTarget(shareButton, View.FOCUS_LEFT, copyButton);
-        setTvFocusTarget(shareButton, View.FOCUS_RIGHT, send, verify, importConfigButton);
-        setTvFocusTarget(send, View.FOCUS_LEFT, shareButton, copyButton);
-        setTvFocusTarget(send, View.FOCUS_RIGHT, verify);
-        setTvFocusTarget(verify, View.FOCUS_LEFT, send, shareButton, copyButton);
-        setTvFocusTarget(openButton, View.FOCUS_RIGHT, importConfigButton, exportConfigButton, importStoreButton);
-        setTvFocusTarget(importConfigButton, View.FOCUS_LEFT, openButton);
-        setTvFocusTarget(exportConfigButton, View.FOCUS_LEFT, openButton);
-        setTvFocusTarget(importStoreButton, View.FOCUS_LEFT, openButton);
+        if (!television || tvCanvas == null) return;
+        java.util.List<View> controls = allTvControls();
+        tvFocusGraph.clear();
+        int[] directions = {View.FOCUS_UP, View.FOCUS_DOWN, View.FOCUS_LEFT, View.FOCUS_RIGHT};
+        for (View from : controls) {
+            clearTvFocusTargets(from);
+            if (!isTvFocusable(from)) continue;
+            View[] edges = new View[directions.length];
+            for (int index = 0; index < directions.length; index++) {
+                edges[index] = nearestTvControl(from, controls, directions[index]);
+                if (edges[index] != null) setTvFocusTarget(from, directions[index], edges[index]);
+            }
+            tvFocusGraph.put(from, edges);
+        }
+    }
+    private View nearestTvControl(View from, java.util.List<View> controls, int direction) {
+        android.graphics.Rect origin = tvControlBounds(from);
+        if (origin == null) return null;
+        boolean vertical = direction == View.FOCUS_UP || direction == View.FOCUS_DOWN;
+        boolean fromLeft = tvLeftControls.contains(from);
+        View best = null;
+        int bestAlong = Integer.MAX_VALUE;
+        int bestCross = Integer.MAX_VALUE;
+        // Vertical D-pad movement advances one row within the current column.
+        // A large horizontal gap must never skip the adjacent ADB/Shizuku row.
+        // Horizontal movement prefers a control on the same row, then crosses
+        // into the other column when the current row has no more controls.
+        for (int pass = 0; pass < 2; pass++) {
+            best = null;
+            bestAlong = Integer.MAX_VALUE;
+            bestCross = Integer.MAX_VALUE;
+            for (View target : controls) {
+                if (target == from || !isTvFocusable(target)) continue;
+                boolean sameColumn = fromLeft == tvLeftControls.contains(target);
+                if (pass == 0 && !sameColumn) continue;
+                if (!vertical && pass == 1 && sameColumn) continue;
+                android.graphics.Rect bound = tvControlBounds(target);
+                if (bound == null) continue;
+                int dx = bound.centerX() - origin.centerX();
+                int dy = bound.centerY() - origin.centerY();
+                int along = vertical ? (direction == View.FOCUS_DOWN ? dy : -dy)
+                        : (direction == View.FOCUS_RIGHT ? dx : -dx);
+                if (along <= tvPx(8)) continue;
+                int cross = Math.abs(vertical ? dx : dy);
+                if (!vertical && pass == 0 && cross > Math.max(origin.height(), bound.height()) / 2) continue;
+                if (vertical) {
+                    // Slightly offset controls in the same visual row are peers.
+                    if (along < bestAlong - tvPx(12) ||
+                            (Math.abs(along - bestAlong) <= tvPx(12) && cross < bestCross)) {
+                        best = target; bestAlong = along; bestCross = cross;
+                    }
+                } else {
+                    // Across columns, prefer the closest corresponding row.
+                    int cost = along + cross * (pass == 0 ? 0 : 3);
+                    if (cost < bestAlong) { best = target; bestAlong = cost; bestCross = cross; }
+                }
+            }
+            if (best != null) return best;
+        }
+        return null;
+    }
+    private android.graphics.Rect tvControlBounds(View view) {
+        if (view.getWidth() == 0 || view.getHeight() == 0) return null;
+        android.graphics.Rect rect = new android.graphics.Rect();
+        view.getDrawingRect(rect);
+        tvCanvas.offsetDescendantRectToMyCoords(view, rect);
+        return rect;
     }
     private void configureTvFocusable(View view) {
         if (view == null) return;
@@ -551,6 +905,25 @@ public final class MainActivity extends Activity {
             }
             return true;
         }
+        if (television && activeTvEditField == null) {
+            int index;
+            switch (event.getKeyCode()) {
+                case KeyEvent.KEYCODE_DPAD_UP: index = 0; break;
+                case KeyEvent.KEYCODE_DPAD_DOWN: index = 1; break;
+                case KeyEvent.KEYCODE_DPAD_LEFT: index = 2; break;
+                case KeyEvent.KEYCODE_DPAD_RIGHT: index = 3; break;
+                default: index = -1;
+            }
+            if (index >= 0 && tvFocusGraph.containsKey(getCurrentFocus())) {
+                if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                    updateTvFocusGraph();
+                    View[] edges = tvFocusGraph.get(getCurrentFocus());
+                    View next = edges == null ? null : edges[index];
+                    if (isTvFocusable(next)) next.requestFocus();
+                }
+                return true;
+            }
+        }
         return super.dispatchKeyEvent(event);
     }
     private void configureTvDialogFocus(View[] fields, Button negative, Button neutral, Button positive) {
@@ -593,7 +966,7 @@ public final class MainActivity extends Activity {
         return null;
     }
     private boolean isTvFocusable(View view) {
-        return view != null && view.getVisibility() == View.VISIBLE && view.isEnabled() && view.isFocusable();
+        return view != null && view.isShown() && view.isEnabled() && view.isFocusable();
     }
     private void scrollTvFocusIntoView(View view) {
         view.post(() -> view.requestRectangleOnScreen(new android.graphics.Rect(0, 0, view.getWidth(), view.getHeight()), false));
@@ -651,6 +1024,29 @@ public final class MainActivity extends Activity {
             } else openLocalTomlPicker(CREATE_CONFIG);
         }
     }
+    private void createPlaylistDocument() {
+        rememberTvReturnFocus(saveM3uButton);
+        if (playlistUrl.isEmpty()) {
+            say("Playlist is not ready. Start the server and try again.");
+            restoreTvReturnFocus();
+            return;
+        }
+        if (television && Build.VERSION.SDK_INT <= 32) {
+            openLocalTomlPicker(CREATE_PLAYLIST);
+            return;
+        }
+        Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("audio/x-mpegurl");
+        intent.putExtra(Intent.EXTRA_TITLE, "openstream-playlist.m3u");
+        try { startActivityForResult(intent, CREATE_PLAYLIST); }
+        catch (ActivityNotFoundException e) {
+            if (Build.VERSION.SDK_INT >= 33) {
+                say("No system file picker is available to save the playlist on Android 13+.");
+                restoreTvReturnFocus();
+            } else openLocalTomlPicker(CREATE_PLAYLIST);
+        }
+    }
     private void openLocalTomlPicker(int request) {
         pendingLocalPickerRequest = request;
         if (!hasLegacyStoragePermission()) {
@@ -667,7 +1063,7 @@ public final class MainActivity extends Activity {
     private void showLocalTomlPicker() {
         int request = pendingLocalPickerRequest;
         pendingLocalPickerRequest = 0;
-        if (request != PICK_CONFIG && request != PICK_STORE && request != CREATE_CONFIG) return;
+        if (request != PICK_CONFIG && request != PICK_STORE && request != CREATE_CONFIG && request != CREATE_PLAYLIST) return;
         File root = Environment.getExternalStorageDirectory();
         File downloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
         File start = downloads.isDirectory() ? downloads : root;
@@ -683,15 +1079,22 @@ public final class MainActivity extends Activity {
                 restoreTvReturnFocus();
             }
             @Override public void onExport(File file) {
-                say("Exporting config…");
-                io.execute(() -> exportConfig(Uri.fromFile(file)));
+                if (request == CREATE_PLAYLIST) {
+                    say("Saving playlist…");
+                    io.execute(() -> savePlaylist(Uri.fromFile(file)));
+                } else {
+                    say("Exporting config…");
+                    io.execute(() -> exportConfig(Uri.fromFile(file)));
+                }
                 restoreTvReturnFocus();
             }
             @Override public void onCancel() { restoreTvReturnFocus(); }
             @Override public void onError(String message) { say(message); restoreTvReturnFocus(); }
         };
-        if (request == CREATE_CONFIG) LocalTomlPicker.showExport(this, root, start, callback);
-        else LocalTomlPicker.showImport(this, root, start, callback);
+        if (request == CREATE_CONFIG || request == CREATE_PLAYLIST)
+            LocalTomlPicker.showExport(this, root, start,
+                    request == CREATE_PLAYLIST ? "openstream-playlist.m3u" : "config.toml", callback);
+        else LocalTomlPicker.showImport(this, root, start, request == PICK_STORE, callback);
     }
     @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
@@ -721,33 +1124,34 @@ public final class MainActivity extends Activity {
     }
     private boolean isServiceRunning() { android.app.ActivityManager m = (android.app.ActivityManager)getSystemService(ACTIVITY_SERVICE); for (android.app.ActivityManager.RunningServiceInfo i:m.getRunningServices(Integer.MAX_VALUE)) if (ServerService.class.getName().equals(i.service.getClassName())) return true; return false; }
     private void showPlaylistUrl() { runOnUiThread(() -> playlist.setText(PlaylistDisplay.masked(playlistUrl))); }
-    private void refreshUrl() { io.execute(() -> { try { String path = runKeyShow(); playlistUrl=PlaylistLink.loopbackUrl(path); boolean running=serverHealthy(); showPlaylistUrl(); say(running ? "Server is running on this device. Log in to load channels." : "Server is stopped. Start it to log in and stream."); } catch (Exception e) { android.util.Log.e("JioTVGo", "Cannot initialize local playlist", e); say("Could not read playlist key. Check the bundled server and imported config."); } }); }
+    private void refreshUrl() { io.execute(() -> { try { String path = runKeyShow(); playlistUrl=PlaylistLink.loopbackUrl(path, LocalServerEndpoint.port(this)); boolean running=serverHealthy(); showPlaylistUrl(); say(running ? "Server is running on this device. Log in to load channels." : "Server is stopped. Start it to log in and stream."); } catch (Exception e) { android.util.Log.e("JioTVGo", "Cannot initialize local playlist", e); say("Could not read playlist key. Check the bundled server and imported config."); } }); }
     private void pollServer(int attempt) {
         synchronized (serverPollLock) {
             if (activityDestroyed || io.isShutdown()) return;
             io.execute(() -> {
                 if (activityDestroyed) return;
                 boolean running=false;
-                try { String path=runKeyShow(); playlistUrl=PlaylistLink.loopbackUrl(path); showPlaylistUrl(); running=serverHealthy(); } catch(Exception ignored) {}
+                try { String path=runKeyShow(); playlistUrl=PlaylistLink.loopbackUrl(path, LocalServerEndpoint.port(this)); showPlaylistUrl(); running=serverHealthy(); } catch(Exception ignored) {}
                 if (activityDestroyed) return;
                 if(running) { say("Server is running. Log in to load channels."); return; }
                 if(attempt<12) {
                     synchronized (serverPollLock) {
                         if (!activityDestroyed) serverPollHandler.postDelayed(() -> pollServer(attempt+1),750);
                     }
-                } else say("Server did not become ready. Check port 5001, config, and the APK ABI.");
+                } else say("Server did not become ready. Check the local port, config, and the APK ABI.");
             });
         }
     }
-    private boolean serverHealthy() throws Exception { HttpURLConnection c=(HttpURLConnection)new URL("http://127.0.0.1:5001"+keyedPrefix+"api/status").openConnection(); c.setConnectTimeout(1200); c.setReadTimeout(1800); c.setRequestMethod("GET"); try { int code=c.getResponseCode(); if(code!=200) return false; ByteArrayOutputStream out=new ByteArrayOutputStream(); try(InputStream in=c.getInputStream()){ byte[] buf=new byte[1024]; int n; while((n=in.read(buf))!=-1) out.write(buf,0,n); } return new JSONObject(out.toString("UTF-8")).has("jiotv"); } catch (ConnectException e) { return false; } finally { c.disconnect(); } }
+    private boolean serverHealthy() throws Exception { HttpURLConnection c=(HttpURLConnection)new URL(LocalServerEndpoint.baseUrl(this)+keyedPrefix+"api/status").openConnection(); c.setConnectTimeout(1200); c.setReadTimeout(1800); c.setRequestMethod("GET"); try { int code=c.getResponseCode(); if(code!=200) return false; ByteArrayOutputStream out=new ByteArrayOutputStream(); try(InputStream in=c.getInputStream()){ byte[] buf=new byte[1024]; int n; while((n=in.read(buf))!=-1) out.write(buf,0,n); } return new JSONObject(out.toString("UTF-8")).has("jiotv"); } catch (ConnectException e) { return false; } finally { c.disconnect(); } }
     private String runKeyShow() throws Exception { File binary=new File(getApplicationInfo().nativeLibraryDir,"libopenstream_exec.so"); java.util.List<String> command=new java.util.ArrayList<>(); command.add(binary.getAbsolutePath()); command.add("--skip-update-check"); File config=new File(getFilesDir(),"config.toml"); if(config.isFile()) { command.add("--config"); command.add(config.getAbsolutePath()); } command.add("key"); command.add("show"); ProcessBuilder b=new ProcessBuilder(command); b.directory(getFilesDir()); b.redirectError(new File("/dev/null")); b.environment().put("JIOTV_PATH_PREFIX",new File(getFilesDir(),"data").getAbsolutePath()); b.environment().put("HOME",getFilesDir().getAbsolutePath()); Process p=b.start(); String result; try (InputStream in=p.getInputStream()) { result=PlaylistLink.readValidatedPath(in); } catch (Exception e) { p.destroy(); throw e; } if(p.waitFor()!=0) throw new IOException("key command failed"); keyedPrefix=PlaylistLink.keyedPrefix(result); return result; }
 
     private void otpRequest(boolean verifyRequest) {
-        String n=number.getText().toString().trim(), code=otp.getText().toString().trim(); if(n.isEmpty() || (verifyRequest && code.isEmpty())) { say("Enter your mobile number" + (verifyRequest ? " and OTP." : ".")); return; }
+        String n = number.getText().toString().trim(), code = otp.getText().toString().trim();
+        if (!n.matches("[0-9]{10}")) { say("Enter exactly 10 digits for the mobile number."); return; }
+        if (verifyRequest && !code.matches("[0-9]{6}")) { say("Enter exactly 6 digits for the OTP."); return; }
         final boolean tvPlus = tvPlusProvider != null && tvPlusProvider.isChecked();
-        boolean loginActionHadFocus = television && (send.hasFocus() || verify.hasFocus());
         send.setEnabled(false); verify.setEnabled(false); say((verifyRequest ? "Verifying " : "Requesting ") + (tvPlus ? "JioTV+" : "JioTV") + " OTP…");
-        if (television) { updateTvFocusGraph(); if (loginActionHadFocus) requestTvFocus(otp); }
+        if (television) updateTvFocusGraph();
         io.execute(() -> {
             try {
                 if(keyedPrefix.isEmpty()) runKeyShow();
@@ -756,22 +1160,52 @@ public final class MainActivity extends Activity {
                 JSONObject response=post(path,body);
                 if (tvPlus) {
                     if (verifyRequest) {
-                        if (response.optBoolean("status", false)) say("JioTV+ login complete. Playlist is ready.");
-                        else say(response.optString("message", "JioTV+ OTP verification failed."));
+                        if (response.optBoolean("status", false)) completeTvLogin(n, true);
+                        else say("JioTV+ OTP was rejected or expired. Check the code and retry.");
                     } else {
                         org.json.JSONArray connections = response.optJSONArray("connections");
                         if (connections != null && connections.length() > 0) runOnUiThread(() -> showTvPlusConnectionChooser(n, connections));
-                        else if (response.optBoolean("status", false)) say("JioTV+ OTP sent. Enter it above.");
-                        else say(response.optString("message", "JioTV+ OTP could not be sent."));
+                        else if (response.optBoolean("status", false)) completeTvOtpRequest(n, true);
+                        else say("JioTV+ OTP could not be sent. Check the number and try again.");
                     }
-                } else if(verifyRequest && "success".equals(response.optString("status"))) say("JioTV login complete. Playlist is ready.");
-                else if(!verifyRequest && response.optBoolean("status",false)) say("JioTV OTP sent. Enter it above.");
-                else say(response.optString("message",verifyRequest ? "JioTV OTP verification failed." : "JioTV OTP could not be sent."));
+                } else if (verifyRequest && "success".equals(response.optString("status"))) completeTvLogin(n, false);
+                else if (!verifyRequest && response.optBoolean("status", false)) completeTvOtpRequest(n, false);
+                else say(verifyRequest ? "JioTV OTP was rejected or expired. Check the code and retry." :
+                        "JioTV OTP could not be sent. Check the number and try again.");
             } catch(Exception e) {
                 say("Could not complete " + (tvPlus ? "JioTV+" : "JioTV") + " login. Check your connection and try again.");
             } finally {
                 runOnUiThread(() -> { send.setEnabled(true); verify.setEnabled(true); if (television) updateTvFocusGraph(); });
             }
+        });
+    }
+    private boolean matchesPendingProvider(String mobile, boolean plus) {
+        return mobile.equals(number.getText().toString().trim()) &&
+                (tvPlusProvider != null && tvPlusProvider.isChecked()) == plus;
+    }
+    private void completeTvOtpRequest(String mobile, boolean plus) {
+        runOnUiThread(() -> {
+            if (activityDestroyed || !matchesPendingProvider(mobile, plus)) return;
+            if (television) {
+                tvOtpRequested = true;
+                updateTvLoginState();
+                requestTvFocus(otp);
+            }
+            say((plus ? "JioTV+" : "JioTV") + " OTP sent. Enter the six-digit code.");
+        });
+    }
+    private void completeTvLogin(String mobile, boolean plus) {
+        runOnUiThread(() -> {
+            if (activityDestroyed || !matchesPendingProvider(mobile, plus)) return;
+            if (television) {
+                tvAuthenticated = true;
+                tvOtpRequested = false;
+                authenticatedProvider = plus ? "JioTV+" : "JioTV";
+                otp.setText("");
+                updateTvLoginState();
+                requestTvFocus(logoutButton);
+            }
+            say((plus ? "JioTV+" : "JioTV") + " login complete. Playlist is ready.");
         });
     }
     private void showTvPlusConnectionChooser(String number, org.json.JSONArray connections) {
@@ -794,7 +1228,7 @@ public final class MainActivity extends Activity {
                 .setItems(labels, (d, which) -> sendTvPlusOtpForConnection(number, connectionIndexes[which]))
                 .setNegativeButton("Cancel", null)
                 .create();
-        dialog.setOnDismissListener(d -> { if (television) requestTvFocus(send); });
+        dialog.setOnDismissListener(d -> { if (television && !tvOtpRequested) requestTvFocus(send); });
         dialog.show();
     }
     private void sendTvPlusOtpForConnection(String number, int connectionIndex) {
@@ -807,21 +1241,50 @@ public final class MainActivity extends Activity {
                 body.put("number", number);
                 body.put("connection", connectionIndex);
                 JSONObject response = post(keyedPrefix + "extras/login/sendOTP", body);
-                if (response.optBoolean("status", false)) say("JioTV+ OTP sent. Enter it above.");
-                else say(response.optString("message", "JioTV+ OTP could not be sent."));
+                if (response.optBoolean("status", false)) completeTvOtpRequest(number, true);
+                else say("JioTV+ OTP could not be sent. Choose a connection and retry.");
             } catch (Exception e) {
                 say("Could not send the JioTV+ OTP. Check your connection and try again.");
             } finally {
                 runOnUiThread(() -> {
                     send.setEnabled(true); verify.setEnabled(true);
-                    if (television) { updateTvFocusGraph(); requestTvFocus(otp); }
+                    if (television) updateTvFocusGraph();
                 });
             }
         });
     }
-    private JSONObject post(String path, JSONObject data) throws Exception { HttpURLConnection c=(HttpURLConnection)new URL("http://127.0.0.1:5001"+path).openConnection(); c.setRequestMethod("POST"); c.setConnectTimeout(8000); c.setReadTimeout(20000); c.setDoOutput(true); c.setRequestProperty("Content-Type","application/json"); try(OutputStream o=c.getOutputStream()){o.write(data.toString().getBytes(StandardCharsets.UTF_8));} InputStream in=c.getResponseCode()<400?c.getInputStream():c.getErrorStream(); ByteArrayOutputStream out=new ByteArrayOutputStream(); byte[] buf=new byte[512]; int n; while((n=in.read(buf))!=-1) out.write(buf,0,n); return new JSONObject(out.toString("UTF-8")); }
+    private JSONObject post(String path, JSONObject data) throws Exception { HttpURLConnection c=(HttpURLConnection)new URL(LocalServerEndpoint.baseUrl(this)+path).openConnection(); c.setRequestMethod("POST"); c.setConnectTimeout(8000); c.setReadTimeout(20000); c.setDoOutput(true); c.setRequestProperty("Content-Type","application/json"); try(OutputStream o=c.getOutputStream()){o.write(data.toString().getBytes(StandardCharsets.UTF_8));} InputStream in=c.getResponseCode()<400?c.getInputStream():c.getErrorStream(); ByteArrayOutputStream out=new ByteArrayOutputStream(); byte[] buf=new byte[512]; int n; while((n=in.read(buf))!=-1) out.write(buf,0,n); return new JSONObject(out.toString("UTF-8")); }
     private void copyUrl() { if(playlistUrl.isEmpty()) return; ((android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("JioTV playlist",playlistUrl)); say("Playlist URL copied"); }
-    private void shareUrl() { if(playlistUrl.isEmpty()) return; rememberTvReturnFocus(shareButton); Intent i=new Intent(Intent.ACTION_SEND); i.setType("text/plain"); i.putExtra(Intent.EXTRA_TEXT,playlistUrl); try { startActivity(Intent.createChooser(i,"Share playlist")); } catch (ActivityNotFoundException e) { pendingTvReturnFocus = null; say("No app can share the playlist URL."); } }
+    private void logoutProvider() {
+        if (tvLogoutDisabled) { say("Logout is currently unavailable."); return; }
+        final boolean plus = tvPlusProvider != null && tvPlusProvider.isChecked();
+        logoutButton.setEnabled(false);
+        say("Signing out of " + (plus ? "JioTV+" : "JioTV") + "…");
+        io.execute(() -> {
+            boolean success = false;
+            try {
+                if (keyedPrefix.isEmpty()) runKeyShow();
+                JSONObject response = post(keyedPrefix + (plus ? "api/extras/logout" : "api/jiotv/logout"), new JSONObject());
+                success = response.optBoolean("status", false);
+            } catch (Exception ignored) { }
+            boolean loggedOut = success;
+            runOnUiThread(() -> {
+                if (activityDestroyed) return;
+                if (loggedOut) {
+                    if ((tvPlusProvider != null && tvPlusProvider.isChecked()) == plus) {
+                        tvAuthenticated = false;
+                        tvOtpRequested = false;
+                        otp.setText("");
+                    }
+                    say((plus ? "JioTV+" : "JioTV") + " signed out.");
+                    updateTvLoginState();
+                    requestTvFocus(number);
+                } else say("Logout failed. Check the server and try again.");
+                logoutButton.setEnabled(!tvLogoutDisabled);
+                if (!io.isShutdown()) io.execute(this::refreshServerAndAccount);
+            });
+        });
+    }
     private Intent iptvLaunchIntent(String packageName) {
         PackageManager pm = getPackageManager();
         Intent launch = pm.getLeanbackLaunchIntentForPackage(packageName);
@@ -869,7 +1332,20 @@ public final class MainActivity extends Activity {
                 .create();
         dialog.show();
     }
-    @Override protected void onActivityResult(int request, int result, Intent data) { super.onActivityResult(request,result,data); if((request!=PICK_CONFIG && request!=PICK_STORE && request!=CREATE_CONFIG) || result!=RESULT_OK || data==null || data.getData()==null) { restoreTvReturnFocus(); return; } Uri uri=data.getData(); if(request==PICK_CONFIG) { say("Validating config locally…"); io.execute(() -> importConfig(uri)); } else if(request==PICK_STORE) { say("Validating login store backup…"); io.execute(() -> importStore(uri)); } else { say("Exporting config…"); io.execute(() -> exportConfig(uri)); } restoreTvReturnFocus(); }
+    @Override protected void onActivityResult(int request, int result, Intent data) {
+        super.onActivityResult(request, result, data);
+        if ((request != PICK_CONFIG && request != PICK_STORE && request != CREATE_CONFIG && request != CREATE_PLAYLIST)
+                || result != RESULT_OK || data == null || data.getData() == null) {
+            restoreTvReturnFocus();
+            return;
+        }
+        Uri uri = data.getData();
+        if (request == PICK_CONFIG) { say("Validating config locally…"); io.execute(() -> importConfig(uri)); }
+        else if (request == PICK_STORE) { say("Validating login store backup…"); io.execute(() -> importStore(uri)); }
+        else if (request == CREATE_PLAYLIST) { say("Saving playlist…"); io.execute(() -> savePlaylist(uri)); }
+        else { say("Exporting config…"); io.execute(() -> exportConfig(uri)); }
+        restoreTvReturnFocus();
+    }
     private InputStream openImportStream(Uri uri) throws IOException {
         if ("file".equals(uri.getScheme())) {
             String path = uri.getPath();
@@ -891,6 +1367,46 @@ public final class MainActivity extends Activity {
         return out;
     }
     private void exportConfig(Uri uri) { try (OutputStream out=openExportStream(uri)) { ConfigExport.write(new File(getFilesDir(), "config.toml"), out); say("Config exported. Login data was not included."); } catch(Exception e) { say("Config export failed. Choose a writable destination and try again."); } }
+    private void savePlaylist(Uri destination) {
+        File staged = new File(getCacheDir(), "playlist-export-" + System.nanoTime() + ".m3u");
+        HttpURLConnection connection = null;
+        try {
+            // The existing validated playlist link is loopback and keyed. Never log it.
+            String link = playlistUrl;
+            if (!link.startsWith(LocalServerEndpoint.baseUrl(this) + "/")) throw new IOException("Invalid local playlist URL");
+            connection = (HttpURLConnection) new URL(link).openConnection();
+            connection.setInstanceFollowRedirects(false);
+            connection.setConnectTimeout(4000);
+            connection.setReadTimeout(15000);
+            if (connection.getResponseCode() != HttpURLConnection.HTTP_OK) throw new IOException("Playlist unavailable");
+            try (InputStream in = connection.getInputStream(); OutputStream out = new FileOutputStream(staged)) {
+                byte[] buf = new byte[8192];
+                int n;
+                long total = 0;
+                while ((n = in.read(buf)) != -1) {
+                    total += n;
+                    if (total > 32L * 1024 * 1024) throw new IOException("Playlist exceeds export limit");
+                    out.write(buf, 0, n);
+                }
+            }
+            try (InputStream in = new FileInputStream(staged)) {
+                byte[] header = new byte[7];
+                if (in.read(header) != header.length || !"#EXTM3U".equals(new String(header, StandardCharsets.US_ASCII)))
+                    throw new IOException("Unexpected playlist response");
+            }
+            try (InputStream in = new FileInputStream(staged); OutputStream out = openExportStream(destination)) {
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = in.read(buf)) != -1) out.write(buf, 0, n);
+            }
+            say("M3U playlist saved. Keep the local server running for loopback streams.");
+        } catch (Exception e) {
+            say("Playlist export failed. Start the server, sign in, and choose a writable file.");
+        } finally {
+            if (connection != null) connection.disconnect();
+            staged.delete();
+        }
+    }
     private void importConfig(Uri uri) {
         File staged = new File(getCacheDir(), "config.import.toml");
         File validationData = new File(getCacheDir(), "validate-" + System.nanoTime());
@@ -974,7 +1490,7 @@ public final class MainActivity extends Activity {
             if (restart && !stopServiceAndWait()) throw new IOException("Could not stop server safely");
             Os.rename(temp.getAbsolutePath(), new File(liveData, "store_v4.toml").getAbsolutePath());
             keyedPrefix = PlaylistLink.keyedPrefix(restoredPath);
-            playlistUrl = PlaylistLink.loopbackUrl(restoredPath);
+            playlistUrl = PlaylistLink.loopbackUrl(restoredPath, LocalServerEndpoint.port(this));
             showPlaylistUrl();
             if (restart) startServerService();
             say(restart ? "Login store imported. Server restarted." : "Login store imported. Start the server to use it.");
@@ -1006,6 +1522,7 @@ public final class MainActivity extends Activity {
         runOnUiThread(() -> service.setText("Stop local server"));
     }
     @Override protected void onDestroy() {
+        healthHandler.removeCallbacksAndMessages(null);
         unregisterReceiver(serverExitedReceiver);
         synchronized (serverPollLock) {
             activityDestroyed = true;

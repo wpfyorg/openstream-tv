@@ -32,7 +32,7 @@ final class ConfigExport {
     static void write(File config, OutputStream destination) throws IOException {
         if (destination == null) throw new IOException("Cannot open destination");
         try (OutputStream output = destination) {
-            if (config.isFile()) {
+            if (config.isFile() && config.length() > 0) {
                 try (InputStream input = new FileInputStream(config)) {
                     byte[] buffer = new byte[8192];
                     int count;

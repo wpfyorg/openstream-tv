@@ -35,4 +35,15 @@ public class ConfigExportTest {
             assertTrue(!text.contains("access_key"));
         } finally { dir.delete(); }
     }
+
+    @Test public void writesAndroidDefaultsWhenConfigIsEmpty() throws Exception {
+        File file = Files.createTempFile("config", ".toml").toFile();
+        try {
+            ByteArrayOutputStream output = new ByteArrayOutputStream();
+            ConfigExport.write(file, output);
+            String text = output.toString("UTF-8");
+            assertTrue(text.contains("epg = true"));
+            assertTrue(!text.contains("access_key"));
+        } finally { file.delete(); }
+    }
 }

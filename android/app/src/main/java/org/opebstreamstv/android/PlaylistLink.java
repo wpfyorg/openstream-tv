@@ -14,7 +14,7 @@ final class PlaylistLink {
         if (!key.matches("[A-Za-z0-9._~-]+")) throw new IllegalArgumentException("Invalid access key");
         return prefix;
     }
-    static String loopbackUrl(String playlistPath) { return "http://127.0.0.1:5001" + playlistPath; }
+    static String loopbackUrl(String playlistPath, int port) { return LocalServerEndpoint.baseUrl(port) + playlistPath; }
     static String readValidatedPath(InputStream input) throws IOException {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         byte[] buffer = new byte[512];
