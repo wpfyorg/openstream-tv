@@ -16,6 +16,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 const CATALOGUE_TTL: Duration = Duration::from_secs(6 * 60 * 60);
+const CATALOGUE_RETRY_BACKOFF: Duration = Duration::from_secs(15);
 const PLAYBACK_TTL: Duration = Duration::from_secs(5 * 60);
 const ENTITLEMENT_TTL: Duration = Duration::from_secs(10 * 60);
 
@@ -24,6 +25,7 @@ pub struct PlayboxState {
     client: RwLock<Option<Arc<Client>>>,
     catalogue: RwLock<Vec<Item>>,
     catalogue_fetched_at: RwLock<Option<Instant>>,
+    catalogue_failed_at: RwLock<Option<Instant>>,
     resolved: RwLock<HashMap<String, (ResolvedPlayback, Instant)>>,
     entitlement: RwLock<Option<(bool, Instant)>>,
     /// Bumped under `commit` whenever account-scoped caches are cleared. A
@@ -43,6 +45,7 @@ impl PlayboxState {
             client: RwLock::new(None),
             catalogue: RwLock::new(Vec::new()),
             catalogue_fetched_at: RwLock::new(None),
+            catalogue_failed_at: RwLock::new(None),
             resolved: RwLock::new(HashMap::new()),
             entitlement: RwLock::new(None),
             generation: std::sync::atomic::AtomicU64::new(0),
@@ -133,6 +136,7 @@ impl PlayboxState {
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         *self.catalogue.write().unwrap() = Vec::new();
         *self.catalogue_fetched_at.write().unwrap() = None;
+        *self.catalogue_failed_at.write().unwrap() = None;
         self.resolved.write().unwrap().clear();
         *self.entitlement.write().unwrap() = None;
     }
@@ -199,6 +203,14 @@ impl PlayboxState {
         if fresh {
             return true;
         }
+        if self
+            .catalogue_failed_at
+            .read()
+            .unwrap()
+            .is_some_and(|at| at.elapsed() < CATALOGUE_RETRY_BACKOFF)
+        {
+            return false;
+        }
         let _guard = self.locks.lock("catalogue").await;
         let fresh = self
             .catalogue_fetched_at
@@ -208,6 +220,14 @@ impl PlayboxState {
         if fresh {
             return true;
         }
+        if self
+            .catalogue_failed_at
+            .read()
+            .unwrap()
+            .is_some_and(|at| at.elapsed() < CATALOGUE_RETRY_BACKOFF)
+        {
+            return false;
+        }
         let generation = self.generation();
         match client.channels().await {
             Ok(items) => {
@@ -215,10 +235,16 @@ impl PlayboxState {
                 self.commit_if_current(generation, || {
                     *self.catalogue.write().unwrap() = items;
                     *self.catalogue_fetched_at.write().unwrap() = Some(now);
+                    *self.catalogue_failed_at.write().unwrap() = None;
                 })
                 .is_some()
             }
-            Err(_) => false,
+            Err(_) => {
+                let _ = self.commit_if_current(generation, || {
+                    *self.catalogue_failed_at.write().unwrap() = Some(Instant::now());
+                });
+                false
+            }
         }
     }
 
@@ -535,6 +561,32 @@ mod tests {
         assert!(!state.connected());
         assert!(!state.contains("pb_ch1"));
         assert!(state.media_headers("pb_ch1").await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn failed_catalogue_fetch_is_backed_off_for_queued_callers() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/catalogue/v3/page/livetv2"))
+            .respond_with(ResponseTemplate::new(500).set_delay(Duration::from_millis(50)))
+            .expect(2)
+            .mount(&server)
+            .await;
+
+        let state = Arc::new(PlayboxState::new(true));
+        state.set_client_for_test(client_for(&server));
+        let mut calls = Vec::new();
+        for _ in 0..4 {
+            let state = state.clone();
+            calls.push(tokio::spawn(async move { state.ensure_catalogue().await }));
+        }
+        for call in calls {
+            assert!(!call.await.unwrap());
+        }
+
+        state.clear();
+        assert!(!state.ensure_catalogue().await);
+        server.verify().await;
     }
 
     #[tokio::test]
