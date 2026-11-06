@@ -30,6 +30,7 @@ pub struct PlayboxState {
     /// fetch captures it first and commits only if it is unchanged.
     generation: std::sync::atomic::AtomicU64,
     commit: Mutex<()>,
+    account_transition: tokio::sync::Mutex<()>,
     locks: KeyedLocks,
     #[cfg(test)]
     test_base: RwLock<Option<String>>,
@@ -46,6 +47,7 @@ impl PlayboxState {
             entitlement: RwLock::new(None),
             generation: std::sync::atomic::AtomicU64::new(0),
             commit: Mutex::new(()),
+            account_transition: tokio::sync::Mutex::new(()),
             locks: KeyedLocks::default(),
             #[cfg(test)]
             test_base: RwLock::new(None),
@@ -135,7 +137,8 @@ impl PlayboxState {
         *self.entitlement.write().unwrap() = None;
     }
 
-    pub fn logout(&self, store: &crate::store::Store) -> anyhow::Result<()> {
+    pub async fn logout(&self, store: &crate::store::Store) -> anyhow::Result<()> {
+        let _transition = self.account_transition.lock().await;
         self.clear();
         *self.client.write().unwrap() = None;
         crate::playbox::delete_credentials(store)?;
@@ -163,6 +166,7 @@ impl PlayboxState {
         otp: &str,
         on_installed: impl FnOnce(),
     ) -> anyhow::Result<bool> {
+        let _transition = self.account_transition.lock().await;
         let client = self.client_for_http(http, store)?;
         let envelope = client.verify_otp(number, otp).await?;
         if envelope.status_code != 200 || envelope.session().is_none() {
@@ -524,10 +528,52 @@ mod tests {
         let headers = state.media_headers("pb_ch1").await;
         assert!(headers.contains(&("user_id".into(), "u1".into())));
 
-        state.logout(&store).unwrap();
+        state.logout(&store).await.unwrap();
         assert!(!state.connected());
         assert!(!state.contains("pb_ch1"));
         assert!(state.media_headers("pb_ch1").await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn logout_waits_for_inflight_verify_and_credentials_stay_deleted() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/login/v2/communication/otp/verify"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_delay(Duration::from_millis(100))
+                    .set_body_json(serde_json::json!({
+                        "statusCode": 200,
+                        "message": "success",
+                        "data": {
+                            "token": "test-session",
+                            "phone": "9000000000",
+                            "customer_id": "test-customer",
+                            "id": 7
+                        }
+                    })),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let dir = tempfile::tempdir().unwrap();
+        let store = crate::store::Store::open(dir.path().to_str().unwrap()).unwrap();
+        let state = PlayboxState::new(true);
+        state.set_base_for_test(&server.uri());
+        let http = reqwest::Client::new();
+
+        let verify = state.verify_otp(&http, &store, "9000000000", "123456", || {});
+        let logout = async {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            state.logout(&store).await
+        };
+        let (verified, logged_out) = tokio::join!(verify, logout);
+
+        assert!(verified.unwrap());
+        logged_out.unwrap();
+        assert!(!state.connected());
+        assert!(Credentials::load(&store).is_none());
     }
 
     #[tokio::test]

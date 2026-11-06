@@ -748,7 +748,7 @@ pub async fn playbox_logout(State(state): State<SharedState>) -> Response {
         return err(StatusCode::FORBIDDEN, "logout is disabled");
     }
     state.invalidate_context();
-    match state.playbox.logout(&state.store) {
+    match state.playbox.logout(&state.store).await {
         Ok(()) => {
             state.invalidate_context();
             crate::epg::trigger_regeneration(&state);
