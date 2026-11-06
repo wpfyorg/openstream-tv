@@ -25,6 +25,8 @@ const RENDER_AUTH_PREFIX: &str = "jiotv-hls-v1:";
 struct RenderAuthPayload {
     url: String,
     scope: String,
+    #[serde(default)]
+    channel_id: String,
 }
 
 // Identity travels only inside the encrypted scope, including on segment links.
@@ -738,7 +740,7 @@ async fn live_impl_inner(
             .set_hdnea(cache_gen, &hdnea_key, &live_hdnea);
     }
 
-    let encrypted = encrypt_render_auth(state, &live_url, &identity_scope(&live_url, None));
+    let encrypted = encrypt_render_auth(state, &live_url, &identity_scope(&live_url, None), id);
     let prefix_str = prefix.as_ref().map(|p| p.0 .0.clone()).unwrap_or_default();
     let q = if quality == "auto" {
         String::new()
@@ -1010,7 +1012,7 @@ fn encode_placeholder(state: &AppState, s: &str) -> Option<String> {
     let quality = parts.next()?;
     let nested = parts.next().unwrap_or_default() == "1";
     let scope = parts.next().unwrap_or_default();
-    let encrypted = encrypt_render_auth(state, url, scope);
+    let encrypted = encrypt_render_auth(state, url, scope, channel_id);
     let mut out = format!("{endpoint}?auth={encrypted}");
     if !channel_id.is_empty() {
         out.push_str(&format!("&channel_key_id={channel_id}"));
@@ -1024,13 +1026,11 @@ fn encode_placeholder(state: &AppState, s: &str) -> Option<String> {
     Some(out)
 }
 
-fn encrypt_render_auth(state: &AppState, url: &str, scope: &str) -> String {
-    if scope.is_empty() {
-        return state.secure.encrypt(url);
-    }
+fn encrypt_render_auth(state: &AppState, url: &str, scope: &str, channel_id: &str) -> String {
     let payload = RenderAuthPayload {
         url: url.to_string(),
         scope: scope.to_string(),
+        channel_id: channel_id.to_string(),
     };
     let serialized = serde_json::to_string(&payload).expect("render auth payload serializes");
     state
@@ -1038,13 +1038,17 @@ fn encrypt_render_auth(state: &AppState, url: &str, scope: &str) -> String {
         .encrypt(&format!("{RENDER_AUTH_PREFIX}{serialized}"))
 }
 
-fn decrypt_render_auth(state: &AppState, auth: &str) -> Option<(String, Option<String>)> {
+fn decrypt_render_auth(
+    state: &AppState,
+    auth: &str,
+) -> Option<(String, Option<String>, Option<String>)> {
     let decoded = state.secure.decrypt(auth).ok()?;
     let Some(serialized) = decoded.strip_prefix(RENDER_AUTH_PREFIX) else {
-        return Some((decoded, None));
+        return Some((decoded, None, None));
     };
     let payload: RenderAuthPayload = serde_json::from_str(serialized).ok()?;
-    Some((payload.url, Some(payload.scope)))
+    let channel_id = (!payload.channel_id.is_empty()).then_some(payload.channel_id);
+    Some((payload.url, Some(payload.scope), channel_id))
 }
 
 fn valid_hls_quality(quality: &str) -> bool {
@@ -1077,10 +1081,21 @@ async fn render_m3u8_inner(state: Arc<AppState>, q: RenderQuery) -> Response {
     if channel_id.is_empty() {
         return (StatusCode::BAD_REQUEST, "channel_key_id is required").into_response();
     }
-    let (decoded, authenticated_scope) = match decrypt_render_auth(&state, &auth) {
-        Some(decoded) => decoded,
-        None => return (StatusCode::BAD_REQUEST, "invalid auth parameter").into_response(),
-    };
+    let (decoded, authenticated_scope, authenticated_channel) =
+        match decrypt_render_auth(&state, &auth) {
+            Some(decoded) => decoded,
+            None => return (StatusCode::BAD_REQUEST, "invalid auth parameter").into_response(),
+        };
+    if authenticated_channel
+        .as_deref()
+        .is_some_and(|bound| bound != channel_id)
+    {
+        return (
+            StatusCode::BAD_REQUEST,
+            "channel_key_id does not match auth",
+        )
+            .into_response();
+    }
     let decoded = to_absolute_stream_url(&decoded, None);
     let mut quality = q.q.unwrap_or_default();
     if !valid_hls_quality(&quality) {
@@ -1326,10 +1341,18 @@ pub async fn render_ts_handler(
     let Some(channel_id) = q.channel_key_id.filter(|id| !id.is_empty()) else {
         return (StatusCode::BAD_REQUEST, "channel_key_id is required").into_response();
     };
-    let (mut decoded, authenticated_scope) = match decrypt_render_auth(&state, &auth) {
-        Some(decoded) => decoded,
-        None => return (StatusCode::BAD_REQUEST, "invalid auth parameter").into_response(),
-    };
+    let (mut decoded, authenticated_scope, authenticated_channel) =
+        match decrypt_render_auth(&state, &auth) {
+            Some(decoded) => decoded,
+            None => return (StatusCode::BAD_REQUEST, "invalid auth parameter").into_response(),
+        };
+    if authenticated_channel.as_deref() != Some(channel_id.as_str()) {
+        return (
+            StatusCode::BAD_REQUEST,
+            "channel_key_id does not match auth",
+        )
+            .into_response();
+    }
 
     let requested_quality = q.q.as_deref().unwrap_or_default();
     if !valid_hls_quality(requested_quality) {
@@ -1491,10 +1514,17 @@ pub async fn render_key_handler(
     let Some(channel_id) = q.channel_key_id.clone().filter(|id| !id.is_empty()) else {
         return (StatusCode::BAD_REQUEST, "channel_key_id is required").into_response();
     };
-    let (decoded, _) = match decrypt_render_auth(&state, &auth) {
+    let (decoded, _, authenticated_channel) = match decrypt_render_auth(&state, &auth) {
         Some(decoded) => decoded,
         None => return (StatusCode::BAD_REQUEST, "invalid auth parameter").into_response(),
     };
+    if authenticated_channel.as_deref() != Some(channel_id.as_str()) {
+        return (
+            StatusCode::BAD_REQUEST,
+            "channel_key_id does not match auth",
+        )
+            .into_response();
+    }
     let hdnea = q.hdnea.clone().or_else(|| extract_hdnea_from_url(&decoded));
     let is_custom = state.custom_channels.contains(&channel_id);
 
@@ -2086,9 +2116,10 @@ mod tests {
         ))
         .unwrap();
         let auth = link.query_pairs().find(|(key, _)| key == "auth").unwrap().1;
-        let (url, scope) = decrypt_render_auth(&state, &auth).unwrap();
+        let (url, scope, channel_id) = decrypt_render_auth(&state, &auth).unwrap();
         assert_eq!(url, format!("{}/rotated/new/segment.ts", upstream.uri()));
         assert_eq!(scope.unwrap(), fresh_scope);
+        assert_eq!(channel_id.as_deref(), Some("154"));
         assert!(refresh_rendition(
             &state,
             "154",
@@ -2228,9 +2259,10 @@ mod tests {
         let segment_uri = out.lines().nth(1).unwrap();
         let url = url::Url::parse(&format!("http://localhost{segment_uri}")).unwrap();
         let auth = url.query_pairs().find(|(k, _)| k == "auth").unwrap().1;
-        let (decoded, scope) = decrypt_render_auth(&state, &auth).unwrap();
+        let (decoded, scope, channel_id) = decrypt_render_auth(&state, &auth).unwrap();
         assert_eq!(decoded, "https://a.b/live/seg1.ts");
         assert_eq!(scope.as_deref(), Some("https://a.b/live/rendition.m3u8"));
+        assert_eq!(channel_id.as_deref(), Some("154"));
 
         for tag in ["EXT-X-KEY", "EXT-X-SESSION-KEY"] {
             for suffix in ["", ",IV=0x1,KEYFORMAT=\"identity\""] {
@@ -2253,7 +2285,9 @@ mod tests {
                 assert!(uri.starts_with("/render.key?auth="));
                 let url = url::Url::parse(&format!("http://localhost{uri}")).unwrap();
                 let auth = url.query_pairs().find(|(k, _)| k == "auth").unwrap().1;
-                assert_eq!(state.secure.decrypt(&auth).unwrap(), "https://a.b/key.pkey");
+                let (decoded, _, channel_id) = decrypt_render_auth(&state, &auth).unwrap();
+                assert_eq!(decoded, "https://a.b/key.pkey");
+                assert_eq!(channel_id.as_deref(), Some("154"));
                 assert!(out.contains("/render.ts?auth="));
                 assert!(!out.contains("||"));
             }
@@ -2286,8 +2320,9 @@ mod tests {
             assert_eq!(suffix, ",DEFAULT=YES");
             let url = url::Url::parse(&format!("http://localhost{uri}")).unwrap();
             let auth = url.query_pairs().find(|(k, _)| k == "auth").unwrap().1;
-            let (decoded, scope) = decrypt_render_auth(&state, &auth).unwrap();
+            let (decoded, scope, channel_id) = decrypt_render_auth(&state, &auth).unwrap();
             assert_eq!(decoded, expected);
+            assert_eq!(channel_id.as_deref(), Some("154"));
             assert_eq!(
                 manifest_identity(scope.as_deref().unwrap()).unwrap().url,
                 strip_hdnea_from_url(expected)
@@ -2418,8 +2453,9 @@ mod tests {
             .find(|(k, _)| k == "auth")
             .unwrap()
             .1;
-        let (decoded, scope) = decrypt_render_auth(&state, &auth).unwrap();
+        let (decoded, scope, channel_id) = decrypt_render_auth(&state, &auth).unwrap();
         assert_eq!(decoded, "https://a.b/live/child.m3u8");
+        assert_eq!(channel_id.as_deref(), Some("154"));
         assert_eq!(
             manifest_identity(scope.as_deref().unwrap()).unwrap().url,
             "https://a.b/live/child.m3u8"
@@ -2521,7 +2557,8 @@ mod tests {
         state.playbox.live("pb_ch1").await.unwrap();
 
         for (channel_id, key_path) in [("pb_ch1", "/playbox-key"), ("vzy_1", "/vzy-key")] {
-            let auth = state.secure.encrypt(&format!("{}{key_path}", server.uri()));
+            let key_url = format!("{}{key_path}", server.uri());
+            let auth = encrypt_render_auth(&state, &key_url, "", channel_id);
             let response = render_key_handler(
                 State(state.clone()),
                 Query(SegmentQuery {
@@ -2534,6 +2571,43 @@ mod tests {
             .await;
             assert_eq!(response.status(), StatusCode::OK);
         }
+    }
+
+    #[tokio::test]
+    async fn provider_hls_key_rejects_channel_substitution_before_upstream_calls() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/consume/v1/playback/resolve"))
+            .respond_with(ResponseTemplate::new(500))
+            .expect(0)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/playbox-key"))
+            .respond_with(ResponseTemplate::new(500))
+            .expect(0)
+            .mount(&server)
+            .await;
+
+        let state = playbox_test_state(&server);
+        let key_url = format!("{}/playbox-key", server.uri());
+        let auth = encrypt_render_auth(&state, &key_url, "", "pb_source");
+        let response = render_key_handler(
+            State(state),
+            Query(SegmentQuery {
+                auth: Some(auth),
+                channel_key_id: Some("pb_target".into()),
+                hdnea: None,
+                q: None,
+            }),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        server.verify().await;
     }
 
     #[tokio::test]
@@ -2629,9 +2703,10 @@ mod tests {
         Mock::given(method("GET"))
             .and(path("/fresh.m3u8"))
             .and(header("user_id", "fresh-user"))
-            .respond_with(ResponseTemplate::new(200).set_body_string(
-                "#EXTM3U\n#EXT-X-TARGETDURATION:6\n#EXTINF:6,\nsegment.ts\n",
-            ))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_string("#EXTM3U\n#EXT-X-TARGETDURATION:6\n#EXTINF:6,\nsegment.ts\n"),
+            )
             .mount(&server)
             .await;
 
@@ -2640,7 +2715,12 @@ mod tests {
         assert_eq!(first.bitrates.auto, stale_url);
         assert!(state.playbox.playlist_ready("pb_ch1"));
 
-        let auth = encrypt_render_auth(&state, &stale_url, &identity_scope(&stale_url, None));
+        let auth = encrypt_render_auth(
+            &state,
+            &stale_url,
+            &identity_scope(&stale_url, None),
+            "pb_ch1",
+        );
         let resp = render_m3u8_inner(
             state.clone(),
             RenderQuery {
