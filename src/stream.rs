@@ -1170,8 +1170,7 @@ async fn render_m3u8_inner(state: Arc<AppState>, q: RenderQuery) -> Response {
                         if !token.is_empty() {
                             state.render_caches.set_hdnea(cache_gen, &hdnea_key, &token);
                         }
-                        let (b, s, h) =
-                            fetch_media(&state, &channel_id, &render_url, &token).await;
+                        let (b, s, h) = fetch_media(&state, &channel_id, &render_url, &token).await;
                         body = b;
                         status = s;
                         if matches!(status, 401 | 403) && !h.is_empty() && h != token {
@@ -1348,8 +1347,7 @@ pub async fn render_ts_handler(
         // No cookie refresh exists for PlayboxTV: re-resolve once for fresh
         // headers, then retry the same segment URL.
         if refresh_channel_token(&state, &channel_id).await.is_ok() {
-            let (s, b, h) =
-                proxy_segment(&state, &channel_id, &decoded, token.as_deref()).await;
+            let (s, b, h) = proxy_segment(&state, &channel_id, &decoded, token.as_deref()).await;
             status = s;
             body = b;
             headers = h;
@@ -1384,8 +1382,7 @@ pub async fn render_ts_handler(
                 }
             }
         }
-        let (s, b, h) =
-            proxy_segment(&state, &channel_id, &stripped, fresh_token.as_deref()).await;
+        let (s, b, h) = proxy_segment(&state, &channel_id, &stripped, fresh_token.as_deref()).await;
         status = s;
         body = b;
         headers = h;
@@ -1810,9 +1807,16 @@ mod tests {
             .mount(&upstream)
             .await;
         let tokenless_segment = format!("{}/tokenless.ts", upstream.uri());
-        assert_eq!(proxy_segment(&state, "154", &tokenless_segment, None).await.0, 200);
         assert_eq!(
-            proxy_segment(&state, "154", &tokenless_segment, Some("")).await.0,
+            proxy_segment(&state, "154", &tokenless_segment, None)
+                .await
+                .0,
+            200
+        );
+        assert_eq!(
+            proxy_segment(&state, "154", &tokenless_segment, Some(""))
+                .await
+                .0,
             200
         );
         Mock::given(method("GET"))
@@ -2350,19 +2354,14 @@ mod tests {
             "https://a.b/live/child.m3u8"
         );
     }
-    fn playbox_test_state(
-        server: &wiremock::MockServer,
-    ) -> std::sync::Arc<AppState> {
+    fn playbox_test_state(server: &wiremock::MockServer) -> std::sync::Arc<AppState> {
         let dir = tempfile::tempdir().unwrap();
-        let store = std::sync::Arc::new(
-            crate::store::Store::open(dir.path().to_str().unwrap()).unwrap(),
-        );
+        let store =
+            std::sync::Arc::new(crate::store::Store::open(dir.path().to_str().unwrap()).unwrap());
         std::mem::forget(dir);
         let playbox = std::sync::Arc::new(crate::playbox_state::PlayboxState::new(true));
-        let mut client = crate::playbox::Client::new(
-            reqwest::Client::new(),
-            crate::playbox::Device::new(),
-        );
+        let mut client =
+            crate::playbox::Client::new(reqwest::Client::new(), crate::playbox::Device::new());
         client.set_bases_for_test(&server.uri());
         *client.creds.write().unwrap() = crate::playbox::Credentials {
             phone: "9876543210".into(),
@@ -2433,5 +2432,4 @@ mod tests {
             "/live/mpd/pb_ch1?q=auto"
         );
     }
-
 }

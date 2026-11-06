@@ -320,10 +320,8 @@ mod tests {
 
     fn playbox_state_with_mock(server: &wiremock::MockServer) -> Arc<PlayboxState> {
         let state = Arc::new(PlayboxState::new(true));
-        let mut client = crate::playbox::Client::new(
-            reqwest::Client::new(),
-            crate::playbox::Device::new(),
-        );
+        let mut client =
+            crate::playbox::Client::new(reqwest::Client::new(), crate::playbox::Device::new());
         client.set_bases_for_test(&server.uri());
         *client.creds.write().unwrap() = crate::playbox::Credentials {
             phone: "9876543210".into(),
@@ -399,11 +397,7 @@ mod tests {
         assert!(extras.connected());
 
         let server = wiremock::MockServer::start().await;
-        let s = state_with_providers(
-            empty_store(),
-            extras,
-            playbox_state_with_mock(&server),
-        );
+        let s = state_with_providers(empty_store(), extras, playbox_state_with_mock(&server));
         assert_eq!(s.active_product(), ActiveProduct::Extras);
     }
 

@@ -800,9 +800,8 @@ mod tests {
     #[tokio::test]
     async fn playbox_web_epg_reports_the_missing_stop_time() {
         let dir = tempfile::tempdir().unwrap();
-        let store = std::sync::Arc::new(
-            crate::store::Store::open(dir.path().to_str().unwrap()).unwrap(),
-        );
+        let store =
+            std::sync::Arc::new(crate::store::Store::open(dir.path().to_str().unwrap()).unwrap());
         std::mem::forget(dir);
         let state = std::sync::Arc::new(AppState {
             config: crate::config::Config::default(),
@@ -813,9 +812,7 @@ mod tests {
             secure: std::sync::Arc::new(crate::secureurl::SecureUrl::new(false)),
             http: reqwest::Client::new(),
             drm_channels: Default::default(),
-            custom_channels: std::sync::Arc::new(
-                crate::custom_channels::CustomChannels::new(),
-            ),
+            custom_channels: std::sync::Arc::new(crate::custom_channels::CustomChannels::new()),
             render_caches: Default::default(),
             dash_state: Default::default(),
             epg_state: Default::default(),
@@ -827,8 +824,7 @@ mod tests {
             listen: Default::default(),
             tunnel_origin: Default::default(),
         });
-        let resp =
-            web_epg_handler(Path(("pb_ch1".into(), "0".into())), State(state)).await;
+        let resp = web_epg_handler(Path(("pb_ch1".into(), "0".into())), State(state)).await;
         assert_eq!(resp.status(), StatusCode::NOT_IMPLEMENTED);
     }
     use http_body_util::BodyExt;

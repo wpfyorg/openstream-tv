@@ -94,8 +94,14 @@ fn api_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/api/extras/unlock", post(crate::api::extras_unlock))
         .route("/api/extras/lock", post(crate::api::extras_lock))
         .route("/api/playbox/status", get(crate::api::playbox_status))
-        .route("/api/playbox/login/sendOTP", post(crate::api::playbox_send_otp))
-        .route("/api/playbox/login/verifyOTP", post(crate::api::playbox_verify_otp))
+        .route(
+            "/api/playbox/login/sendOTP",
+            post(crate::api::playbox_send_otp),
+        )
+        .route(
+            "/api/playbox/login/verifyOTP",
+            post(crate::api::playbox_verify_otp),
+        )
         .route("/api/playbox/logout", post(crate::api::playbox_logout))
         .route("/api/playbox/channels", get(crate::api::playbox_channels))
         .route("/api/playbox/play/:id", get(crate::api::playbox_play))

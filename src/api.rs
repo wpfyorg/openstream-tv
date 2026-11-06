@@ -733,10 +733,7 @@ pub async fn playbox_channels(State(state): State<SharedState>) -> Response {
 /// `GET /api/playbox/play/:id` — reports the resolved source kind and whether
 /// a license is required. The upstream URL, headers and DRM token stay
 /// server-side; playback itself goes through the normal `/live/...` flow.
-pub async fn playbox_play(
-    Path(id): Path<String>,
-    State(state): State<SharedState>,
-) -> Response {
+pub async fn playbox_play(Path(id): Path<String>, State(state): State<SharedState>) -> Response {
     if !state.playbox.enabled() {
         return err(StatusCode::BAD_REQUEST, "playbox is not enabled");
     }
@@ -1632,7 +1629,10 @@ mod tests {
                 &serde_json::json!({"phone": "9876543210", "token": "AT"}).to_string(),
             )
             .unwrap();
-        let cfg = Config { playbox: true, ..Default::default() };
+        let cfg = Config {
+            playbox: true,
+            ..Default::default()
+        };
         let s = Arc::new(AppState {
             config: cfg,
             path_prefix: String::new(),
@@ -1690,7 +1690,10 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::NOT_IMPLEMENTED);
         let json = response_json(resp).await;
         assert!(
-            json["message"].as_str().unwrap().contains("playbox EPG is unavailable"),
+            json["message"]
+                .as_str()
+                .unwrap()
+                .contains("playbox EPG is unavailable"),
             "{json}"
         );
         assert!(json["message"].as_str().unwrap().contains("startTime"));

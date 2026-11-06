@@ -781,11 +781,7 @@ fn player_user_agent_for(state: &AppState, url: &str) -> &'static str {
         .unwrap_or(television::PLAYER_USER_AGENT)
 }
 
-async fn proxy_mpd(
-    state: &AppState,
-    channel_id: &str,
-    url: &str,
-) -> (u16, Vec<u8>, Vec<String>) {
+async fn proxy_mpd(state: &AppState, channel_id: &str, url: &str) -> (u16, Vec<u8>, Vec<String>) {
     let mut req = state.http.get(url);
     if crate::playbox::is_playbox_channel(channel_id) {
         let mut has_user_agent = false;
@@ -898,7 +894,8 @@ pub async fn render_dash_handler(
         uri.query().unwrap_or(""),
     );
 
-    let (status, body, ct) = proxy_dash_segment(&state, &channel_id, &proxy_url, hdnea_token.as_deref()).await;
+    let (status, body, ct) =
+        proxy_dash_segment(&state, &channel_id, &proxy_url, hdnea_token.as_deref()).await;
     let mut status = status;
     let mut body = body;
     let mut ct = ct;
@@ -1173,10 +1170,8 @@ mod tests {
             .await;
 
         let playbox = Arc::new(crate::playbox_state::PlayboxState::new(true));
-        let mut client = crate::playbox::Client::new(
-            reqwest::Client::new(),
-            crate::playbox::Device::new(),
-        );
+        let mut client =
+            crate::playbox::Client::new(reqwest::Client::new(), crate::playbox::Device::new());
         client.set_bases_for_test(&server.uri());
         *client.creds.write().unwrap() = crate::playbox::Credentials {
             phone: "9876543210".into(),
