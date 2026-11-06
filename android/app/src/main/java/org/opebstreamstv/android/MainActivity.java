@@ -581,8 +581,10 @@ public final class MainActivity extends Activity {
             tvStartupCard.setVisibility(tvAutoStartEnabled ? View.VISIBLE : View.GONE);
             tvAutostartLabel.setText("Auto-start enabled");
             tvMove(bootPermission, allowed ? 352 : 428);
-            int playlistShift = tvAutoStartEnabled ? -17 : allowed ? -55 : 0;
-            int configShift = tvAutoStartEnabled ? -21 : allowed ? -55 : 0;
+            boolean standaloneDisable = bootStartEnabled && !allowed;
+            tvMove(disableAutostartButton, standaloneDisable ? 500 : tvBaseY.get(disableAutostartButton));
+            int playlistShift = tvAutoStartEnabled ? -17 : allowed ? -55 : standaloneDisable ? 55 : 0;
+            int configShift = tvAutoStartEnabled ? -21 : allowed ? -55 : standaloneDisable ? 55 : 0;
             for (View view : tvPlaylistViews) tvMove(view, tvBaseY.get(view) + playlistShift);
             for (View view : tvConfigViews) tvMove(view, tvBaseY.get(view) + configShift);
             updateTvFocusGraph();

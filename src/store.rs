@@ -65,7 +65,7 @@ impl Store {
         })
     }
 
-    fn update(&self, apply: impl FnOnce(&mut FileFormat)) -> Result<(), StoreError> {
+    fn update<T>(&self, apply: impl FnOnce(&mut FileFormat) -> T) -> Result<T, StoreError> {
         let mut guard = self.inner.lock().unwrap();
         let mut file = OpenOptions::new()
             .read(true)
@@ -82,14 +82,14 @@ impl Store {
         } else {
             toml::from_str(&text)?
         };
-        apply(&mut current);
+        let result = apply(&mut current);
 
         let encoded = toml::to_string(&current)?;
         file.set_len(0)?;
         file.seek(SeekFrom::Start(0))?;
         file.write_all(encoded.as_bytes())?;
         *guard = current;
-        Ok(())
+        Ok(result)
     }
 
     #[allow(dead_code)]
@@ -104,6 +104,21 @@ impl Store {
 
     pub fn get_opt(&self, key: &str) -> Option<String> {
         self.inner.lock().unwrap().data.get(key).cloned()
+    }
+
+    pub fn get_or_insert(&self, key: &str, value: &str) -> Result<String, StoreError> {
+        self.update(|current| {
+            if let Some(existing) = current
+                .data
+                .get(key)
+                .filter(|existing| !existing.is_empty())
+            {
+                existing.clone()
+            } else {
+                current.data.insert(key.to_string(), value.to_string());
+                value.to_string()
+            }
+        })
     }
 
     pub fn set(&self, key: &str, value: &str) -> Result<(), StoreError> {
@@ -169,5 +184,22 @@ mod tests {
             reopened.get_opt("accessToken").as_deref(),
             Some("refreshed")
         );
+    }
+
+    #[test]
+    fn get_or_insert_reuses_value_created_by_stale_peer() {
+        let dir = tempfile::tempdir().unwrap();
+        let prefix = dir.path().to_str().unwrap();
+        let first = Store::open(prefix).unwrap();
+        let stale = Store::open(prefix).unwrap();
+
+        assert_eq!(first.get_or_insert("access_key", "first").unwrap(), "first");
+        assert_eq!(
+            stale.get_or_insert("access_key", "second").unwrap(),
+            "first"
+        );
+
+        let reopened = Store::open(prefix).unwrap();
+        assert_eq!(reopened.get_opt("access_key").as_deref(), Some("first"));
     }
 }
