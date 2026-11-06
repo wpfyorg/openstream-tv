@@ -1051,6 +1051,65 @@ mod tests {
         server.verify().await;
     }
 
+    #[tokio::test]
+    async fn refresh_waiting_behind_logout_does_not_restore_deleted_credentials() {
+        use std::sync::Arc;
+        use tokio::sync::Notify;
+        use wiremock::matchers::{method, path};
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/rest-api/pub/api/v3/refreshToken"))
+            .respond_with(ResponseTemplate::new(500))
+            .expect(0)
+            .mount(&server)
+            .await;
+
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(crate::store::Store::open(dir.path().to_str().unwrap()).unwrap());
+        let credentials = Credentials {
+            access_token: "old-access".into(),
+            refresh_token: "old-refresh".into(),
+            subscriber_id: "sub-1".into(),
+            sid: "sid-1".into(),
+        };
+        credentials.save(&store).unwrap();
+        let client = Client {
+            http: reqwest::Client::new(),
+            base: format!("{}/", server.uri()),
+            device: device(),
+            credentials: Some(credentials),
+        };
+
+        let transition = account_transition_lock().lock().await;
+        let logout_started = Arc::new(Notify::new());
+        let logout_started_task = logout_started.clone();
+        let logout_store = store.clone();
+        let logout_task = tokio::spawn(async move {
+            logout_started_task.notify_one();
+            logout(&logout_store).await
+        });
+        logout_started.notified().await;
+        tokio::task::yield_now().await;
+
+        let refresh_started = Arc::new(Notify::new());
+        let refresh_started_task = refresh_started.clone();
+        let refresh_store = store.clone();
+        let refresh_task = tokio::spawn(async move {
+            refresh_started_task.notify_one();
+            client.refresh(&refresh_store).await
+        });
+        refresh_started.notified().await;
+        tokio::task::yield_now().await;
+        drop(transition);
+
+        logout_task.await.unwrap().unwrap();
+        let error = refresh_task.await.unwrap().unwrap_err();
+        assert_eq!(error.to_string(), "tataplay: not logged in");
+        assert!(Credentials::load(&store).is_none());
+        server.verify().await;
+    }
+
     #[test]
     fn access_diagnostic_drops_urls_and_session_id() {
         let raw = json!({
