@@ -1,19 +1,17 @@
 //! PlayboxTV provider (`playboxtv.tv.android.in`, 5.20.1/128).
 //!
-//! Evidence: `docs/ott-providers/playbox.md`. Static analysis recovered base
-//! domains and endpoint *paths*; request/response schemas were not present as
-//! const-strings, so every wire shape here is a tolerant candidate parsed
-//! with `#[serde(default)]` + `Option` fields and covered by offline mock
-//! tests. Nothing here claims runtime-observed schemas.
+//! Evidence: `docs/ott-providers/playbox.md`. Every endpoint, method, header,
+//! form field and response field below was recovered from the shipped app's
+//! Retrofit interfaces (`playboxtv.tv.in.api.Api`, `LoginAPIService`,
+//! `PlayableAPIService`) and their model classes — not guessed. Schemas that
+//! could not be established (EPG programme timing, VOD, search) are not
+//! implemented and are reported as unavailable by the API layer.
 //!
-//! IDs are collision-safe: `pb_<opaque>` never collides with numeric JioTV
+//! IDs are collision-safe: `pb_<contentId>` never collides with numeric JioTV
 //! IDs or `ex_*`. (`sl_*` is avoided: `epg.rs` strips a literal `"sl"`.)
 
-#![allow(dead_code)] // Evidence constants + runtime-gap hooks exercised by tests.
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::sync::RwLock;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub const ID_PREFIX: &str = "pb_";
 pub const PACKAGE: &str = "playboxtv.tv.android.in";
@@ -22,19 +20,37 @@ pub const VERSION_CODE: u32 = 128;
 pub const ARTIFACT_SHA256: &str =
     "570ca55d1d88f68a8f4dd9a7a9fd586682f8fa1dd6738b3b6623577d77f858f8";
 
-/// Observed 1st-party bases (static strings; mapping to Retrofit services is
-/// a runtime gap).
-pub const BASE_USER_API: &str = "https://user-api.playboxtv.in";
-pub const BASE_CONSUME: &str = "https://content-consume.playboxtv.in";
-pub const PATH_SEND_OTP: &str = "customer/login";
-pub const PATH_VERIFY_OTP: &str = "customer/verify";
-pub const PATH_SSO_VERIFY: &str = "prod/v1/user/auth/sso/verify";
-pub const PATH_RESOLVE: &str = "consume/v1/playback/resolve";
-pub const PATH_PARTNER_TOKEN: &str = "consume/v1/partner-token/ltv/jio/sso";
-pub const PATH_LIVE_PAGE: &str = "v3/page/livetv2";
-pub const PATH_WEEKLY_EPG: &str = "channel/weekly_epg/";
-pub const PATH_CHANNEL_EPG: &str = "channel/epg";
-pub const PATH_SUBSCRIPTION: &str = "user/subscription";
+// Bases recovered from `LoginAPIService` / `PlayableAPIService` / `Api`.
+pub(crate) const BASE_LOGIN_V2: &str =
+    "https://h6el578034.execute-api.ap-south-1.amazonaws.com/prod/v2/";
+pub(crate) const BASE_PLAYER_V2: &str =
+    "https://e2vqkprvpg.execute-api.ap-south-1.amazonaws.com/prod/v2/";
+pub(crate) const BASE_USER_V1: &str =
+    "https://bk2zz20m15.execute-api.ap-south-1.amazonaws.com/prod/v1/";
+pub(crate) const BASE_CATALOGUE: &str = "https://da1scxjqfmdtz.cloudfront.net/";
+pub(crate) const BASE_CONSUME: &str = "https://content-consume.playboxtv.in/";
+
+// Client-embedded AWS API Gateway keys. These are constants shipped in the
+// public client, not account credentials; each is scoped to the routes the
+// same Retrofit interface uses.
+const KEY_COMMUNICATION: &str = "3NpDTqFKDC1WILqOcoS6b28IJyfETN9M6gXM4Kba";
+const KEY_CATALOGUE: &str = "26ltmN6aCCcIVAmUDcEm8gYkTSmS9vIaxdJ11P30";
+const KEY_PLAYER: &str = "0StxirdK3I8H4dPPvuhAi1R2ABupm9v85LESwRxr";
+const KEY_USER: &str = "citfh0iTJ95ll97c5VIp03QsrglazByR9iIZILek";
+
+/// `appCode` posted by `playboxgetOTP`: `PlayEvent.TYPE` from the Mux SDK.
+const APP_CODE: &str = "play";
+/// `messageId` posted by `playboxgetOTP` (literal 10 in `LoginAPIService`).
+const MESSAGE_ID: i32 = 10;
+/// `checkIdentifier` returns "1" for `playboxtv.tv.android.in`.
+const IDENTIFIER: &str = "1";
+/// `checkCountryCode` returns `BaseInterceptor.BUSINESS` ("in") for the Indian
+/// package.
+const COUNTRY_CODE: &str = "in";
+/// `SharedPreferencesHelper.getLangList()` default.
+const DEFAULT_LANGS: &str = "hi";
+/// `type` sent for live channels (`LiveTVVideoPlayerActivity.type`).
+const LIVE_TYPE: &str = "liveTV";
 
 pub const STORE_KEY_DEVICE: &str = "playbox_device";
 pub const STORE_KEY_CREDENTIALS: &str = "playbox_credentials";
@@ -43,24 +59,16 @@ pub const STORE_KEY_CREDENTIALS: &str = "playbox_credentials";
 pub struct Device {
     #[serde(default)]
     pub android_id: String,
-    #[serde(default)]
-    pub advertising_id: String,
-    #[serde(default = "default_model")]
-    pub model: String,
-}
-
-fn default_model() -> String {
-    "AFTKA".to_string()
 }
 
 impl Device {
+    /// `CheckPackage.getDeviceID` uses `Settings.Secure.ANDROID_ID`, a 16-char
+    /// lowercase hex value.
     pub fn new() -> Device {
         let mut bytes = [0u8; 8];
         rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut bytes);
         Device {
             android_id: hex::encode(bytes),
-            advertising_id: String::new(),
-            model: default_model(),
         }
     }
 
@@ -78,36 +86,24 @@ impl Device {
     }
 }
 
+/// Persisted login session. The token is the opaque value the app stores from
+/// `OTPRequest.data.token`; no refresh endpoint exists in the app, so none is
+/// implemented here.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Credentials {
     #[serde(default)]
-    pub number: String,
-    #[serde(default, rename = "authToken")]
-    pub auth_token: String,
-    #[serde(default, rename = "partnerToken")]
-    pub partner_token: String,
-    #[serde(default, rename = "refreshToken")]
-    pub refresh_token: String,
+    pub phone: String,
     #[serde(default)]
-    pub expires_at: u64,
+    pub token: String,
+    #[serde(default)]
+    pub customer_id: String,
 }
 
 impl Credentials {
-    pub fn needs_refresh(&self, now: SystemTime, margin: Duration) -> bool {
-        if self.auth_token.is_empty() {
-            return true;
-        }
-        if self.expires_at == 0 {
-            return true;
-        }
-        let exp = UNIX_EPOCH + Duration::from_secs(self.expires_at);
-        now + margin >= exp
-    }
-
     pub fn load(store: &crate::store::Store) -> Option<Credentials> {
         let json = store.get_opt(STORE_KEY_CREDENTIALS)?;
         let cr: Credentials = serde_json::from_str(&json).ok()?;
-        if cr.auth_token.is_empty() {
+        if cr.token.is_empty() || cr.phone.is_empty() {
             return None;
         }
         Some(cr)
@@ -136,202 +132,380 @@ pub fn is_playbox_channel(id: &str) -> bool {
     id.starts_with(ID_PREFIX)
 }
 
+/// The `data` half of `OTPRequest` (`model/Auth/data.kt`).
 #[derive(Debug, Clone, Default, Deserialize)]
-pub struct OtpSendResponse {
+pub struct SessionData {
     #[serde(default)]
-    pub status: bool,
+    pub token: String,
+    #[serde(default)]
+    pub phone: String,
+    #[serde(default, rename = "customer_id")]
+    pub customer_id: String,
+    #[serde(default)]
+    pub id: i64,
+}
+
+/// `OTPRequest`: `{statusCode, message, data, result}`. The app checks
+/// `statusCode == 200` and saves `data.token`.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[allow(dead_code)] // `message` is part of the observed envelope.
+pub struct OtpEnvelope {
+    #[serde(default, rename = "statusCode")]
+    pub status_code: i32,
     #[serde(default)]
     pub message: String,
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-pub struct OtpVerifyResponse {
-    #[serde(default, rename = "authToken")]
-    pub auth_token: String,
-    #[serde(default, rename = "partnerToken")]
-    pub partner_token: String,
-    #[serde(default, rename = "refreshToken")]
-    pub refresh_token: String,
-    #[serde(default, rename = "expiresIn")]
-    pub expires_in: u64,
     #[serde(default)]
-    pub status: bool,
+    pub data: Option<SessionData>,
+    #[serde(default)]
+    pub result: Option<SessionData>,
 }
 
-/// Tolerant catalogue item: CloudFront page items carry per-provider
-/// subscription flags; every field is optional so schema drift failssoft.
+impl OtpEnvelope {
+    pub fn session(&self) -> Option<&SessionData> {
+        self.data
+            .as_ref()
+            .filter(|d| !d.token.is_empty())
+            .or_else(|| self.result.as_ref().filter(|d| !d.token.is_empty()))
+    }
+}
+
+/// `model/play/Headers` — media request headers returned with a playback URL.
 #[derive(Debug, Clone, Default, Deserialize)]
-pub struct PageItem {
+#[allow(dead_code)] // every field is part of the observed response model.
+pub struct PlayHeaders {
+    #[serde(default, rename = "userAgent")]
+    pub user_agent: String,
+    #[serde(default)]
+    pub user_id: String,
+    #[serde(default)]
+    pub subscriber_id: String,
+    #[serde(default)]
+    pub platform: String,
+    #[serde(default, rename = "partnerId")]
+    pub partner_id: String,
+}
+
+/// `model/play/Url` — the resolved playback source.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[allow(dead_code)] // unused fields are retained from the observed model.
+pub struct PlayUrl {
+    #[serde(default)]
+    pub playable: String,
+    #[serde(default, rename = "licenceUrl")]
+    pub licence_url: String,
+    #[serde(default, rename = "certificateUrl")]
+    pub certificate_url: String,
+    #[serde(default)]
+    pub token: String,
+    #[serde(default, rename = "adsUrl")]
+    pub ads_url: String,
+    #[serde(default, rename = "isLive")]
+    pub is_live: bool,
+    #[serde(default)]
+    pub headers: Option<PlayHeaders>,
+}
+
+/// `model/play/Message` — `playStatus` must be true before the app plays.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct PlayMessage {
+    #[serde(default, rename = "playStatus")]
+    pub play_status: bool,
+    #[serde(default, rename = "validationMessage")]
+    pub validation_message: String,
+}
+
+/// `model/play/PlayContentsRes`.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct PlayContents {
+    #[serde(default)]
+    pub url: Option<PlayUrl>,
+    #[serde(default)]
+    pub message: Option<PlayMessage>,
+}
+
+/// `model/play/PlayContentRespModel` — the `playback/resolve` response.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct ResolveEnvelope {
+    #[serde(default)]
+    pub code: i32,
+    #[serde(default)]
+    pub msg: String,
+    #[serde(default)]
+    pub data: Option<PlayContents>,
+}
+
+/// `model/Item` — a catalogue card, for both `page.body.rows[].items[]` and
+/// the legacy `livetv` list.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[allow(dead_code)] // `channelId`/`channelNumber` are observed but not needed here.
+pub struct Item {
     #[serde(default)]
     pub id: String,
-    #[serde(default, rename = "contentId")]
-    pub content_id: String,
-    #[serde(default)]
-    pub title: String,
     #[serde(default)]
     pub name: String,
+    #[serde(default, rename = "channelId")]
+    pub channel_id: String,
+    #[serde(default, rename = "channelNumber")]
+    pub channel_number: i32,
+    #[serde(default, rename = "typeId")]
+    pub type_id: i32,
     #[serde(default)]
-    pub logo: String,
-    #[serde(default, rename = "logoUrl")]
-    pub logo_url: String,
+    pub typeid: i32,
     #[serde(default)]
-    pub genre: String,
+    pub media: Option<Media>,
     #[serde(default)]
-    pub language: String,
-    #[serde(default)]
-    pub subscription: Option<bool>,
+    pub text: Option<Text>,
 }
 
-impl PageItem {
-    pub fn opaque_id(&self) -> String {
-        if !self.content_id.is_empty() {
-            self.content_id.clone()
-        } else if !self.id.is_empty() {
-            self.id.clone()
-        } else {
-            self.title.clone()
-        }
+impl Item {
+    pub fn content_id(&self) -> &str {
+        &self.id
     }
 
     pub fn display_name(&self) -> String {
-        if !self.title.is_empty() {
-            self.title.clone()
-        } else {
-            self.name.clone()
+        if let Some(t) = &self.text {
+            if !t.title.is_empty() {
+                return t.title.clone();
+            }
         }
+        self.name.clone()
     }
 
-    pub fn logo_img(&self) -> String {
-        if !self.logo_url.is_empty() {
-            self.logo_url.clone()
-        } else {
-            self.logo.clone()
-        }
-    }
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-pub struct PageResponse {
-    #[serde(default)]
-    pub result: Vec<PageItem>,
-    #[serde(default)]
-    pub data: Vec<PageItem>,
-    #[serde(default)]
-    pub items: Vec<PageItem>,
-}
-
-impl PageResponse {
-    pub fn items(&self) -> Vec<PageItem> {
-        if !self.result.is_empty() {
-            self.result.clone()
-        } else if !self.data.is_empty() {
-            self.data.clone()
-        } else {
-            self.items.clone()
-        }
-    }
-}
-
-/// Observed `PlayContentRespModel` shape: `{Url, Provider, Headers, …}`.
-#[derive(Debug, Clone, Default, Deserialize)]
-pub struct PlaybackResponse {
-    #[serde(default, rename = "Url")]
-    pub url: String,
-    #[serde(default, rename = "url")]
-    pub url_lower: String,
-    #[serde(default, rename = "Provider")]
-    pub provider: String,
-    #[serde(default, rename = "Headers")]
-    pub headers: HashMap<String, String>,
-    #[serde(default, rename = "headers")]
-    pub headers_lower: HashMap<String, String>,
-    #[serde(default, rename = "Message")]
-    pub message: String,
-    #[serde(default, rename = "LicenseUrl")]
-    pub license_url: String,
-    #[serde(default, rename = "licenseUrl")]
-    pub license_url_lower: String,
-}
-
-impl PlaybackResponse {
-    pub fn stream_url(&self) -> &str {
-        if !self.url.is_empty() {
-            &self.url
-        } else {
-            &self.url_lower
-        }
-    }
-
-    pub fn merged_headers(&self) -> HashMap<String, String> {
-        let mut out = self.headers_lower.clone();
-        for (k, v) in &self.headers {
-            out.insert(k.clone(), v.clone());
-        }
-        out
-    }
-
-    pub fn resolved_license_url(&self) -> &str {
-        if !self.license_url.is_empty() {
-            &self.license_url
-        } else {
-            &self.license_url_lower
-        }
-    }
-
-    pub fn to_live_url_output(&self) -> crate::television::LiveUrlOutput {
-        let url = self.stream_url().to_string();
-        let is_mpd = url.contains(".mpd") || url.contains("mpd");
-        let license = self.resolved_license_url().to_string();
-        let is_drm = !license.is_empty();
-        let mut out = crate::television::LiveUrlOutput {
-            result: "OK".to_string(),
-            ..Default::default()
+    pub fn logo(&self) -> String {
+        let Some(media) = &self.media else {
+            return String::new();
         };
-        if is_mpd {
-            out.mpd.auto = url;
+        if !media.thumbnail.is_empty() {
+            media.thumbnail.clone()
         } else {
-            out.bitrates.auto = url;
+            media.poster.clone()
         }
-        if is_drm {
-            out.mpd.key = license;
-            out.is_drm = true;
+    }
+
+    /// The app passes `Item.typeId` to playback; the legacy `typeid` field is
+    /// used only when `typeId` is absent.
+    pub fn playback_type_id(&self) -> i32 {
+        if self.type_id != 0 {
+            self.type_id
+        } else {
+            self.typeid
         }
-        out
     }
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
-pub struct SubscriptionResponse {
+pub struct Media {
     #[serde(default)]
-    pub active: bool,
-    #[serde(default, rename = "hasActivePacks")]
-    pub has_active_packs: bool,
+    pub thumbnail: String,
     #[serde(default)]
-    pub packs: Vec<String>,
-}
-
-impl SubscriptionResponse {
-    pub fn entitled(&self) -> bool {
-        self.active || self.has_active_packs || !self.packs.is_empty()
-    }
+    pub poster: String,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
-pub struct EpgEntry {
-    #[serde(default, rename = "channelId")]
-    pub channel_id: String,
+pub struct Text {
     #[serde(default)]
     pub title: String,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct Rows {
     #[serde(default)]
-    pub start: i64,
+    pub items: Vec<Item>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct Body {
     #[serde(default)]
-    pub end: i64,
+    pub rows: Vec<Rows>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct Page {
+    #[serde(default)]
+    pub body: Option<Body>,
+}
+
+/// `model/ImageSLider` — the catalogue envelope.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[allow(dead_code)]
+pub struct CatalogueEnvelope {
+    #[serde(default, rename = "statusCode")]
+    pub status_code: i64,
+    #[serde(default)]
+    pub message: String,
+    #[serde(default)]
+    pub page: Option<Page>,
+    #[serde(default)]
+    pub livetv: Vec<Item>,
+    #[serde(default)]
+    pub data: Vec<Item>,
+}
+
+impl CatalogueEnvelope {
+    /// Walks the page rows first (the live-TV screen renders those), then the
+    /// legacy `livetv`/`data` lists, de-duplicating by content id.
+    pub fn channels(&self) -> Vec<Item> {
+        let mut out: Vec<Item> = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        let mut push = |item: &Item| {
+            if item.content_id().is_empty() || !valid_content_id(item.content_id()) {
+                return;
+            }
+            if seen.insert(item.content_id().to_string()) {
+                out.push(item.clone());
+            }
+        };
+        if let Some(page) = &self.page {
+            if let Some(body) = &page.body {
+                for row in &body.rows {
+                    for item in &row.items {
+                        push(item);
+                    }
+                }
+            }
+        }
+        for item in self.livetv.iter().chain(self.data.iter()) {
+            push(item);
+        }
+        out
+    }
+}
+
+/// `model/activepack/ActivePacks` (only the fields this backend reads).
+#[derive(Debug, Clone, Default, Deserialize)]
+#[allow(dead_code)] // statusCode/message are observed but their semantics are not.
+pub struct ActivePacks {
+    #[serde(default)]
+    pub active: bool,
+    #[serde(default, rename = "bundleActive")]
+    pub bundle_active: bool,
+    #[serde(default, rename = "statusCode")]
+    pub status_code: i32,
+    #[serde(default)]
+    pub message: String,
+}
+
+impl ActivePacks {
+    pub fn entitled(&self) -> bool {
+        self.active || self.bundle_active
+    }
+}
+
+/// Content ids are used verbatim in local route paths and playlists, so only
+/// URL- and M3U-safe characters are accepted.
+pub fn valid_content_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 128
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
+}
+
+/// A resolved playback, cached briefly so the media/license proxy can reuse
+/// the response headers and DRM token without re-resolving on every segment.
+#[derive(Debug, Clone)]
+pub struct ResolvedPlayback {
+    pub playable: String,
+    pub license_url: String,
+    pub media_headers: Vec<(String, String)>,
+    pub license_headers: Vec<(String, String)>,
+    pub is_dash: bool,
+}
+
+impl ResolvedPlayback {
+    fn from_contents(contents: &PlayContents) -> anyhow::Result<ResolvedPlayback> {
+        let url = contents
+            .url
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("playbox: playback response has no url"))?;
+        if url.playable.is_empty() {
+            anyhow::bail!("playbox: playback response has an empty playable URL");
+        }
+        if let Some(message) = &contents.message {
+            if !message.play_status && !message.validation_message.is_empty() {
+                anyhow::bail!(
+                    "playbox: playback refused: {}",
+                    message.validation_message()
+                );
+            }
+        }
+        let media_headers = media_headers(url);
+        let license_headers = license_headers(&url.token);
+        Ok(ResolvedPlayback {
+            playable: url.playable.clone(),
+            license_url: url.licence_url.clone(),
+            media_headers,
+            license_headers,
+            is_dash: url.playable.contains(".mpd"),
+        })
+    }
+}
+
+impl PlayMessage {
+    fn validation_message(&self) -> &str {
+        if self.validation_message.is_empty() {
+            "not playable"
+        } else {
+            &self.validation_message
+        }
+    }
+}
+
+/// Media headers exactly as `PlayerActivity.preparePlayerApp$lambda$3` and
+/// `IntroVideoPlayerActivity` set them.
+fn media_headers(url: &PlayUrl) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    if let Some(h) = &url.headers {
+        if !h.user_id.is_empty() {
+            out.push(("user_id".to_string(), h.user_id.clone()));
+        }
+        if !h.user_agent.is_empty() {
+            out.push(("User-Agent".to_string(), h.user_agent.clone()));
+        }
+        if !h.subscriber_id.is_empty() {
+            out.push(("subscriber_id".to_string(), h.subscriber_id.clone()));
+        }
+    }
+    if !url.token.is_empty() {
+        // `tokenArgs` is either a CloudFront cookie string or a bearer token.
+        if url.token.contains("CloudFront-") {
+            out.push(("Cookie".to_string(), url.token.clone()));
+        } else {
+            out.push(("Authorization".to_string(), format!("Bearer {}", url.token)));
+        }
+    }
+    out
+}
+
+/// License request headers exactly as
+/// `PlayerActivity.buildCustomDrmSessionManager` sets them: the playback token
+/// is presented in each multi-DRM header the app supports.
+fn license_headers(token: &str) -> Vec<(String, String)> {
+    if token.is_empty() {
+        return Vec::new();
+    }
+    [
+        "token",
+        "X-AxDRM-Message",
+        "pallycon-customdata-v2",
+        "nv-authorizations",
+    ]
+    .into_iter()
+    .map(|name| (name.to_string(), token.to_string()))
+    .chain([
+        ("Authorization".to_string(), format!("Bearer {token}")),
+        ("Cookie".to_string(), token.to_string()),
+    ])
+    .collect()
 }
 
 pub struct Client {
     pub http: reqwest::Client,
-    pub base_user_api: String,
-    pub base_consume: String,
+    pub login_v2: String,
+    pub player_v2: String,
+    pub user_v1: String,
+    pub catalogue: String,
+    pub consume: String,
     pub device: Device,
     pub creds: RwLock<Credentials>,
 }
@@ -340,246 +514,259 @@ impl Client {
     pub fn new(http: reqwest::Client, device: Device) -> Client {
         Client {
             http,
-            base_user_api: BASE_USER_API.to_string(),
-            base_consume: BASE_CONSUME.to_string(),
+            login_v2: BASE_LOGIN_V2.to_string(),
+            player_v2: BASE_PLAYER_V2.to_string(),
+            user_v1: BASE_USER_V1.to_string(),
+            catalogue: BASE_CATALOGUE.to_string(),
+            consume: BASE_CONSUME.to_string(),
             device,
             creds: RwLock::new(Credentials::default()),
         }
     }
 
-    pub fn set_endpoints_for_test(&mut self, base_user_api: &str, base_consume: &str) {
-        self.base_user_api = base_user_api.to_string();
-        self.base_consume = base_consume.to_string();
+    #[cfg(test)]
+    pub fn set_bases_for_test(&mut self, base: &str) {
+        self.login_v2 = format!("{base}/login/v2/");
+        self.player_v2 = format!("{base}/player/v2/");
+        self.user_v1 = format!("{base}/user/v1/");
+        self.catalogue = format!("{base}/catalogue/");
+        self.consume = format!("{base}/");
     }
 
-    fn auth_header(&self) -> Option<String> {
+    fn bearer(&self) -> Option<String> {
         let c = self.creds.read().unwrap();
-        if c.auth_token.is_empty() {
+        if c.token.is_empty() {
             None
         } else {
-            Some(c.auth_token.clone())
+            Some(format!("Bearer {}", c.token))
+        }
+    }
+
+    fn phone(&self) -> Option<String> {
+        let c = self.creds.read().unwrap();
+        if c.phone.is_empty() {
+            None
+        } else {
+            Some(c.phone.clone())
         }
     }
 
     fn valid_number(number: &str) -> bool {
-        let digits: String = number.chars().filter(|c| c.is_ascii_digit()).collect();
-        digits.len() == 10
+        number.chars().filter(|c| c.is_ascii_digit()).count() == 10
     }
 
-    pub async fn send_otp(&self, number: &str) -> anyhow::Result<OtpSendResponse> {
+    /// `LoginAPIService.playboxgetOTP` → `Api.OTPRequest`:
+    /// `POST prod/v2/communication` form-encoded.
+    pub async fn send_otp(&self, number: &str) -> anyhow::Result<OtpEnvelope> {
         if !Self::valid_number(number) {
             anyhow::bail!("playbox: mobile number must have 10 digits");
         }
-        let url = format!("{}/{PATH_SEND_OTP}", self.base_user_api);
+        let url = format!("{}communication", self.login_v2);
         let resp = self
             .http
             .post(&url)
-            .json(&serde_json::json!({"phone": number, "deviceId": self.device.android_id}))
+            .header("X-API-Key", KEY_COMMUNICATION)
+            .form(&[
+                ("appCode", APP_CODE),
+                ("mobileNo", number),
+                ("messageId", &MESSAGE_ID.to_string()),
+                ("countryCode", COUNTRY_CODE),
+            ])
             .send()
             .await?;
         if !resp.status().is_success() {
-            anyhow::bail!("playbox: send OTP failed: {}", resp.status());
+            anyhow::bail!("playbox: send OTP failed: HTTP {}", resp.status());
         }
-        Ok(resp.json::<OtpSendResponse>().await?)
+        Ok(resp.json::<OtpEnvelope>().await?)
     }
 
-    pub async fn verify_otp(
-        &self,
-        number: &str,
-        otp: &str,
-        store: &crate::store::Store,
-    ) -> anyhow::Result<bool> {
+    /// `Api.OTPVerification`: `POST prod/v2/communication/otp/verify`.
+    pub async fn verify_otp(&self, number: &str, otp: &str) -> anyhow::Result<OtpEnvelope> {
         if !Self::valid_number(number) || otp.trim().is_empty() {
-            anyhow::bail!("playbox: bad number or OTP");
+            anyhow::bail!("playbox: bad mobile number or OTP");
         }
-        let url = format!("{}/{PATH_VERIFY_OTP}", self.base_user_api);
+        let url = format!("{}communication/otp/verify", self.login_v2);
         let resp = self
             .http
             .post(&url)
-            .json(&serde_json::json!({"phone": number, "otp": otp, "deviceId": self.device.android_id}))
+            .header("X-API-Key", KEY_COMMUNICATION)
+            .form(&[
+                ("appCode", APP_CODE),
+                ("mobileNo", number),
+                ("otp", otp.trim()),
+            ])
             .send()
             .await?;
         if !resp.status().is_success() {
+            anyhow::bail!("playbox: verify OTP failed: HTTP {}", resp.status());
+        }
+        Ok(resp.json::<OtpEnvelope>().await?)
+    }
+
+    /// Stores `data.token` from a successful verification, matching
+    /// `OTPVerifyViewModel` (`statusCode == 200`, then `saveUserToken`).
+    pub fn install_session(
+        &self,
+        number: &str,
+        envelope: &OtpEnvelope,
+        store: &crate::store::Store,
+    ) -> anyhow::Result<bool> {
+        if envelope.status_code != 200 {
             return Ok(false);
         }
-        let body: OtpVerifyResponse = resp.json().await?;
-        if body.auth_token.is_empty() {
+        let Some(session) = envelope.session() else {
             return Ok(false);
-        }
-        let expires_at = if body.expires_in > 0 {
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs()
-                + body.expires_in
-        } else {
-            0
         };
         let creds = Credentials {
-            number: number.to_string(),
-            auth_token: body.auth_token,
-            partner_token: body.partner_token,
-            refresh_token: body.refresh_token,
-            expires_at,
+            phone: if session.phone.is_empty() {
+                number.to_string()
+            } else {
+                session.phone.clone()
+            },
+            token: session.token.clone(),
+            customer_id: if session.customer_id.is_empty() {
+                session.id.to_string()
+            } else {
+                session.customer_id.clone()
+            },
         };
         creds.save(store)?;
         *self.creds.write().unwrap() = creds;
         Ok(true)
     }
 
-    pub async fn channels(&self) -> anyhow::Result<Vec<PageItem>> {
-        let url = format!("{}/{PATH_LIVE_PAGE}", self.base_user_api);
-        let mut req = self.http.get(&url);
-        if let Some(token) = self.auth_header() {
-            req = req.header("authToken", token);
-        }
-        let resp = req.send().await?;
-        if !resp.status().is_success() {
-            anyhow::bail!("playbox: catalogue failed: {}", resp.status());
-        }
-        Ok(resp.json::<PageResponse>().await?.items())
-    }
-
-    pub async fn playback(&self, content_id: &str) -> anyhow::Result<PlaybackResponse> {
-        let url = format!("{}/{PATH_RESOLVE}", self.base_consume);
-        let mut req = self.http.post(&url).json(
-            &serde_json::json!({"contentId": content_id, "deviceId": self.device.android_id}),
+    /// `Api.listLiveTV`: `GET v3/page/livetv2` on the CloudFront catalogue.
+    pub async fn channels(&self) -> anyhow::Result<Vec<Item>> {
+        let url = format!(
+            "{}v3/page/livetv2?langs={DEFAULT_LANGS}&identifier={IDENTIFIER}&countryCode={COUNTRY_CODE}",
+            self.catalogue
         );
-        if let Some(token) = self.auth_header() {
-            req = req.header("authToken", token);
-        }
-        let resp = req.send().await?;
+        let resp = self
+            .http
+            .get(&url)
+            .header("X-API-Key", KEY_CATALOGUE)
+            .send()
+            .await?;
         if !resp.status().is_success() {
-            anyhow::bail!("playbox: playback resolve failed: {}", resp.status());
+            anyhow::bail!("playbox: catalogue failed: HTTP {}", resp.status());
         }
-        let body: PlaybackResponse = resp.json().await?;
-        if body.stream_url().is_empty() {
-            anyhow::bail!("playbox: empty playback URL");
-        }
-        Ok(body)
+        Ok(resp.json::<CatalogueEnvelope>().await?.channels())
     }
 
-    pub async fn subscription(&self) -> anyhow::Result<SubscriptionResponse> {
-        let url = format!("{}/{PATH_SUBSCRIPTION}", self.base_user_api);
-        let mut req = self.http.get(&url);
-        if let Some(token) = self.auth_header() {
-            req = req.header("authToken", token);
-        }
-        let resp = req.send().await?;
-        if !resp.status().is_success() {
-            anyhow::bail!("playbox: subscription check failed: {}", resp.status());
-        }
-        Ok(resp.json::<SubscriptionResponse>().await?)
-    }
-
-    /// Widevine license forwarding: same role as the official client — proxy
-    /// the provider-issued license request, never extract keys.
-    pub fn license_headers(&self) -> HashMap<String, String> {
-        let mut h = HashMap::new();
-        if let Some(token) = self.auth_header() {
-            h.insert("authToken".to_string(), token);
-        }
-        h.insert(
-            "User-Agent".to_string(),
-            "PlayboxTV/5.20.1 (Linux;Android 7.0) AndroidXMedia3/1.4.1".to_string(),
-        );
-        h
-    }
-}
-
-pub fn to_television_channel(item: &PageItem) -> crate::television::Channel {
-    crate::television::Channel {
-        id: channel_id(&item.opaque_id()),
-        name: item.display_name(),
-        logo_url: item.logo_img(),
-        ..Default::default()
-    }
-}
-
-/// Routing/cache layer for PlayboxTV. Mirrors the `ExtrasState` shape at a
-/// smaller scale: gate + connected() + catalogue cache + generation guard so
-/// an account switch cannot republish the previous account's data.
-pub struct PlayboxState {
-    config_enabled: bool,
-    client: RwLock<Option<std::sync::Arc<Client>>>,
-    catalogue: RwLock<Vec<PageItem>>,
-    catalogue_fetched_at: RwLock<Option<std::time::Instant>>,
-    generation: std::sync::atomic::AtomicU64,
-    commit: std::sync::Mutex<()>,
-}
-
-impl PlayboxState {
-    pub fn new(config_enabled: bool) -> PlayboxState {
-        PlayboxState {
-            config_enabled,
-            client: RwLock::new(None),
-            catalogue: RwLock::new(Vec::new()),
-            catalogue_fetched_at: RwLock::new(None),
-            generation: std::sync::atomic::AtomicU64::new(0),
-            commit: std::sync::Mutex::new(()),
-        }
-    }
-
-    pub fn enabled(&self) -> bool {
-        self.config_enabled
-    }
-
-    pub fn connected(&self) -> bool {
-        self.client.read().unwrap().is_some()
-    }
-
-    pub fn init(&self, http: &reqwest::Client, store: &crate::store::Store) {
-        if !self.config_enabled {
-            return;
-        }
-        let Ok(device) = Device::load_or_create(store) else {
-            return;
+    /// `Api.getPlayNew`: `POST consume/v1/playback/resolve` with
+    /// `Authorization: Bearer <token>` and a `PlayRequestNew` JSON body.
+    pub async fn resolve(
+        &self,
+        content_id: &str,
+        type_id: i32,
+    ) -> anyhow::Result<ResolvedPlayback> {
+        let Some(bearer) = self.bearer() else {
+            anyhow::bail!("playbox: not logged in");
         };
-        if let Some(creds) = Credentials::load(store) {
-            let client = Client {
-                http: http.clone(),
-                base_user_api: BASE_USER_API.to_string(),
-                base_consume: BASE_CONSUME.to_string(),
-                device,
-                creds: RwLock::new(creds),
-            };
-            *self.client.write().unwrap() = Some(std::sync::Arc::new(client));
+        let url = format!("{}consume/v1/playback/resolve", self.consume);
+        let body = serde_json::json!({
+            "contentId": content_id,
+            "typeId": type_id,
+            "deviceId": self.device.android_id,
+            "platform": "androidtv",
+            "pageId": "0",
+            "appVersion": VERSION_NAME,
+            "isEncrypted": false,
+        });
+        let resp = self
+            .http
+            .post(&url)
+            .header("Authorization", bearer)
+            .json(&body)
+            .send()
+            .await;
+
+        if let Ok(resp) = resp {
+            if resp.status().is_success() {
+                if let Ok(envelope) = resp.json::<ResolveEnvelope>().await {
+                    if envelope.code == 200 {
+                        if let Some(contents) = envelope.data {
+                            return ResolvedPlayback::from_contents(&contents);
+                        }
+                    } else if !envelope.msg.is_empty() {
+                        anyhow::bail!("playbox: playback refused: {}", envelope.msg);
+                    }
+                }
+            }
         }
+
+        // The app also ships the legacy `PUT playableURL` path, selected by a
+        // remote flag; use it as a fallback when resolve is unavailable.
+        self.legacy_play(content_id, type_id).await
     }
 
-    pub fn set_client_for_test(&self, client: std::sync::Arc<Client>) {
-        *self.client.write().unwrap() = Some(client);
+    async fn legacy_play(
+        &self,
+        content_id: &str,
+        type_id: i32,
+    ) -> anyhow::Result<ResolvedPlayback> {
+        let Some(phone) = self.phone() else {
+            anyhow::bail!("playbox: not logged in");
+        };
+        let url = format!("{}playableURL", self.player_v2);
+        let type_id = type_id.to_string();
+        let resp = self
+            .http
+            .put(&url)
+            .header("X-API-Key", KEY_PLAYER)
+            .form(&[
+                ("phone", phone.as_str()),
+                ("contentId", content_id),
+                ("type", LIVE_TYPE),
+                ("typeid", type_id.as_str()),
+                ("deviceId", self.device.android_id.as_str()),
+                ("identifier", IDENTIFIER),
+                ("hasSubscription", "false"),
+            ])
+            .send()
+            .await?;
+        if !resp.status().is_success() {
+            anyhow::bail!(
+                "playbox: playback resolve failed (HTTP {} on both resolve and playableURL)",
+                resp.status()
+            );
+        }
+        let contents: PlayContents = resp.json().await?;
+        ResolvedPlayback::from_contents(&contents)
     }
 
-    pub fn clear(&self) {
-        let _guard = self.commit.lock().unwrap();
-        self.generation
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        *self.catalogue.write().unwrap() = Vec::new();
-        *self.catalogue_fetched_at.write().unwrap() = None;
+    /// `Api.getActivePack`: `GET customer/{phone}/hasActivePacks`.
+    pub async fn subscription(&self) -> anyhow::Result<ActivePacks> {
+        let Some(phone) = self.phone() else {
+            anyhow::bail!("playbox: not logged in");
+        };
+        let url = format!("{}customer/{phone}/hasActivePacks", self.user_v1);
+        let resp = self
+            .http
+            .get(&url)
+            .header("X-API-Key", KEY_USER)
+            .send()
+            .await?;
+        if !resp.status().is_success() {
+            anyhow::bail!("playbox: subscription check failed: HTTP {}", resp.status());
+        }
+        Ok(resp.json::<ActivePacks>().await?)
     }
+}
 
-    pub fn logout(&self, store: &crate::store::Store) -> anyhow::Result<()> {
-        self.clear();
-        *self.client.write().unwrap() = None;
-        delete_credentials(store)?;
-        Ok(())
-    }
-
-    pub fn catalogue_channels(&self) -> Vec<crate::television::Channel> {
-        self.catalogue
-            .read()
-            .unwrap()
-            .iter()
-            .map(to_television_channel)
-            .collect()
+pub fn to_television_channel(item: &Item) -> crate::television::Channel {
+    crate::television::Channel {
+        id: channel_id(item.content_id()),
+        name: item.display_name(),
+        logo_url: item.logo(),
+        ..Default::default()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wiremock::matchers::{method, path};
+    use wiremock::matchers::{body_string_contains, header, method, path, query_param};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     #[test]
@@ -589,6 +776,9 @@ mod tests {
         assert!(!is_playbox_channel("ex_123"));
         assert_eq!(content_id("pb_abc"), Some("abc"));
         assert_eq!(channel_id("abc"), "pb_abc");
+        assert!(valid_content_id("abc-123_X.mp4"));
+        assert!(!valid_content_id("abc/../def"));
+        assert!(!valid_content_id(""));
     }
 
     #[test]
@@ -596,101 +786,273 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = crate::store::Store::open(dir.path().to_str().unwrap()).unwrap();
         let c = Credentials {
-            number: "9876543210".to_string(),
-            auth_token: "tok".to_string(),
-            partner_token: "p".to_string(),
-            refresh_token: "r".to_string(),
-            expires_at: 9999999999,
+            phone: "9876543210".to_string(),
+            token: "tok".to_string(),
+            customer_id: "42".to_string(),
         };
         c.save(&store).unwrap();
-        let back = Credentials::load(&store).unwrap();
-        assert_eq!(back.auth_token, "tok");
-        assert!(!back.needs_refresh(SystemTime::now(), Duration::from_secs(60)));
+        assert_eq!(Credentials::load(&store).unwrap().token, "tok");
         delete_credentials(&store).unwrap();
         assert!(Credentials::load(&store).is_none());
     }
 
+    #[test]
+    fn catalogue_walks_page_rows_then_legacy_lists_without_duplicates() {
+        let json = serde_json::json!({
+            "statusCode": 200,
+            "page": {"body": {"rows": [
+                {"items": [
+                    {"id": "ch1", "name": "One", "typeId": 106,
+                     "text": {"title": "Channel One"}, "media": {"thumbnail": "https://x/1.png"}},
+                    {"id": "bad/id", "name": "Bad"}
+                ]}
+            ]}},
+            "livetv": [
+                {"id": "ch1", "name": "One duplicate"},
+                {"id": "ch2", "name": "Two", "typeid": 107}
+            ]
+        });
+        let env: CatalogueEnvelope = serde_json::from_value(json).unwrap();
+        let items = env.channels();
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].content_id(), "ch1");
+        assert_eq!(items[0].display_name(), "Channel One");
+        assert_eq!(items[0].logo(), "https://x/1.png");
+        assert_eq!(items[0].playback_type_id(), 106);
+        assert_eq!(items[1].content_id(), "ch2");
+        assert_eq!(items[1].playback_type_id(), 107);
+    }
+
+    #[test]
+    fn media_headers_match_the_player_contract() {
+        let mut url = PlayUrl {
+            playable: "https://cdn/x.mpd".into(),
+            headers: Some(PlayHeaders {
+                user_agent: "PlayboxUA".into(),
+                user_id: "u1".into(),
+                subscriber_id: "s1".into(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let h = media_headers(&url);
+        assert!(h.contains(&("user_id".into(), "u1".into())));
+        assert!(h.contains(&("User-Agent".into(), "PlayboxUA".into())));
+        assert!(h.contains(&("subscriber_id".into(), "s1".into())));
+
+        url.token = "CloudFront-Policy=abc".into();
+        let h = media_headers(&url);
+        assert!(h.contains(&("Cookie".into(), "CloudFront-Policy=abc".into())));
+
+        url.token = "plain-token".into();
+        let h = media_headers(&url);
+        assert!(h.contains(&("Authorization".into(), "Bearer plain-token".into())));
+    }
+
+    #[test]
+    fn license_headers_present_the_token_in_every_observed_header() {
+        let h = license_headers("tok");
+        for name in [
+            "token",
+            "X-AxDRM-Message",
+            "pallycon-customdata-v2",
+            "nv-authorizations",
+        ] {
+            assert!(h.contains(&(name.to_string(), "tok".to_string())), "{name}");
+        }
+        assert!(h.contains(&("Authorization".to_string(), "Bearer tok".to_string())));
+        assert!(h.contains(&("Cookie".to_string(), "tok".to_string())));
+        assert!(license_headers("").is_empty());
+    }
+
+    fn successful_session() -> serde_json::Value {
+        serde_json::json!({
+            "statusCode": 200,
+            "message": "success",
+            "data": {
+                "token": "opaque-session-token",
+                "phone": "9876543210",
+                "customer_id": "cust-1",
+                "id": 7
+            }
+        })
+    }
+
     #[tokio::test]
-    async fn login_catalogue_playback_subscription_flow() {
+    async fn otp_login_uses_the_decompiled_communication_contract() {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
-            .and(path("/customer/login"))
-            .respond_with(
-                ResponseTemplate::new(200).set_body_json(serde_json::json!({"status": true})),
-            )
+            .and(path("/login/v2/communication"))
+            .and(header("X-API-Key", KEY_COMMUNICATION))
+            .and(body_string_contains("appCode=play"))
+            .and(body_string_contains("mobileNo=9876543210"))
+            .and(body_string_contains("messageId=10"))
+            .and(body_string_contains("countryCode=in"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(successful_session()))
             .mount(&server)
             .await;
         Mock::given(method("POST"))
-            .and(path("/customer/verify"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "status": true, "authToken": "AT", "partnerToken": "PT",
-                "refreshToken": "RT", "expiresIn": 3600
-            })))
-            .mount(&server)
-            .await;
-        Mock::given(method("GET"))
-            .and(path("/v3/page/livetv2"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "result": [{"contentId": "star-plus", "title": "Star Plus",
-                            "logoUrl": "https://x/logo.png", "language": "Hindi"}]
-            })))
-            .mount(&server)
-            .await;
-        Mock::given(method("POST"))
-            .and(path("/consume/v1/playback/resolve"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "Url": "https://cdn.example/hls.m3u8", "Provider": "jio",
-                "Headers": {"Cookie": "hdnea=1"}
-            })))
-            .mount(&server)
-            .await;
-        Mock::given(method("GET"))
-            .and(path("/user/subscription"))
-            .respond_with(
-                ResponseTemplate::new(200).set_body_json(serde_json::json!({"active": true})),
-            )
+            .and(path("/login/v2/communication/otp/verify"))
+            .and(header("X-API-Key", KEY_COMMUNICATION))
+            .and(body_string_contains("otp=123456"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(successful_session()))
             .mount(&server)
             .await;
 
         let dir = tempfile::tempdir().unwrap();
         let store = crate::store::Store::open(dir.path().to_str().unwrap()).unwrap();
         let mut client = Client::new(reqwest::Client::new(), Device::new());
-        client.set_endpoints_for_test(&server.uri(), &server.uri());
+        client.set_bases_for_test(&server.uri());
 
         let sent = client.send_otp("9876543210").await.unwrap();
-        assert!(sent.status);
+        assert_eq!(sent.status_code, 200);
+        let verified = client.verify_otp("9876543210", "123456").await.unwrap();
         assert!(client
-            .verify_otp("9876543210", "123456", &store)
-            .await
+            .install_session("9876543210", &verified, &store)
             .unwrap());
+        assert_eq!(
+            Credentials::load(&store).unwrap().token,
+            "opaque-session-token"
+        );
 
-        let items = client.channels().await.unwrap();
-        assert_eq!(items.len(), 1);
-        let tv = to_television_channel(&items[0]);
-        assert_eq!(tv.id, "pb_star-plus");
-
-        let pb = client.playback("star-plus").await.unwrap();
-        assert_eq!(pb.stream_url(), "https://cdn.example/hls.m3u8");
-        let out = pb.to_live_url_output();
-        assert!(!out.bitrates.auto.is_empty());
-
-        let sub = client.subscription().await.unwrap();
-        assert!(sub.entitled());
-
-        assert!(client.verify_otp("bad", "123456", &store).await.is_err());
         assert!(client.send_otp("123").await.is_err());
+        assert!(client.verify_otp("9876543210", "").await.is_err());
     }
 
     #[tokio::test]
-    async fn playback_empty_url_is_error() {
+    async fn rejected_otp_is_not_installed() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = crate::store::Store::open(dir.path().to_str().unwrap()).unwrap();
+        let client = Client::new(reqwest::Client::new(), Device::new());
+        let envelope = OtpEnvelope {
+            status_code: 401,
+            message: "invalid".into(),
+            ..Default::default()
+        };
+        assert!(!client
+            .install_session("9876543210", &envelope, &store)
+            .unwrap());
+        assert!(Credentials::load(&store).is_none());
+    }
+
+    #[tokio::test]
+    async fn resolve_uses_the_decompiled_resolve_contract() {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/consume/v1/playback/resolve"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"Url": ""})))
+            .and(header("Authorization", "Bearer opaque-session-token"))
+            .and(body_string_contains("\"contentId\":\"ch1\""))
+            .and(body_string_contains("\"platform\":\"androidtv\""))
+            .and(body_string_contains("\"isEncrypted\":false"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "code": 200,
+                "msg": "success",
+                "data": {
+                    "message": {"playStatus": true, "validationMessage": ""},
+                    "url": {
+                        "playable": "https://cdn.example/live/ch1.mpd",
+                        "licenceUrl": "https://lic.example/widevine",
+                        "token": "drm-token",
+                        "isLive": true,
+                        "headers": {
+                            "userAgent": "PlayboxUA",
+                            "user_id": "u1",
+                            "subscriber_id": "s1"
+                        }
+                    }
+                }
+            })))
             .mount(&server)
             .await;
+
         let mut client = Client::new(reqwest::Client::new(), Device::new());
-        client.set_endpoints_for_test(&server.uri(), &server.uri());
-        assert!(client.playback("x").await.is_err());
+        client.set_bases_for_test(&server.uri());
+        *client.creds.write().unwrap() = Credentials {
+            phone: "9876543210".into(),
+            token: "opaque-session-token".into(),
+            customer_id: "cust-1".into(),
+        };
+
+        let p = client.resolve("ch1", 106).await.unwrap();
+        assert_eq!(p.playable, "https://cdn.example/live/ch1.mpd");
+        assert_eq!(p.license_url, "https://lic.example/widevine");
+        assert!(p.is_dash);
+        assert!(p
+            .media_headers
+            .contains(&("Authorization".into(), "Bearer drm-token".into())));
+        assert!(p
+            .license_headers
+            .contains(&("X-AxDRM-Message".into(), "drm-token".into())));
+    }
+
+    #[tokio::test]
+    async fn resolve_falls_back_to_legacy_playable_url() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/consume/v1/playback/resolve"))
+            .respond_with(ResponseTemplate::new(503))
+            .mount(&server)
+            .await;
+        Mock::given(method("PUT"))
+            .and(path("/player/v2/playableURL"))
+            .and(header("X-API-Key", KEY_PLAYER))
+            .and(body_string_contains("contentId=ch1"))
+            .and(body_string_contains("type=liveTV"))
+            .and(body_string_contains("typeid=106"))
+            .and(body_string_contains("identifier=1"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "message": {"playStatus": true, "validationMessage": ""},
+                "url": {"playable": "https://cdn.example/live/ch1.m3u8", "token": ""}
+            })))
+            .mount(&server)
+            .await;
+
+        let mut client = Client::new(reqwest::Client::new(), Device::new());
+        client.set_bases_for_test(&server.uri());
+        *client.creds.write().unwrap() = Credentials {
+            phone: "9876543210".into(),
+            token: "opaque-session-token".into(),
+            customer_id: "cust-1".into(),
+        };
+        let p = client.resolve("ch1", 106).await.unwrap();
+        assert_eq!(p.playable, "https://cdn.example/live/ch1.m3u8");
+        assert!(!p.is_dash);
+    }
+
+    #[tokio::test]
+    async fn catalogue_and_subscription_use_the_decompiled_routes() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/catalogue/v3/page/livetv2"))
+            .and(query_param("langs", "hi"))
+            .and(query_param("identifier", "1"))
+            .and(query_param("countryCode", "in"))
+            .and(header("X-API-Key", KEY_CATALOGUE))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "statusCode": 200,
+                "livetv": [{"id": "ch1", "name": "One", "typeId": 106}]
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/user/v1/customer/9876543210/hasActivePacks"))
+            .and(header("X-API-Key", KEY_USER))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "active": true, "statusCode": 200
+            })))
+            .mount(&server)
+            .await;
+
+        let mut client = Client::new(reqwest::Client::new(), Device::new());
+        client.set_bases_for_test(&server.uri());
+        *client.creds.write().unwrap() = Credentials {
+            phone: "9876543210".into(),
+            token: "opaque-session-token".into(),
+            customer_id: "cust-1".into(),
+        };
+        let channels = client.channels().await.unwrap();
+        assert_eq!(channels.len(), 1);
+        assert_eq!(to_television_channel(&channels[0]).id, "pb_ch1");
+        assert!(client.subscription().await.unwrap().entitled());
     }
 }

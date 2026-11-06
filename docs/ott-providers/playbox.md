@@ -1,8 +1,9 @@
 # OTT provider: PlayboxTV for Android TV (`playboxtv.tv.android.in` 5.20.1/128)
 
-Evidence-backed static record. No live calls. All secret-shaped values
-redacted. Request/response schemas are **inferred candidates** until a
-runtime capture confirms them.
+Evidence-backed static record. No live calls. All account-shaped values
+redacted. The first inventory had no JADX; section 3a records the contracts
+recovered in the follow-up decompilation. Runtime confirmation is still
+required for the items listed under "still unresolved".
 
 ## 1. Artifact identity (observed fact)
 
@@ -55,6 +56,43 @@ runtime capture confirms them.
   `user/{phone}/ott/{ottid}/checkOTTSubscription`,
   `customerott/customer/{phoneNo}`, `customer/{phone}/hasActivePacks`,
   `list/active/ott/plan/{phone}`, `ott/track/user`.
+
+## 3a. Verified wire contracts (JADX 1.5.6, `base.apk`)
+
+JADX was available for this pass (it was not for the first inventory), so the
+service interfaces and models below are decompiled observations, not guesses.
+Classes: `playboxtv.tv.in.api.{Api,LoginAPIService,PlayableAPIService}` and the
+models under `playboxtv.tv.in.model`.
+
+| Operation | Verified contract |
+|---|---|
+| OTP send | `POST https://h6el578034.execute-api.ap-south-1.amazonaws.com/prod/v2/communication`, form `appCode=play`, `mobileNo`, `messageId=10`, `countryCode=in`, header `X-API-Key` (communication key) |
+| OTP verify | `POST …/prod/v2/communication/otp/verify`, form `appCode=play`, `mobileNo`, `otp`; response `OTPRequest{statusCode,data.token}`; success is `statusCode==200`, token saved from `data.token` |
+| Catalogue | `GET https://da1scxjqfmdtz.cloudfront.net/v3/page/livetv2?langs=hi&identifier=1&countryCode=in`, header `X-API-Key`; response `ImageSLider{page.body.rows[].items[],livetv[],data[]}`; item fields `id,name,typeId,media.thumbnail,text.title` |
+| Playback (primary) | `POST https://content-consume.playboxtv.in/consume/v1/playback/resolve`, `Authorization: Bearer <data.token>`, JSON `PlayRequestNew{contentId,typeId,deviceId,platform:"androidtv",pageId:"0",appVersion,isEncrypted:false}`; response `PlayContentRespModel{code,data.url{playable,licenceUrl,token,headers}}` |
+| Playback (fallback) | `PUT https://e2vqkprvpg.execute-api.ap-south-1.amazonaws.com/prod/v2/playableURL`, form `phone,contentId,type=liveTV,typeid,deviceId,identifier=1,hasSubscription`; same `url` model |
+| Subscription | `GET https://bk2zz20m15.execute-api.ap-south-1.amazonaws.com/prod/v1/customer/{phone}/hasActivePacks`, header `X-API-Key`; response `ActivePacks{active,bundleActive,statusCode}` |
+| Media headers | `url.headers.user_id`, `User-Agent`, `subscriber_id`; `url.token` → `Cookie` when it contains `CloudFront-`, else `Authorization: Bearer` (from `PlayerActivity.preparePlayerApp$lambda$3`) |
+| DRM | Widevine `MediaItem.DrmConfiguration` with `url.licenceUrl` and multi-session; license request headers `token`, `X-AxDRM-Message`, `pallycon-customdata-v2`, `nv-authorizations`, `Authorization: Bearer`, `Cookie` from `url.token` (`buildCustomDrmSessionManager`) |
+| EPG | `GET https://4ffc6rlckj.execute-api.ap-south-1.amazonaws.com/prod/v1/channel/weekly_epg/{channel_id}/details`, header `X-API-Key`; response `{day, program:[{name,description,startTime}]}` — **no stop time**, so XMLTV programmes cannot be produced |
+| Device id | `Settings.Secure.ANDROID_ID` (16 hex chars) from `CheckPackage.getDeviceID` |
+| Package constants | `identifier="1"` and `countryCode="in"` for `playboxtv.tv.android.in`; `appCode="play"` from `PlayEvent.TYPE`; default `langs="hi"` |
+
+The two gateway keys above are client-embedded public constants, not account
+credentials; account tokens are only ever read from a successful login and are
+never logged or returned by this backend.
+
+### Playbox: still unresolved
+
+- Token lifetime/refresh: the app ships no refresh endpoint; a session is
+  replaced by signing in again.
+- Whether the server uses `playback/resolve` or the legacy `playableURL` for a
+  given account is chosen by a remote flag; both are verified and implemented
+  as primary + fallback.
+- Exact catalogue server behaviour (which of `rows`/`livetv` is populated for a
+  given account) — the backend walks both observed lists.
+- VOD/search/show models were not promoted because their playback semantics
+  were not traced end-to-end.
 
 ## 4. Auth flow (observed UI + endpoints; mapping is inference)
 
