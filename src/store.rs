@@ -65,7 +65,7 @@ impl Store {
         })
     }
 
-    fn update(&self, apply: impl FnOnce(&mut FileFormat)) -> Result<(), StoreError> {
+    fn update<T>(&self, apply: impl FnOnce(&mut FileFormat) -> T) -> Result<T, StoreError> {
         let mut guard = self.inner.lock().unwrap();
         let mut file = OpenOptions::new()
             .read(true)
@@ -82,14 +82,14 @@ impl Store {
         } else {
             toml::from_str(&text)?
         };
-        apply(&mut current);
+        let result = apply(&mut current);
 
         let encoded = toml::to_string(&current)?;
         file.set_len(0)?;
         file.seek(SeekFrom::Start(0))?;
         file.write_all(encoded.as_bytes())?;
         *guard = current;
-        Ok(())
+        Ok(result)
     }
 
     #[allow(dead_code)]
@@ -104,6 +104,42 @@ impl Store {
 
     pub fn get_opt(&self, key: &str) -> Option<String> {
         self.inner.lock().unwrap().data.get(key).cloned()
+    }
+
+    pub fn get_or_insert(&self, key: &str, value: &str) -> Result<String, StoreError> {
+        let mut guard = self.inner.lock().unwrap();
+        let mut file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(&self.path)?;
+        file.lock()?;
+
+        let mut text = String::new();
+        file.read_to_string(&mut text)?;
+        let mut current = if text.trim().is_empty() {
+            FileFormat::default()
+        } else {
+            toml::from_str(&text)?
+        };
+        if let Some(existing) = current
+            .data
+            .get(key)
+            .filter(|existing| !existing.is_empty())
+            .cloned()
+        {
+            *guard = current;
+            return Ok(existing);
+        }
+
+        current.data.insert(key.to_string(), value.to_string());
+        let encoded = toml::to_string(&current)?;
+        file.set_len(0)?;
+        file.seek(SeekFrom::Start(0))?;
+        file.write_all(encoded.as_bytes())?;
+        *guard = current;
+        Ok(value.to_string())
     }
 
     pub fn set(&self, key: &str, value: &str) -> Result<(), StoreError> {
@@ -169,5 +205,38 @@ mod tests {
             reopened.get_opt("accessToken").as_deref(),
             Some("refreshed")
         );
+    }
+
+    #[test]
+    fn get_or_insert_reuses_value_created_by_stale_peer() {
+        let dir = tempfile::tempdir().unwrap();
+        let prefix = dir.path().to_str().unwrap();
+        let first = Store::open(prefix).unwrap();
+        let stale = Store::open(prefix).unwrap();
+
+        assert_eq!(first.get_or_insert("access_key", "first").unwrap(), "first");
+        assert_eq!(
+            stale.get_or_insert("access_key", "second").unwrap(),
+            "first"
+        );
+
+        let reopened = Store::open(prefix).unwrap();
+        assert_eq!(reopened.get_opt("access_key").as_deref(), Some("first"));
+    }
+
+    #[test]
+    fn get_or_insert_existing_value_does_not_rewrite_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let prefix = dir.path().to_str().unwrap();
+        let path = dir.path().join("store_v4.toml");
+        let original = "# keep this formatting\n[data]\naccess_key = \"existing\"\n";
+        std::fs::write(&path, original).unwrap();
+        let store = Store::open(prefix).unwrap();
+
+        assert_eq!(
+            store.get_or_insert("access_key", "replacement").unwrap(),
+            "existing"
+        );
+        assert_eq!(std::fs::read_to_string(path).unwrap(), original);
     }
 }

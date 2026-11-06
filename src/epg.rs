@@ -22,8 +22,16 @@ pub const EPG_POSTER_URL: &str = "https://jiotv.catchup.cdn.jio.com/dare_images/
 const CACHE_METADATA_VERSION: u32 = 1;
 const CACHE_MAX_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 pub const STORE_KEY_ENABLED: &str = "epg_enabled";
+pub const COMPANION_APP_ENV: &str = "OPENSTREAM_COMPANION_APP";
 
-pub fn enabled_with_override(config_enabled: bool, stored: Option<&str>) -> bool {
+pub fn enabled_with_override(
+    config_enabled: bool,
+    stored: Option<&str>,
+    force_enabled: bool,
+) -> bool {
+    if force_enabled {
+        return true;
+    }
     match stored {
         Some("true") => true,
         Some("false") => false,
@@ -753,11 +761,21 @@ mod tests {
     use std::collections::HashMap;
 
     #[test]
-    fn stored_enabled_override_wins_over_config() {
-        assert!(enabled_with_override(false, Some("true")));
-        assert!(!enabled_with_override(true, Some("false")));
-        assert!(enabled_with_override(true, None));
-        assert!(!enabled_with_override(false, Some("invalid")));
+    fn companion_app_forces_epg_on_regardless_of_config_or_persisted_override() {
+        assert!(enabled_with_override(false, Some("false"), true));
+        assert!(enabled_with_override(false, Some("invalid"), true));
+        assert!(enabled_with_override(false, None, true));
+    }
+
+    #[test]
+    fn stored_override_takes_precedence_when_epg_is_not_forced() {
+        assert!(!enabled_with_override(true, Some("false"), false));
+        assert!(enabled_with_override(false, Some("true"), false));
+        assert!(enabled_with_override(true, Some("invalid"), false));
+        assert!(enabled_with_override(true, None, false));
+        assert!(!enabled_with_override(false, Some("false"), false));
+        assert!(!enabled_with_override(false, Some("invalid"), false));
+        assert!(!enabled_with_override(false, None, false));
     }
 
     fn tv_channel(id: &str, name: &str) -> crate::television::Channel {
