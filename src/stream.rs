@@ -25,6 +25,8 @@ const RENDER_AUTH_PREFIX: &str = "jiotv-hls-v1:";
 struct RenderAuthPayload {
     url: String,
     scope: String,
+    #[serde(default)]
+    channel_id: String,
 }
 
 // Identity travels only inside the encrypted scope, including on segment links.
@@ -50,6 +52,10 @@ fn identity_scope(url: &str, selector: Option<String>) -> String {
 
 fn manifest_identity(scope: &str) -> Option<ManifestIdentity> {
     serde_json::from_slice(&hex::decode(scope.strip_prefix("identity:")?).ok()?).ok()
+}
+
+pub(crate) fn encrypt_root_render_auth(state: &AppState, url: &str, channel_id: &str) -> String {
+    encrypt_render_auth(state, url, &identity_scope(url, None), channel_id)
 }
 
 // Split HLS attributes without splitting commas inside quoted values.
@@ -315,6 +321,12 @@ pub(crate) async fn fetch_live(
     if !state.channel_allowed(channel_id).await {
         anyhow::bail!("channel {channel_id} is not available for the active account");
     }
+    if crate::playbox::is_playbox_channel(channel_id) {
+        return state.playbox.live(channel_id).await;
+    }
+    if crate::vzy::is_vzy_channel(channel_id) {
+        return state.vzy.live(channel_id, &state.store).await;
+    }
     let is_custom = state.custom_channels.contains(channel_id);
     if let Some(content_id) = state.fastway.route(channel_id) {
         return state.fastway.live(&content_id).await;
@@ -385,15 +397,38 @@ fn shared_media_key(rendition_key: &str, original_token: &str) -> String {
     )
 }
 
-async fn render_with_cookie_retry(
+/// Fetch one manifest or segment for `channel_id`. PlayboxTV carries its
+/// media headers with the resolved playback URL; every other product uses the
+/// JioTV cookie flow.
+pub(crate) async fn fetch_media(
     state: &AppState,
+    channel_id: &str,
     url: &str,
     token: &str,
 ) -> (Vec<u8>, u16, String) {
-    let (body, status, cookie) = state.tv.render(url, token).await;
+    if crate::playbox::is_playbox_channel(channel_id) {
+        let headers = state.playbox.media_headers(channel_id).await;
+        return state.tv.render_with_headers(url, "", &headers).await;
+    }
+    if crate::vzy::is_vzy_channel(channel_id) {
+        return state
+            .tv
+            .render_with_headers(url, token, &[("User-Agent".into(), "okhttp/4.12.0".into())])
+            .await;
+    }
+    state.tv.render(url, token).await
+}
+
+async fn render_with_cookie_retry(
+    state: &AppState,
+    channel_id: &str,
+    url: &str,
+    token: &str,
+) -> (Vec<u8>, u16, String) {
+    let (body, status, cookie) = fetch_media(state, channel_id, url, token).await;
     if matches!(status, 401 | 403) && !cookie.is_empty() && cookie != token {
         let (body, status, next_cookie) =
-            state.tv.render(&strip_hdnea_from_url(url), &cookie).await;
+            fetch_media(state, channel_id, &strip_hdnea_from_url(url), &cookie).await;
         return (
             body,
             status,
@@ -411,6 +446,7 @@ async fn render_with_cookie_retry(
 /// for a child merely because both were requested with auto quality.
 async fn refresh_rendition(
     state: &AppState,
+    channel_id: &str,
     live: &LiveUrlOutput,
     quality: &str,
     scope: &str,
@@ -437,12 +473,16 @@ async fn refresh_rendition(
         });
     }
     let root_token = extract_hdnea_from_url(&root).unwrap_or_default();
-    let (mut body, mut status, mut root_cookie) = state.tv.render(&root, &root_token).await;
+    let (mut body, mut status, mut root_cookie) =
+        fetch_media(state, channel_id, &root, &root_token).await;
     if matches!(status, 401 | 403) && !root_cookie.is_empty() && root_cookie != root_token {
-        let (next_body, next_status, next_cookie) = state
-            .tv
-            .render(&strip_hdnea_from_url(&root), &root_cookie)
-            .await;
+        let (next_body, next_status, next_cookie) = fetch_media(
+            state,
+            channel_id,
+            &strip_hdnea_from_url(&root),
+            &root_cookie,
+        )
+        .await;
         body = next_body;
         status = next_status;
         if !next_cookie.is_empty() {
@@ -482,13 +522,16 @@ async fn refresh_rendition(
     let (mut body, mut status, mut cookie) = if child_is_root {
         (body, status, root_cookie)
     } else {
-        state.tv.render(&child_request, &child_token).await
+        fetch_media(state, channel_id, &child_request, &child_token).await
     };
     if matches!(status, 401 | 403) && !cookie.is_empty() && cookie != child_token {
-        let (next_body, next_status, next_cookie) = state
-            .tv
-            .render(&strip_hdnea_from_url(&child_request), &cookie)
-            .await;
+        let (next_body, next_status, next_cookie) = fetch_media(
+            state,
+            channel_id,
+            &strip_hdnea_from_url(&child_request),
+            &cookie,
+        )
+        .await;
         body = next_body;
         status = next_status;
         if !next_cookie.is_empty() {
@@ -537,13 +580,14 @@ async fn refresh_rendition(
 #[cfg(test)]
 async fn refresh_rendition_token(
     state: &AppState,
+    channel_id: &str,
     live: &LiveUrlOutput,
     quality: &str,
     scope: &str,
     rejected: &str,
     media_url: Option<&str>,
 ) -> String {
-    refresh_rendition(state, live, quality, scope, rejected, media_url)
+    refresh_rendition(state, channel_id, live, quality, scope, rejected, media_url)
         .await
         .map(|r| r.token)
         .unwrap_or_default()
@@ -677,7 +721,9 @@ async fn live_impl_inner(
             .extras
             .route(id, state.tv.logged_in(), is_custom)
             .is_some();
-        if (via_fastway || via_extras) && television::has_dash(&live) {
+        let via_playbox = crate::playbox::is_playbox_channel(id);
+        let via_vzy = crate::vzy::is_vzy_channel(id);
+        if (via_fastway || via_extras || via_playbox || via_vzy) && television::has_dash(&live) {
             let prefix_str = prefix.as_ref().map(|p| p.0 .0.clone()).unwrap_or_default();
             return Redirect::to(&format!("{prefix_str}/live/mpd/{id}?q={quality}"))
                 .into_response();
@@ -698,7 +744,7 @@ async fn live_impl_inner(
             .set_hdnea(cache_gen, &hdnea_key, &live_hdnea);
     }
 
-    let encrypted = encrypt_render_auth(state, &live_url, &identity_scope(&live_url, None));
+    let encrypted = encrypt_root_render_auth(state, &live_url, id);
     let prefix_str = prefix.as_ref().map(|p| p.0 .0.clone()).unwrap_or_default();
     let q = if quality == "auto" {
         String::new()
@@ -970,7 +1016,7 @@ fn encode_placeholder(state: &AppState, s: &str) -> Option<String> {
     let quality = parts.next()?;
     let nested = parts.next().unwrap_or_default() == "1";
     let scope = parts.next().unwrap_or_default();
-    let encrypted = encrypt_render_auth(state, url, scope);
+    let encrypted = encrypt_render_auth(state, url, scope, channel_id);
     let mut out = format!("{endpoint}?auth={encrypted}");
     if !channel_id.is_empty() {
         out.push_str(&format!("&channel_key_id={channel_id}"));
@@ -984,13 +1030,11 @@ fn encode_placeholder(state: &AppState, s: &str) -> Option<String> {
     Some(out)
 }
 
-fn encrypt_render_auth(state: &AppState, url: &str, scope: &str) -> String {
-    if scope.is_empty() {
-        return state.secure.encrypt(url);
-    }
+fn encrypt_render_auth(state: &AppState, url: &str, scope: &str, channel_id: &str) -> String {
     let payload = RenderAuthPayload {
         url: url.to_string(),
         scope: scope.to_string(),
+        channel_id: channel_id.to_string(),
     };
     let serialized = serde_json::to_string(&payload).expect("render auth payload serializes");
     state
@@ -998,13 +1042,17 @@ fn encrypt_render_auth(state: &AppState, url: &str, scope: &str) -> String {
         .encrypt(&format!("{RENDER_AUTH_PREFIX}{serialized}"))
 }
 
-fn decrypt_render_auth(state: &AppState, auth: &str) -> Option<(String, Option<String>)> {
+pub(crate) fn decrypt_render_auth(
+    state: &AppState,
+    auth: &str,
+) -> Option<(String, Option<String>, Option<String>)> {
     let decoded = state.secure.decrypt(auth).ok()?;
     let Some(serialized) = decoded.strip_prefix(RENDER_AUTH_PREFIX) else {
-        return Some((decoded, None));
+        return Some((decoded, None, None));
     };
     let payload: RenderAuthPayload = serde_json::from_str(serialized).ok()?;
-    Some((payload.url, Some(payload.scope)))
+    let channel_id = (!payload.channel_id.is_empty()).then_some(payload.channel_id);
+    Some((payload.url, Some(payload.scope), channel_id))
 }
 
 fn valid_hls_quality(quality: &str) -> bool {
@@ -1037,10 +1085,18 @@ async fn render_m3u8_inner(state: Arc<AppState>, q: RenderQuery) -> Response {
     if channel_id.is_empty() {
         return (StatusCode::BAD_REQUEST, "channel_key_id is required").into_response();
     }
-    let (decoded, authenticated_scope) = match decrypt_render_auth(&state, &auth) {
-        Some(decoded) => decoded,
-        None => return (StatusCode::BAD_REQUEST, "invalid auth parameter").into_response(),
-    };
+    let (decoded, authenticated_scope, authenticated_channel) =
+        match decrypt_render_auth(&state, &auth) {
+            Some(decoded) => decoded,
+            None => return (StatusCode::BAD_REQUEST, "invalid auth parameter").into_response(),
+        };
+    if authenticated_channel.as_deref() != Some(channel_id.as_str()) {
+        return (
+            StatusCode::BAD_REQUEST,
+            "channel_key_id does not match auth",
+        )
+            .into_response();
+    }
     let decoded = to_absolute_stream_url(&decoded, None);
     let mut quality = q.q.unwrap_or_default();
     if !valid_hls_quality(&quality) {
@@ -1060,7 +1116,8 @@ async fn render_m3u8_inner(state: Arc<AppState>, q: RenderQuery) -> Response {
     };
 
     let mut rejected_token = token.clone();
-    let (mut body, mut status, new_hdnea) = state.tv.render(&render_url, &token).await;
+    let (mut body, mut status, new_hdnea) =
+        fetch_media(&state, &channel_id, &render_url, &token).await;
     if !new_hdnea.is_empty() {
         state
             .render_caches
@@ -1071,7 +1128,7 @@ async fn render_m3u8_inner(state: Arc<AppState>, q: RenderQuery) -> Response {
     if matches!(status, 401 | 403) && !new_hdnea.is_empty() && new_hdnea != rejected_token {
         rejected_token = token.clone();
         render_url = strip_hdnea_from_url(&render_url);
-        let (b, s, h) = state.tv.render(&render_url, &token).await;
+        let (b, s, h) = fetch_media(&state, &channel_id, &render_url, &token).await;
         body = b;
         status = s;
         if !h.is_empty() {
@@ -1085,6 +1142,13 @@ async fn render_m3u8_inner(state: Arc<AppState>, q: RenderQuery) -> Response {
             state.render_caches.clear_hdnea(&hdnea_key);
         }
         let recently_dead = status == 404 && state.render_caches.is_dead(&channel_id);
+        if crate::playbox::is_playbox_channel(&channel_id) {
+            state.playbox.invalidate_playback(&channel_id).await;
+        }
+        if crate::vzy::is_vzy_channel(&channel_id) {
+            return (StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_GATEWAY))
+                .into_response();
+        }
         if !recently_dead && !channel_id.is_empty() {
             if let Ok(refreshed) = refresh_channel_token(&state, &channel_id).await {
                 let retry_quality = if quality.is_empty() {
@@ -1094,6 +1158,7 @@ async fn render_m3u8_inner(state: Arc<AppState>, q: RenderQuery) -> Response {
                 };
                 let recovered = refresh_rendition(
                     &state,
+                    &channel_id,
                     &refreshed,
                     &retry_quality,
                     &scope,
@@ -1111,7 +1176,8 @@ async fn render_m3u8_inner(state: Arc<AppState>, q: RenderQuery) -> Response {
                     hdnea_key = RenderCaches::hdnea_key(&channel_id, &quality, &scope);
                     token = recovered.token;
                     state.render_caches.set_hdnea(cache_gen, &hdnea_key, &token);
-                    let (b, s, h) = render_with_cookie_retry(&state, &render_url, &token).await;
+                    let (b, s, h) =
+                        render_with_cookie_retry(&state, &channel_id, &render_url, &token).await;
                     body = b;
                     status = s;
                     if !h.is_empty() {
@@ -1141,14 +1207,17 @@ async fn render_m3u8_inner(state: Arc<AppState>, q: RenderQuery) -> Response {
                         if !token.is_empty() {
                             state.render_caches.set_hdnea(cache_gen, &hdnea_key, &token);
                         }
-                        let (b, s, h) = state.tv.render(&render_url, &token).await;
+                        let (b, s, h) = fetch_media(&state, &channel_id, &render_url, &token).await;
                         body = b;
                         status = s;
                         if matches!(status, 401 | 403) && !h.is_empty() && h != token {
-                            let (retry_body, retry_status, retry_cookie) = state
-                                .tv
-                                .render(&strip_hdnea_from_url(&render_url), &h)
-                                .await;
+                            let (retry_body, retry_status, retry_cookie) = fetch_media(
+                                &state,
+                                &channel_id,
+                                &strip_hdnea_from_url(&render_url),
+                                &h,
+                            )
+                            .await;
                             body = retry_body;
                             status = retry_status;
                             token = if retry_cookie.is_empty() {
@@ -1176,6 +1245,10 @@ async fn render_m3u8_inner(state: Arc<AppState>, q: RenderQuery) -> Response {
                 }
             }
         }
+    }
+
+    if crate::playbox::is_playbox_channel(&channel_id) && matches!(status, 401 | 403 | 404) {
+        state.playbox.invalidate_playback(&channel_id).await;
     }
 
     let base_string_url = render_url
@@ -1269,10 +1342,18 @@ pub async fn render_ts_handler(
     let Some(channel_id) = q.channel_key_id.filter(|id| !id.is_empty()) else {
         return (StatusCode::BAD_REQUEST, "channel_key_id is required").into_response();
     };
-    let (mut decoded, authenticated_scope) = match decrypt_render_auth(&state, &auth) {
-        Some(decoded) => decoded,
-        None => return (StatusCode::BAD_REQUEST, "invalid auth parameter").into_response(),
-    };
+    let (mut decoded, authenticated_scope, authenticated_channel) =
+        match decrypt_render_auth(&state, &auth) {
+            Some(decoded) => decoded,
+            None => return (StatusCode::BAD_REQUEST, "invalid auth parameter").into_response(),
+        };
+    if authenticated_channel.as_deref() != Some(channel_id.as_str()) {
+        return (
+            StatusCode::BAD_REQUEST,
+            "channel_key_id does not match auth",
+        )
+            .into_response();
+    }
 
     let requested_quality = q.q.as_deref().unwrap_or_default();
     if !valid_hls_quality(requested_quality) {
@@ -1311,10 +1392,25 @@ pub async fn render_ts_handler(
         token = extract_hdnea_from_url(&decoded);
     }
 
-    let resp = proxy_segment(&state, &decoded, token.as_deref()).await;
+    let resp = proxy_segment(&state, &channel_id, &decoded, token.as_deref()).await;
     let (mut status, mut body, mut headers) = resp;
 
-    if matches!(status, 401 | 403) {
+    if matches!(status, 401 | 403)
+        && (crate::playbox::is_playbox_channel(&channel_id)
+            || crate::vzy::is_vzy_channel(&channel_id))
+    {
+        // No cookie refresh exists for PlayboxTV: re-resolve once for fresh
+        // headers, then retry the same segment URL.
+        if crate::playbox::is_playbox_channel(&channel_id) {
+            state.playbox.invalidate_playback(&channel_id).await;
+        }
+        if refresh_channel_token(&state, &channel_id).await.is_ok() {
+            let (s, b, h) = proxy_segment(&state, &channel_id, &decoded, token.as_deref()).await;
+            status = s;
+            body = b;
+            headers = h;
+        }
+    } else if matches!(status, 401 | 403) {
         state.render_caches.clear_hdnea(&hdnea_key);
         state.render_caches.clear_hdnea(&shared_key);
         let stripped = strip_hdnea_from_url(&decoded);
@@ -1323,6 +1419,7 @@ pub async fn render_ts_handler(
             if let Ok(refreshed) = refresh_channel_token(&state, &channel_id).await {
                 let recovered = refresh_rendition(
                     &state,
+                    &channel_id,
                     &refreshed,
                     quality,
                     &scope,
@@ -1344,7 +1441,7 @@ pub async fn render_ts_handler(
                 }
             }
         }
-        let (s, b, h) = proxy_segment(&state, &stripped, fresh_token.as_deref()).await;
+        let (s, b, h) = proxy_segment(&state, &channel_id, &stripped, fresh_token.as_deref()).await;
         status = s;
         body = b;
         headers = h;
@@ -1360,16 +1457,35 @@ pub async fn render_ts_handler(
 
 async fn proxy_segment(
     state: &AppState,
+    channel_id: &str,
     url: &str,
     hdnea: Option<&str>,
 ) -> (u16, Vec<u8>, Option<String>) {
-    let ua = url::Url::parse(url)
-        .ok()
-        .and_then(|u| u.host_str().map(|h| state.player_user_agent_for(h)))
-        .unwrap_or(television::PLAYER_USER_AGENT);
-    let mut req = state.http.get(url).header(header::USER_AGENT, ua);
-    if let Some(t) = hdnea.filter(|t| !t.is_empty()) {
-        req = req.header(header::COOKIE, format!("__hdnea__={t}"));
+    let mut req = state.http.get(url);
+    if crate::playbox::is_playbox_channel(channel_id) {
+        let mut has_user_agent = false;
+        for (name, value) in state.playbox.media_headers(channel_id).await {
+            if name.eq_ignore_ascii_case("user-agent") {
+                has_user_agent = true;
+            }
+            req = req.header(name.as_str(), value.as_str());
+        }
+        if !has_user_agent {
+            req = req.header(header::USER_AGENT, television::PLAYER_USER_AGENT);
+        }
+    } else if crate::vzy::is_vzy_channel(channel_id) {
+        req = req
+            .header(header::USER_AGENT, "okhttp/4.12.0")
+            .header(header::ACCEPT, "*/*");
+    } else {
+        let ua = url::Url::parse(url)
+            .ok()
+            .and_then(|u| u.host_str().map(|h| state.player_user_agent_for(h)))
+            .unwrap_or(television::PLAYER_USER_AGENT);
+        req = req.header(header::USER_AGENT, ua);
+        if let Some(t) = hdnea.filter(|t| !t.is_empty()) {
+            req = req.header(header::COOKIE, format!("__hdnea__={t}"));
+        }
     }
     match req.send().await {
         Ok(resp) => {
@@ -1399,36 +1515,58 @@ pub async fn render_key_handler(
     let Some(channel_id) = q.channel_key_id.clone().filter(|id| !id.is_empty()) else {
         return (StatusCode::BAD_REQUEST, "channel_key_id is required").into_response();
     };
-    let (decoded, _) = match decrypt_render_auth(&state, &auth) {
+    let (decoded, _, authenticated_channel) = match decrypt_render_auth(&state, &auth) {
         Some(decoded) => decoded,
         None => return (StatusCode::BAD_REQUEST, "invalid auth parameter").into_response(),
     };
+    if authenticated_channel.as_deref() != Some(channel_id.as_str()) {
+        return (
+            StatusCode::BAD_REQUEST,
+            "channel_key_id does not match auth",
+        )
+            .into_response();
+    }
     let hdnea = q.hdnea.clone().or_else(|| extract_hdnea_from_url(&decoded));
     let is_custom = state.custom_channels.contains(&channel_id);
 
-    let mut req = state
-        .http
-        .get(&decoded)
-        .header(header::USER_AGENT, television::PLAYER_USER_AGENT);
-    if let Some(t) = &hdnea {
-        req = req.header(header::COOKIE, format!("__hdnea__={t}"));
-    }
-    if let Some(content_id) = state
-        .extras
-        .route(&channel_id, state.tv.logged_in(), is_custom)
-    {
-        for (k, v) in state.extras.key_headers(&content_id) {
-            req = req.header(k, v);
+    let mut req = state.http.get(&decoded);
+    if crate::playbox::is_playbox_channel(&channel_id) {
+        let mut has_user_agent = false;
+        for (name, value) in state.playbox.media_headers(&channel_id).await {
+            if name.eq_ignore_ascii_case("user-agent") {
+                has_user_agent = true;
+            }
+            req = req.header(name.as_str(), value.as_str());
         }
-    } else {
-        let creds = state.tv.creds.read().unwrap().clone().unwrap_or_default();
+        if !has_user_agent {
+            req = req.header(header::USER_AGENT, television::PLAYER_USER_AGENT);
+        }
+    } else if crate::vzy::is_vzy_channel(&channel_id) {
         req = req
-            .header("srno", "230203144000")
-            .header("ssotoken", &creds.sso_token)
-            .header("channelId", &channel_id)
-            .header("accesstoken", &creds.access_token)
-            .header("crmid", &creds.crm)
-            .header("uniqueId", &creds.unique_id);
+            .header(header::USER_AGENT, "okhttp/4.12.0")
+            .header(header::ACCEPT, "*/*");
+    } else {
+        req = req.header(header::USER_AGENT, television::PLAYER_USER_AGENT);
+        if let Some(t) = &hdnea {
+            req = req.header(header::COOKIE, format!("__hdnea__={t}"));
+        }
+        if let Some(content_id) = state
+            .extras
+            .route(&channel_id, state.tv.logged_in(), is_custom)
+        {
+            for (k, v) in state.extras.key_headers(&content_id) {
+                req = req.header(k, v);
+            }
+        } else {
+            let creds = state.tv.creds.read().unwrap().clone().unwrap_or_default();
+            req = req
+                .header("srno", "230203144000")
+                .header("ssotoken", &creds.sso_token)
+                .header("channelId", &channel_id)
+                .header("accesstoken", &creds.access_token)
+                .header("crmid", &creds.crm)
+                .header("uniqueId", &creds.unique_id);
+        }
     }
 
     match req.send().await {
@@ -1736,6 +1874,8 @@ mod tests {
             epg_state: Default::default(),
             extras: Arc::new(crate::extras_state::ExtrasState::new(false, None)),
             fastway: Arc::new(crate::fastway_state::FastwayState::new(false)),
+            playbox: Arc::new(crate::playbox_state::PlayboxState::new(false)),
+            vzy: Arc::new(crate::vzy_state::VzyState::new(false)),
             vod_state: Default::default(),
             public_ip: Arc::new(crate::unlock::PublicIp::new(reqwest::Client::new())),
             unlock_limiter: Arc::new(crate::unlock::AttemptLimiter::default()),
@@ -1753,9 +1893,16 @@ mod tests {
             .mount(&upstream)
             .await;
         let tokenless_segment = format!("{}/tokenless.ts", upstream.uri());
-        assert_eq!(proxy_segment(&state, &tokenless_segment, None).await.0, 200);
         assert_eq!(
-            proxy_segment(&state, &tokenless_segment, Some("")).await.0,
+            proxy_segment(&state, "154", &tokenless_segment, None)
+                .await
+                .0,
+            200
+        );
+        assert_eq!(
+            proxy_segment(&state, "154", &tokenless_segment, Some(""))
+                .await
+                .0,
             200
         );
         Mock::given(method("GET"))
@@ -1768,6 +1915,7 @@ mod tests {
         assert_eq!(
             proxy_segment(
                 &state,
+                "154",
                 &format!("{}/credential.ts", upstream.uri()),
                 Some("valid")
             )
@@ -1796,6 +1944,7 @@ mod tests {
         };
         let recovered = refresh_rendition(
             &state,
+            "154",
             &direct,
             "auto",
             &identity_scope(&direct.bitrates.auto, None),
@@ -1834,6 +1983,7 @@ mod tests {
         };
         let recovered = refresh_rendition(
             &state,
+            "154",
             &tokenless,
             "auto",
             &format!("{}/tokenless-child.m3u8", upstream.uri()),
@@ -1884,6 +2034,7 @@ mod tests {
             };
             let recovered = refresh_rendition(
                 &state,
+                "154",
                 &live,
                 "auto",
                 &identity_scope(&old_url, None),
@@ -1896,6 +2047,7 @@ mod tests {
             assert_eq!(recovered.token, "root-fresh");
             let (_, status, cookie) = render_with_cookie_retry(
                 &state,
+                "154",
                 &strip_hdnea_from_url(&recovered.url),
                 &recovered.token,
             )
@@ -1927,10 +2079,17 @@ mod tests {
             "https://old.example/old/child.m3u8?session=old",
             rendition_selector("#EXT-X-STREAM-INF:BANDWIDTH=123"),
         );
-        let recovered =
-            refresh_rendition(&state, &rotated_live, "auto", &identity, "expired", None)
-                .await
-                .unwrap();
+        let recovered = refresh_rendition(
+            &state,
+            "154",
+            &rotated_live,
+            "auto",
+            &identity,
+            "expired",
+            None,
+        )
+        .await
+        .unwrap();
         assert_eq!(
             recovered.url,
             format!(
@@ -1958,11 +2117,13 @@ mod tests {
         ))
         .unwrap();
         let auth = link.query_pairs().find(|(key, _)| key == "auth").unwrap().1;
-        let (url, scope) = decrypt_render_auth(&state, &auth).unwrap();
+        let (url, scope, channel_id) = decrypt_render_auth(&state, &auth).unwrap();
         assert_eq!(url, format!("{}/rotated/new/segment.ts", upstream.uri()));
         assert_eq!(scope.unwrap(), fresh_scope);
+        assert_eq!(channel_id.as_deref(), Some("154"));
         assert!(refresh_rendition(
             &state,
+            "154",
             &rotated_live,
             "auto",
             &identity,
@@ -2012,13 +2173,14 @@ mod tests {
         };
         let child_scope = format!("{}/high.m3u8", upstream.uri());
         assert_eq!(
-            refresh_rendition_token(&state, &live, "auto", &child_scope, "", None).await,
+            refresh_rendition_token(&state, "154", &live, "auto", &child_scope, "", None).await,
             "child-token"
         );
 
         assert_eq!(
             refresh_rendition_token(
                 &state,
+                "154",
                 &live,
                 "auto",
                 &format!("{}/shared.m3u8", upstream.uri()),
@@ -2032,6 +2194,7 @@ mod tests {
         assert_eq!(
             refresh_rendition_token(
                 &state,
+                "154",
                 &live,
                 "auto",
                 &child_scope,
@@ -2053,6 +2216,7 @@ mod tests {
         assert_eq!(
             refresh_rendition_token(
                 &state,
+                "154",
                 &conflicting,
                 "auto",
                 "https://cdn.example/root.m3u8",
@@ -2066,6 +2230,7 @@ mod tests {
         assert_eq!(
             refresh_rendition_token(
                 &state,
+                "154",
                 &conflicting,
                 "auto",
                 &identity_scope("https://cdn.example/root.m3u8", None),
@@ -2095,9 +2260,10 @@ mod tests {
         let segment_uri = out.lines().nth(1).unwrap();
         let url = url::Url::parse(&format!("http://localhost{segment_uri}")).unwrap();
         let auth = url.query_pairs().find(|(k, _)| k == "auth").unwrap().1;
-        let (decoded, scope) = decrypt_render_auth(&state, &auth).unwrap();
+        let (decoded, scope, channel_id) = decrypt_render_auth(&state, &auth).unwrap();
         assert_eq!(decoded, "https://a.b/live/seg1.ts");
         assert_eq!(scope.as_deref(), Some("https://a.b/live/rendition.m3u8"));
+        assert_eq!(channel_id.as_deref(), Some("154"));
 
         for tag in ["EXT-X-KEY", "EXT-X-SESSION-KEY"] {
             for suffix in ["", ",IV=0x1,KEYFORMAT=\"identity\""] {
@@ -2120,7 +2286,9 @@ mod tests {
                 assert!(uri.starts_with("/render.key?auth="));
                 let url = url::Url::parse(&format!("http://localhost{uri}")).unwrap();
                 let auth = url.query_pairs().find(|(k, _)| k == "auth").unwrap().1;
-                assert_eq!(state.secure.decrypt(&auth).unwrap(), "https://a.b/key.pkey");
+                let (decoded, _, channel_id) = decrypt_render_auth(&state, &auth).unwrap();
+                assert_eq!(decoded, "https://a.b/key.pkey");
+                assert_eq!(channel_id.as_deref(), Some("154"));
                 assert!(out.contains("/render.ts?auth="));
                 assert!(!out.contains("||"));
             }
@@ -2153,8 +2321,9 @@ mod tests {
             assert_eq!(suffix, ",DEFAULT=YES");
             let url = url::Url::parse(&format!("http://localhost{uri}")).unwrap();
             let auth = url.query_pairs().find(|(k, _)| k == "auth").unwrap().1;
-            let (decoded, scope) = decrypt_render_auth(&state, &auth).unwrap();
+            let (decoded, scope, channel_id) = decrypt_render_auth(&state, &auth).unwrap();
             assert_eq!(decoded, expected);
+            assert_eq!(channel_id.as_deref(), Some("154"));
             assert_eq!(
                 manifest_identity(scope.as_deref().unwrap()).unwrap().url,
                 strip_hdnea_from_url(expected)
@@ -2257,6 +2426,8 @@ mod tests {
             epg_state: Default::default(),
             extras: Arc::new(crate::extras_state::ExtrasState::new(false, None)),
             fastway: Arc::new(crate::fastway_state::FastwayState::new(false)),
+            playbox: Arc::new(crate::playbox_state::PlayboxState::new(false)),
+            vzy: Arc::new(crate::vzy_state::VzyState::new(false)),
             vod_state: Default::default(),
             public_ip: Arc::new(crate::unlock::PublicIp::new(reqwest::Client::new())),
             unlock_limiter: Arc::new(crate::unlock::AttemptLimiter::default()),
@@ -2283,11 +2454,324 @@ mod tests {
             .find(|(k, _)| k == "auth")
             .unwrap()
             .1;
-        let (decoded, scope) = decrypt_render_auth(&state, &auth).unwrap();
+        let (decoded, scope, channel_id) = decrypt_render_auth(&state, &auth).unwrap();
         assert_eq!(decoded, "https://a.b/live/child.m3u8");
+        assert_eq!(channel_id.as_deref(), Some("154"));
         assert_eq!(
             manifest_identity(scope.as_deref().unwrap()).unwrap().url,
             "https://a.b/live/child.m3u8"
         );
+    }
+    fn playbox_test_state(server: &wiremock::MockServer) -> std::sync::Arc<AppState> {
+        let dir = tempfile::tempdir().unwrap();
+        let store =
+            std::sync::Arc::new(crate::store::Store::open(dir.path().to_str().unwrap()).unwrap());
+        std::mem::forget(dir);
+        let playbox = std::sync::Arc::new(crate::playbox_state::PlayboxState::new(true));
+        let mut client =
+            crate::playbox::Client::new(reqwest::Client::new(), crate::playbox::Device::new());
+        client.set_bases_for_test(&server.uri());
+        *client.creds.write().unwrap() = crate::playbox::Credentials {
+            phone: "9876543210".into(),
+            token: "opaque-session-token".into(),
+            customer_id: "cust-1".into(),
+        };
+        playbox.set_client_for_test(std::sync::Arc::new(client));
+        std::sync::Arc::new(AppState {
+            config: crate::config::Config::default(),
+            path_prefix: String::new(),
+            access: std::sync::Arc::new(crate::access::Access::new(store.clone())),
+            store,
+            tv: std::sync::Arc::new(television::Television::new(reqwest::Client::new())),
+            secure: std::sync::Arc::new(crate::secureurl::SecureUrl::new(false)),
+            http: reqwest::Client::new(),
+            drm_channels: Default::default(),
+            custom_channels: std::sync::Arc::new(crate::custom_channels::CustomChannels::new()),
+            render_caches: Default::default(),
+            dash_state: Default::default(),
+            epg_state: Default::default(),
+            extras: std::sync::Arc::new(crate::extras_state::ExtrasState::new(false, None)),
+            fastway: std::sync::Arc::new(crate::fastway_state::FastwayState::new(false)),
+            playbox,
+            vzy: std::sync::Arc::new(crate::vzy_state::VzyState::new(false)),
+            vod_state: Default::default(),
+            public_ip: std::sync::Arc::new(crate::unlock::PublicIp::new(reqwest::Client::new())),
+            unlock_limiter: std::sync::Arc::new(crate::unlock::AttemptLimiter::default()),
+            listen: Default::default(),
+            tunnel_origin: Default::default(),
+        })
+    }
+
+    #[tokio::test]
+    async fn provider_hls_keys_use_provider_headers_without_jiotv_credentials() {
+        use wiremock::matchers::{header, method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/catalogue/v3/page/livetv2"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "livetv": [{"id": "ch1", "name": "One", "typeId": 106}]
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/consume/v1/playback/resolve"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "code": 200,
+                "data": {"url": {
+                    "playable": format!("{}/live/ch1.m3u8", server.uri()),
+                    "token": "media-token",
+                    "headers": {"user_id": "u1", "userAgent": "PlayboxUA"}
+                }}
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/playbox-key"))
+            .and(header("Authorization", "Bearer media-token"))
+            .and(header("user_id", "u1"))
+            .and(|request: &wiremock::Request| {
+                !request.headers.contains_key("ssotoken")
+                    && !request.headers.contains_key("accesstoken")
+                    && !request.headers.contains_key("crmid")
+            })
+            .respond_with(ResponseTemplate::new(200).set_body_bytes([1, 2, 3]))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/vzy-key"))
+            .and(header("User-Agent", "okhttp/4.12.0"))
+            .and(header("Accept", "*/*"))
+            .and(|request: &wiremock::Request| {
+                !request.headers.contains_key("ssotoken")
+                    && !request.headers.contains_key("accesstoken")
+                    && !request.headers.contains_key("authorization")
+            })
+            .respond_with(ResponseTemplate::new(200).set_body_bytes([4, 5, 6]))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let state = playbox_test_state(&server);
+        state.playbox.live("pb_ch1").await.unwrap();
+
+        for (channel_id, key_path) in [("pb_ch1", "/playbox-key"), ("vzy_1", "/vzy-key")] {
+            let key_url = format!("{}{key_path}", server.uri());
+            let auth = encrypt_render_auth(&state, &key_url, "", channel_id);
+            let response = render_key_handler(
+                State(state.clone()),
+                Query(SegmentQuery {
+                    auth: Some(auth),
+                    channel_key_id: Some(channel_id.to_string()),
+                    hdnea: None,
+                    q: None,
+                }),
+            )
+            .await;
+            assert_eq!(response.status(), StatusCode::OK);
+        }
+    }
+
+    #[tokio::test]
+    async fn provider_hls_key_rejects_channel_substitution_before_upstream_calls() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/consume/v1/playback/resolve"))
+            .respond_with(ResponseTemplate::new(500))
+            .expect(0)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/playbox-key"))
+            .respond_with(ResponseTemplate::new(500))
+            .expect(0)
+            .mount(&server)
+            .await;
+
+        let state = playbox_test_state(&server);
+        let key_url = format!("{}/playbox-key", server.uri());
+        let auth = encrypt_render_auth(&state, &key_url, "", "pb_source");
+        let response = render_key_handler(
+            State(state),
+            Query(SegmentQuery {
+                auth: Some(auth),
+                channel_key_id: Some("pb_target".into()),
+                hdnea: None,
+                q: None,
+            }),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        server.verify().await;
+    }
+
+    #[tokio::test]
+    async fn initial_hls_manifest_rejects_unbound_auth_before_upstream_calls() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/consume/v1/playback/resolve"))
+            .respond_with(ResponseTemplate::new(500))
+            .expect(0)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/foreign.m3u8"))
+            .respond_with(ResponseTemplate::new(500))
+            .expect(0)
+            .mount(&server)
+            .await;
+
+        let state = playbox_test_state(&server);
+        let auth = state
+            .secure
+            .encrypt(&format!("{}/foreign.m3u8", server.uri()));
+        let response = render_m3u8_inner(
+            state,
+            RenderQuery {
+                auth: Some(auth),
+                channel_key_id: Some("pb_target".into()),
+                q: None,
+                nested: None,
+            },
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        server.verify().await;
+    }
+
+    #[tokio::test]
+    async fn playbox_channels_route_through_shared_live_resolution() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/catalogue/v3/page/livetv2"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "livetv": [{"id": "ch1", "name": "One", "typeId": 106}]
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/consume/v1/playback/resolve"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "code": 200,
+                "data": {"url": {
+                    "playable": "https://cdn.example/ch1.mpd",
+                    "licenceUrl": "https://lic.example/wv",
+                    "token": "drm-token"
+                }}
+            })))
+            .mount(&server)
+            .await;
+
+        let state = playbox_test_state(&server);
+        let live = fetch_live(&state, "pb_ch1").await.unwrap();
+        assert_eq!(live.mpd.auto, "https://cdn.example/ch1.mpd");
+        assert!(live.is_drm);
+        assert!(state.is_drm_channel("pb_ch1"));
+
+        // A DASH-only provider channel is redirected to the shared MPD route.
+        let resp = live_impl_inner(&state, "pb_ch1", "auto", &None).await;
+        assert_eq!(resp.status(), axum::http::StatusCode::SEE_OTHER);
+        assert_eq!(
+            resp.headers()[axum::http::header::LOCATION],
+            "/live/mpd/pb_ch1?q=auto"
+        );
+    }
+
+    #[tokio::test]
+    async fn playbox_manifest_rejection_recovers_with_a_fresh_resolve() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use wiremock::matchers::{header, method, path};
+        use wiremock::{Mock, MockServer, Request, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        let stale_url = format!("{}/stale.m3u8", server.uri());
+        let fresh_url = format!("{}/fresh.m3u8", server.uri());
+        Mock::given(method("GET"))
+            .and(path("/catalogue/v3/page/livetv2"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "livetv": [{"id": "ch1", "name": "One", "typeId": 106}]
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let resolve_calls = Arc::new(AtomicUsize::new(0));
+        let resolve_calls_for_response = resolve_calls.clone();
+        let stale_for_response = stale_url.clone();
+        let fresh_for_response = fresh_url.clone();
+        Mock::given(method("POST"))
+            .and(path("/consume/v1/playback/resolve"))
+            .respond_with(move |_request: &Request| {
+                let first = resolve_calls_for_response.fetch_add(1, Ordering::SeqCst) == 0;
+                let playable = if first {
+                    stale_for_response.clone()
+                } else {
+                    fresh_for_response.clone()
+                };
+                let user_id = if first { "stale-user" } else { "fresh-user" };
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "code": 200,
+                    "data": {"url": {
+                        "playable": playable,
+                        "token": "media-token",
+                        "headers": {"user_id": user_id}
+                    }}
+                }))
+            })
+            .expect(2)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/stale.m3u8"))
+            .respond_with(ResponseTemplate::new(403))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/fresh.m3u8"))
+            .and(header("user_id", "fresh-user"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_string("#EXTM3U\n#EXT-X-TARGETDURATION:6\n#EXTINF:6,\nsegment.ts\n"),
+            )
+            .mount(&server)
+            .await;
+
+        let state = playbox_test_state(&server);
+        let first = state.playbox.live("pb_ch1").await.unwrap();
+        assert_eq!(first.bitrates.auto, stale_url);
+        assert!(state.playbox.playlist_ready("pb_ch1"));
+
+        let auth = encrypt_render_auth(
+            &state,
+            &stale_url,
+            &identity_scope(&stale_url, None),
+            "pb_ch1",
+        );
+        let resp = render_m3u8_inner(
+            state.clone(),
+            RenderQuery {
+                auth: Some(auth),
+                channel_key_id: Some("pb_ch1".into()),
+                q: None,
+                nested: None,
+            },
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(resolve_calls.load(Ordering::SeqCst), 2);
+        assert!(state.playbox.playlist_ready("pb_ch1"));
     }
 }

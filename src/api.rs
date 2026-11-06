@@ -12,7 +12,7 @@ use serde::Deserialize;
 use serde_json::json;
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::SystemTime;
 
 pub type SharedState = Arc<AppState>;
@@ -204,6 +204,32 @@ pub async fn status(State(state): State<SharedState>) -> Response {
         "jiotv": {"loggedIn": state.tv.logged_in()},
         "extras": {"enabled": state.extras.enabled(), "connected": state.extras.connected()},
         "fastway": {"enabled": state.fastway.enabled(), "connected": state.fastway.connected()},
+        "playbox": {
+            "enabled": state.playbox.enabled(),
+            "connected": state.playbox.connected(),
+            "artifact": {
+                "package": crate::playbox::PACKAGE,
+                "version": crate::playbox::VERSION_NAME,
+                "versionCode": crate::playbox::VERSION_CODE,
+                "sha256": crate::playbox::ARTIFACT_SHA256,
+            }
+        },
+        "tataplay": crate::tataplay::status(
+            state.config.tataplay,
+            crate::tataplay::Credentials::load(&state.store).is_some(),
+        ),
+        "vzy": {
+            "enabled": state.vzy.enabled(),
+            "connected": state.vzy.connected(),
+            "tier": "anonymous-free",
+            "artifact": {
+                "package": crate::vzy::PACKAGE,
+                "version": crate::vzy::VERSION_NAME,
+                "versionCode": crate::vzy::VERSION_CODE,
+                "sha256": crate::vzy::ARTIFACT_SHA256,
+            }
+        },
+        "vzyone": crate::vzyone::status(),
         "catalogue": {
             "activeProduct": state.active_product().as_str(),
             "extrasEntitlementsAvailable": state.extras.entitlements_available(),
@@ -606,6 +632,537 @@ pub async fn extras_lock(State(state): State<SharedState>) -> Response {
     Json(json!({"status": true, "extras": extras_status(&state)})).into_response()
 }
 
+/// OTP request body shared by the optional OTT providers.
+#[derive(Deserialize)]
+pub struct ProviderSendOtpBody {
+    pub number: String,
+}
+
+#[derive(Deserialize)]
+pub struct ProviderVerifyOtpBody {
+    pub number: String,
+    pub otp: String,
+}
+
+fn playbox_otp_limiter() -> &'static crate::unlock::AttemptLimiter {
+    static LIMITER: OnceLock<crate::unlock::AttemptLimiter> = OnceLock::new();
+    LIMITER.get_or_init(crate::unlock::AttemptLimiter::default)
+}
+
+fn playbox_otp_attempt(kind: &str, addr: SocketAddr) -> Option<String> {
+    let key = format!("{kind}:{}", addr.ip());
+    let now = SystemTime::now();
+    let limiter = playbox_otp_limiter();
+    if !limiter.allowed(&key, now) {
+        return None;
+    }
+    // Count before forwarding upstream so failed requests are limited too.
+    limiter.record_failure(&key, now);
+    Some(key)
+}
+
+/// `GET /api/playbox/status`
+pub async fn playbox_status(State(state): State<SharedState>) -> Response {
+    Json(json!({
+        "status": true,
+        "playbox": {
+            "enabled": state.playbox.enabled(),
+            "connected": state.playbox.connected(),
+        }
+    }))
+    .into_response()
+}
+
+/// `POST /api/playbox/login/sendOTP` — `POST communication` on the login
+/// gateway (see `playbox.rs`).
+pub async fn playbox_send_otp(
+    State(state): State<SharedState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    Json(body): Json<ProviderSendOtpBody>,
+) -> Response {
+    if !state.playbox.enabled() {
+        return err(StatusCode::BAD_REQUEST, "playbox is not enabled");
+    }
+    if playbox_otp_attempt("send", addr).is_none() {
+        return err(
+            StatusCode::TOO_MANY_REQUESTS,
+            "too many PlayboxTV OTP attempts, try again later",
+        );
+    }
+    match state
+        .playbox
+        .send_otp(&state.http, &state.store, &body.number)
+        .await
+    {
+        Ok(sent) => Json(json!({"status": sent})).into_response(),
+        Err(e) => err(StatusCode::BAD_REQUEST, e.to_string()),
+    }
+}
+
+/// `POST /api/playbox/login/verifyOTP` — rotates the context at both the
+/// credential-install boundary and after the session is fully loaded, exactly
+/// like the JioTV+ flow, so no old-account URL or cache survives a switch.
+pub async fn playbox_verify_otp(
+    State(state): State<SharedState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    Json(body): Json<ProviderVerifyOtpBody>,
+) -> Response {
+    if !state.playbox.enabled() {
+        return err(StatusCode::BAD_REQUEST, "playbox is not enabled");
+    }
+    let attempt_key = match playbox_otp_attempt("verify", addr) {
+        Some(key) => key,
+        None => {
+            return err(
+                StatusCode::TOO_MANY_REQUESTS,
+                "too many PlayboxTV OTP attempts, try again later",
+            )
+        }
+    };
+    let installed = std::sync::atomic::AtomicBool::new(false);
+    let result = state
+        .playbox
+        .verify_otp(&state.http, &state.store, &body.number, &body.otp, || {
+            installed.store(true, std::sync::atomic::Ordering::SeqCst);
+            state.invalidate_context();
+        })
+        .await;
+    if installed.load(std::sync::atomic::Ordering::SeqCst) {
+        state.invalidate_context();
+        crate::epg::trigger_regeneration(&state);
+    }
+    match result {
+        Ok(true) => {
+            playbox_otp_limiter().record_success(&attempt_key);
+            Json(json!({"status": true})).into_response()
+        }
+        Ok(false) => err(StatusCode::BAD_REQUEST, "wrong OTP"),
+        Err(e) => err(StatusCode::BAD_REQUEST, e.to_string()),
+    }
+}
+
+/// `POST /api/playbox/logout` — clears credentials and every account cache;
+/// the device identity is kept so a later login reuses the same slot.
+pub async fn playbox_logout(State(state): State<SharedState>) -> Response {
+    if state.config.disable_logout {
+        return err(StatusCode::FORBIDDEN, "logout is disabled");
+    }
+    state.invalidate_context();
+    match state.playbox.logout(&state.store).await {
+        Ok(()) => {
+            state.invalidate_context();
+            crate::epg::trigger_regeneration(&state);
+            Json(json!({"status": true})).into_response()
+        }
+        Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    }
+}
+
+/// `GET /api/playbox/channels` — the provider catalogue in the shared shape.
+pub async fn playbox_channels(State(state): State<SharedState>) -> Response {
+    if !state.playbox.enabled() {
+        return err(StatusCode::BAD_REQUEST, "playbox is not enabled");
+    }
+    if !state.playbox.connected() {
+        return err(StatusCode::UNAUTHORIZED, "playbox is not logged in");
+    }
+    if !state.playbox.ensure_catalogue().await {
+        return err(
+            StatusCode::BAD_GATEWAY,
+            "playbox: the channel catalogue could not be loaded",
+        );
+    }
+    let channels: Vec<_> = state
+        .playbox
+        .channels()
+        .into_iter()
+        .map(|ch| json!({"id": ch.id, "name": ch.name, "logo": ch.logo_url}))
+        .collect();
+    Json(json!({"status": true, "channels": channels})).into_response()
+}
+
+/// `GET /api/playbox/play/:id` — reports the resolved source kind and whether
+/// a license is required. The upstream URL, headers and DRM token stay
+/// server-side; playback itself goes through the normal `/live/...` flow.
+pub async fn playbox_play(Path(id): Path<String>, State(state): State<SharedState>) -> Response {
+    if !state.playbox.enabled() {
+        return err(StatusCode::BAD_REQUEST, "playbox is not enabled");
+    }
+    if crate::playbox::content_id(&id).is_none() {
+        return err(StatusCode::NOT_FOUND, "not a playbox channel");
+    }
+    if !state.channel_allowed(&id).await {
+        return err(
+            StatusCode::NOT_FOUND,
+            format!("Channel {id} is not available for the active account"),
+        );
+    }
+    match state.playbox.live(&id).await {
+        Ok(out) => {
+            let dash = !out.mpd.auto.is_empty();
+            Json(json!({
+                "status": true,
+                "dash": dash,
+                "license": out.is_drm,
+            }))
+            .into_response()
+        }
+        Err(e) => err(StatusCode::BAD_GATEWAY, e.to_string()),
+    }
+}
+
+/// `GET /api/playbox/subscription` — entitlement from the app's own
+/// `customer/{phone}/hasActivePacks` route, cached for ten minutes.
+pub async fn playbox_subscription(State(state): State<SharedState>) -> Response {
+    if !state.playbox.enabled() {
+        return err(StatusCode::BAD_REQUEST, "playbox is not enabled");
+    }
+    if !state.playbox.connected() {
+        return err(StatusCode::UNAUTHORIZED, "playbox is not logged in");
+    }
+    match state.playbox.subscription().await {
+        Some(entitled) => Json(json!({"status": true, "entitled": entitled})).into_response(),
+        None => err(
+            StatusCode::BAD_GATEWAY,
+            "playbox: subscription state is unavailable",
+        ),
+    }
+}
+
+/// `GET /api/playbox/epg/:id` — deliberately unavailable. The app's EPG
+/// response carries `day` + a display-only `startTime` string and no stop
+/// time, so an XMLTV programme cannot be produced without inventing one.
+pub async fn playbox_epg(Path(_id): Path<String>) -> Response {
+    err(
+        StatusCode::NOT_IMPLEMENTED,
+        "playbox EPG is unavailable: the client's weekly_epg response has no          programme end time and its startTime is display-only",
+    )
+}
+
+/// `GET /api/vzy/status`
+pub async fn vzy_status(State(state): State<SharedState>) -> Response {
+    Json(json!({
+        "status": true,
+        "vzy": {
+            "enabled": state.vzy.enabled(),
+            "connected": state.vzy.connected(),
+            "tier": "anonymous-free",
+            "artifact": {
+                "package": crate::vzy::PACKAGE,
+                "version": crate::vzy::VERSION_NAME,
+                "versionCode": crate::vzy::VERSION_CODE,
+                "sha256": crate::vzy::ARTIFACT_SHA256,
+            }
+        }
+    }))
+    .into_response()
+}
+
+/// `POST /api/vzy/logout` — drops the anonymous session and every free-tier
+/// cache; the next catalogue request starts a fresh anonymous session.
+pub async fn vzy_logout(State(state): State<SharedState>) -> Response {
+    if state.config.disable_logout {
+        return err(StatusCode::FORBIDDEN, "logout is disabled");
+    }
+    state.invalidate_context();
+    match state.vzy.logout(&state.store) {
+        Ok(()) => {
+            state.invalidate_context();
+            crate::epg::trigger_regeneration(&state);
+            Json(json!({"status": true})).into_response()
+        }
+        Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    }
+}
+
+/// `GET /api/vzy/channels` — free-tier catalogue only.
+pub async fn vzy_channels(State(state): State<SharedState>) -> Response {
+    if !state.vzy.enabled() {
+        return err(StatusCode::BAD_REQUEST, "vzy is not enabled");
+    }
+    if !state.vzy.ensure_catalogue(&state.store).await {
+        return err(
+            StatusCode::BAD_GATEWAY,
+            "vzy: the free-tier catalogue could not be loaded",
+        );
+    }
+    let channels: Vec<_> = state
+        .vzy
+        .channels()
+        .into_iter()
+        .map(|ch| json!({"id": ch.id, "name": ch.name, "logo": ch.logo_url}))
+        .collect();
+    Json(json!({"status": true, "channels": channels})).into_response()
+}
+
+/// `GET /api/vzy/play/:id` — source kind only; the URL stays server-side.
+pub async fn vzy_play(Path(id): Path<String>, State(state): State<SharedState>) -> Response {
+    if !state.vzy.enabled() {
+        return err(StatusCode::BAD_REQUEST, "vzy is not enabled");
+    }
+    if crate::vzy::parse_channel_id(&id).is_none() {
+        return err(StatusCode::NOT_FOUND, "not a vzy channel");
+    }
+    if !state.channel_allowed(&id).await {
+        return err(
+            StatusCode::NOT_FOUND,
+            format!("Channel {id} is not available for the active account"),
+        );
+    }
+    match state.vzy.live(&id, &state.store).await {
+        Ok(out) => {
+            let dash = !out.mpd.auto.is_empty();
+            Json(json!({"status": true, "dash": dash, "license": false})).into_response()
+        }
+        Err(e) => err(StatusCode::BAD_GATEWAY, e.to_string()),
+    }
+}
+
+/// `GET /api/vzy/epg/:id` — programme list for a free channel.
+pub async fn vzy_epg(Path(id): Path<String>, State(state): State<SharedState>) -> Response {
+    if !state.vzy.enabled() {
+        return err(StatusCode::BAD_REQUEST, "vzy is not enabled");
+    }
+    if crate::vzy::parse_channel_id(&id).is_none() {
+        return err(StatusCode::NOT_FOUND, "not a vzy channel");
+    }
+    match state.vzy.epg_source(&state.store).await {
+        Ok((_, programmes)) => {
+            let rows: Vec<_> = programmes
+                .into_iter()
+                .filter(|p| p.channel == id)
+                .map(
+                    |p| json!({"start": p.start, "stop": p.stop, "title": p.title, "desc": p.desc}),
+                )
+                .collect();
+            Json(json!({"status": true, "programmes": rows})).into_response()
+        }
+        Err(e) => err(StatusCode::BAD_GATEWAY, e.to_string()),
+    }
+}
+
+/// Tata Play Smart beta status. The provider is deliberately excluded from
+/// shared catalogue selection and the /live pipeline.
+pub async fn tataplay_status(State(state): State<SharedState>) -> Response {
+    Json(json!({
+        "status": true,
+        "tataplay": crate::tataplay::status(
+            state.config.tataplay,
+            crate::tataplay::Credentials::load(&state.store).is_some(),
+        )
+    }))
+    .into_response()
+}
+
+#[derive(Deserialize)]
+pub struct TataplaySendOtpBody {
+    pub number: String,
+    #[serde(default)]
+    pub sid: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TataplayVerifyOtpBody {
+    pub otp: String,
+    pub ref_id: String,
+    pub ref_id_mode: bool,
+}
+
+#[derive(Deserialize)]
+pub struct TataplayCatalogueQuery {
+    #[serde(default)]
+    pub limit: Option<u32>,
+    #[serde(default)]
+    pub offset: Option<u32>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TataplayEntitlementQuery {
+    #[serde(default)]
+    pub force_refresh: Option<bool>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TataplayPlayQuery {
+    #[serde(default)]
+    pub content_type: Option<String>,
+}
+
+fn tataplay_enabled(state: &AppState) -> Option<Response> {
+    if state.config.tataplay {
+        None
+    } else {
+        Some(err(StatusCode::BAD_REQUEST, "tataplay beta is not enabled"))
+    }
+}
+
+fn tataplay_connected(state: &AppState) -> Option<Response> {
+    if let Some(response) = tataplay_enabled(state) {
+        return Some(response);
+    }
+    if crate::tataplay::Credentials::load(&state.store).is_some() {
+        None
+    } else {
+        Some(err(StatusCode::UNAUTHORIZED, "tataplay is not logged in"))
+    }
+}
+
+pub async fn tataplay_send_otp(
+    State(state): State<SharedState>,
+    Json(body): Json<TataplaySendOtpBody>,
+) -> Response {
+    if let Some(response) = tataplay_enabled(&state) {
+        return response;
+    }
+    let client = match crate::tataplay::Client::from_store(state.http.clone(), &state.store) {
+        Ok(client) => client,
+        Err(e) => return err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    };
+    match client
+        .send_otp(
+            &state.store,
+            &body.number,
+            body.sid.as_deref().unwrap_or(""),
+        )
+        .await
+    {
+        Ok(refs) => Json(json!({"status": true, "accounts": refs})).into_response(),
+        Err(e) => err(StatusCode::BAD_REQUEST, e.to_string()),
+    }
+}
+
+pub async fn tataplay_verify_otp(
+    State(state): State<SharedState>,
+    Json(body): Json<TataplayVerifyOtpBody>,
+) -> Response {
+    if let Some(response) = tataplay_enabled(&state) {
+        return response;
+    }
+    let client = match crate::tataplay::Client::from_store(state.http.clone(), &state.store) {
+        Ok(client) => client,
+        Err(e) => return err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    };
+    match client
+        .verify_otp(&state.store, &body.otp, &body.ref_id, body.ref_id_mode)
+        .await
+    {
+        Ok(_) => Json(json!({"status": true, "connected": true})).into_response(),
+        Err(e) => err(StatusCode::BAD_REQUEST, e.to_string()),
+    }
+}
+
+pub async fn tataplay_refresh(State(state): State<SharedState>) -> Response {
+    if let Some(response) = tataplay_connected(&state) {
+        return response;
+    }
+    let client = match crate::tataplay::Client::from_store(state.http.clone(), &state.store) {
+        Ok(client) => client,
+        Err(e) => return err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    };
+    match client.refresh(&state.store).await {
+        Ok(_) => Json(json!({"status": true})).into_response(),
+        Err(e) => err(StatusCode::BAD_GATEWAY, e.to_string()),
+    }
+}
+
+pub async fn tataplay_logout(State(state): State<SharedState>) -> Response {
+    if state.config.disable_logout {
+        return err(StatusCode::FORBIDDEN, "logout is disabled");
+    }
+    if let Some(response) = tataplay_enabled(&state) {
+        return response;
+    }
+    match crate::tataplay::logout(&state.store).await {
+        Ok(()) => Json(json!({"status": true})).into_response(),
+        Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    }
+}
+
+pub async fn tataplay_catalogue_seed(
+    State(state): State<SharedState>,
+    Query(query): Query<TataplayCatalogueQuery>,
+) -> Response {
+    if let Some(response) = tataplay_enabled(&state) {
+        return response;
+    }
+    let client = match crate::tataplay::Client::from_store(state.http.clone(), &state.store) {
+        Ok(client) => client,
+        Err(e) => return err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    };
+    match client
+        .catalogue_seed(query.limit.unwrap_or(100), query.offset.unwrap_or(0))
+        .await
+    {
+        Ok(seed) => Json(json!({"status": true, "seed": seed})).into_response(),
+        Err(e) => err(StatusCode::BAD_GATEWAY, e.to_string()),
+    }
+}
+
+pub async fn tataplay_epg(
+    State(state): State<SharedState>,
+    Query(query): Query<crate::tataplay::GuideQuery>,
+) -> Response {
+    if let Some(response) = tataplay_enabled(&state) {
+        return response;
+    }
+    let client = match crate::tataplay::Client::from_store(state.http.clone(), &state.store) {
+        Ok(client) => client,
+        Err(e) => return err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    };
+    match client.guide(&query).await {
+        Ok(guide) => Json(json!({"status": true, "guide": guide})).into_response(),
+        Err(e) => err(StatusCode::BAD_GATEWAY, e.to_string()),
+    }
+}
+
+pub async fn tataplay_entitlement(
+    State(state): State<SharedState>,
+    Query(query): Query<TataplayEntitlementQuery>,
+) -> Response {
+    if let Some(response) = tataplay_connected(&state) {
+        return response;
+    }
+    let client = match crate::tataplay::Client::from_store(state.http.clone(), &state.store) {
+        Ok(client) => client,
+        Err(e) => return err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    };
+    match client.entitlement(query.force_refresh).await {
+        Ok(entitlement) => {
+            Json(json!({"status": true, "entitlement": entitlement})).into_response()
+        }
+        Err(e) => err(StatusCode::BAD_GATEWAY, e.to_string()),
+    }
+}
+
+pub async fn tataplay_play(
+    Path(id): Path<String>,
+    State(state): State<SharedState>,
+    Query(query): Query<TataplayPlayQuery>,
+) -> Response {
+    if let Some(response) = tataplay_connected(&state) {
+        return response;
+    }
+    let client = match crate::tataplay::Client::from_store(state.http.clone(), &state.store) {
+        Ok(client) => client,
+        Err(e) => return err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    };
+    match client
+        .access_control(&id, query.content_type.as_deref().unwrap_or("LIVE"))
+        .await
+    {
+        Ok(access) => Json(json!({"status": true, "access": access})).into_response(),
+        Err(e) => err(StatusCode::BAD_GATEWAY, e.to_string()),
+    }
+}
+
+/// `GET /api/vzyone/status` — provenance record for the mislabelled artifact.
+pub async fn vzyone_status() -> Response {
+    Json(json!({"status": true, "vzyone": crate::vzyone::status()})).into_response()
+}
+
 /// `GET /api/live/play/:id?q=` — resolves a live channel to what the
 /// in-app player needs, the same shape `/api/ott/play/:id` gives plus an
 /// optional HLS alternative, so `Watch.svelte` can use
@@ -666,7 +1223,7 @@ fn live_play_response_from_live(
             &live_url,
             crate::stream::absolute_base_from_live(live).as_deref(),
         );
-        let encrypted = state.secure.encrypt(&abs);
+        let encrypted = crate::stream::encrypt_root_render_auth(state, &abs, id);
         // Carry a forced quality so a 404 recovery retries it before `auto`.
         let q = if hls_quality == "auto" {
             String::new()
@@ -713,6 +1270,10 @@ mod tests {
 
     use crate::config::Config;
 
+    fn test_connect_info(last_octet: u8) -> ConnectInfo<SocketAddr> {
+        ConnectInfo(SocketAddr::from(([127, 0, 0, last_octet], 5000)))
+    }
+
     fn state() -> Arc<AppState> {
         let dir = tempfile::tempdir().unwrap();
         let store = Arc::new(Store::open(dir.path().to_str().unwrap()).unwrap());
@@ -752,6 +1313,8 @@ mod tests {
             epg_state: Default::default(),
             extras,
             fastway,
+            playbox: Arc::new(crate::playbox_state::PlayboxState::new(false)),
+            vzy: Arc::new(crate::vzy_state::VzyState::new(false)),
             vod_state: Default::default(),
             public_ip: Arc::new(crate::unlock::PublicIp::new(reqwest::Client::new())),
             unlock_limiter: Arc::new(crate::unlock::AttemptLimiter::default()),
@@ -1246,7 +1809,7 @@ mod tests {
         }
     }
 
-    fn decrypted_hls(s: &AppState, url: &str) -> (String, String) {
+    fn decrypted_hls(s: &AppState, url: &str) -> (String, String, String) {
         let query = url.split_once('?').unwrap().1;
         let param = |name: &str| {
             query
@@ -1255,7 +1818,9 @@ mod tests {
                 .unwrap_or_default()
                 .to_string()
         };
-        (s.secure.decrypt(&param("auth")).unwrap(), param("q"))
+        let (source, _, channel_id) =
+            crate::stream::decrypt_render_auth(s, &param("auth")).unwrap();
+        (source, param("q"), channel_id.unwrap_or_default())
     }
 
     #[tokio::test]
@@ -1268,9 +1833,10 @@ mod tests {
             "high",
         ))
         .await;
-        let (source, q) = decrypted_hls(&s, json["url"].as_str().unwrap());
+        let (source, q, channel_id) = decrypted_hls(&s, json["url"].as_str().unwrap());
         assert!(source.ends_with("/high.m3u8"));
         assert_eq!(q, "high");
+        assert_eq!(channel_id, "ex_hls");
     }
 
     #[tokio::test]
@@ -1284,9 +1850,10 @@ mod tests {
                 "high",
             ))
             .await;
-            let (source, q) = decrypted_hls(&s, json["url"].as_str().unwrap());
+            let (source, q, channel_id) = decrypted_hls(&s, json["url"].as_str().unwrap());
             assert!(source.ends_with("/auto.m3u8"), "channel {id}");
             assert_eq!(q, "", "channel {id}");
+            assert_eq!(channel_id, id);
         }
     }
 
@@ -1307,5 +1874,276 @@ mod tests {
         assert!(session_cookie_header("abc", true).ends_with("; Secure"));
         assert!(!session_cookie_header("abc", false).contains("Secure"));
         assert!(session_cookie_header("abc", true).contains("HttpOnly; SameSite=Strict"));
+    }
+
+    #[tokio::test]
+    async fn status_reports_all_three_providers() {
+        let json = response_json(status(State(state())).await).await;
+        assert!(json.get("playbox").is_some());
+        assert!(json.get("tataplay").is_some());
+        assert!(json.get("vzyone").is_some());
+        assert_eq!(json["playbox"]["connected"], false);
+        assert_eq!(json["tataplay"]["enabled"], false);
+        assert_eq!(json["tataplay"]["sharedPlayback"], false);
+        assert_eq!(json["vzyone"]["provider"], false);
+        assert_eq!(json["vzyone"]["package"], "com.uptodown");
+    }
+
+    #[tokio::test]
+    async fn disabled_providers_reject_login() {
+        let s = state();
+        let resp = playbox_send_otp(
+            State(s.clone()),
+            test_connect_info(10),
+            Json(ProviderSendOtpBody {
+                number: "9876543210".into(),
+            }),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let resp = playbox_play(Path("pb_x".into()), State(s.clone())).await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let resp = tataplay_send_otp(
+            State(s),
+            Json(TataplaySendOtpBody {
+                number: "9876543210".into(),
+                sid: None,
+            }),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    fn playbox_state_for_api(base: &str) -> Arc<AppState> {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(Store::open(dir.path().to_str().unwrap()).unwrap());
+        std::mem::forget(dir);
+        let state = crate::playbox_state::PlayboxState::new(true);
+        state.set_base_for_test(base);
+        let cfg = Config {
+            playbox: true,
+            ..Default::default()
+        };
+        Arc::new(AppState {
+            config: cfg,
+            path_prefix: String::new(),
+            access: Arc::new(Access::new(store.clone())),
+            store,
+            tv: Arc::new(Television::new(reqwest::Client::new())),
+            secure: Arc::new(SecureUrl::new(false)),
+            http: reqwest::Client::new(),
+            drm_channels: Default::default(),
+            custom_channels: Arc::new(crate::custom_channels::CustomChannels::new()),
+            render_caches: Default::default(),
+            dash_state: Default::default(),
+            epg_state: Default::default(),
+            extras: Arc::new(crate::extras_state::ExtrasState::new(false, None)),
+            fastway: Arc::new(crate::fastway_state::FastwayState::new(false)),
+            playbox: Arc::new(state),
+            vzy: Arc::new(crate::vzy_state::VzyState::new(false)),
+            vod_state: Default::default(),
+            public_ip: Arc::new(crate::unlock::PublicIp::new(reqwest::Client::new())),
+            unlock_limiter: Arc::new(crate::unlock::AttemptLimiter::default()),
+            listen: Default::default(),
+            tunnel_origin: Default::default(),
+        })
+    }
+
+    #[tokio::test]
+    async fn rejected_playbox_otp_does_not_rotate_the_context() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/login/v2/communication/otp/verify"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "statusCode": 401, "message": "invalid OTP"
+            })))
+            .mount(&server)
+            .await;
+        let s = playbox_state_for_api(&server.uri());
+        let before = s.secure.current_epoch();
+        let resp = playbox_verify_otp(
+            State(s.clone()),
+            test_connect_info(11),
+            Json(ProviderVerifyOtpBody {
+                number: "9876543210".into(),
+                otp: "000000".into(),
+            }),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(s.secure.current_epoch(), before);
+    }
+
+    #[tokio::test]
+    async fn accepted_playbox_otp_rotates_the_context_twice() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/login/v2/communication/otp/verify"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "statusCode": 200,
+                "data": {"token": "opaque-session-token", "phone": "9876543210", "customer_id": "cust-1"}
+            })))
+            .mount(&server)
+            .await;
+        let s = playbox_state_for_api(&server.uri());
+        let before = s.secure.current_epoch();
+        let resp = playbox_verify_otp(
+            State(s.clone()),
+            test_connect_info(12),
+            Json(ProviderVerifyOtpBody {
+                number: "9876543210".into(),
+                otp: "123456".into(),
+            }),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(s.secure.current_epoch(), before + 2);
+        assert!(s.playbox.connected());
+    }
+
+    #[tokio::test]
+    async fn playbox_send_otp_is_rate_limited_before_upstream() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/login/v2/communication"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "statusCode": 200
+            })))
+            .expect(5)
+            .mount(&server)
+            .await;
+        let s = playbox_state_for_api(&server.uri());
+        for _ in 0..5 {
+            let resp = playbox_send_otp(
+                State(s.clone()),
+                test_connect_info(55),
+                Json(ProviderSendOtpBody {
+                    number: "9876543210".into(),
+                }),
+            )
+            .await;
+            assert_eq!(resp.status(), StatusCode::OK);
+        }
+        let resp = playbox_send_otp(
+            State(s),
+            test_connect_info(55),
+            Json(ProviderSendOtpBody {
+                number: "9876543210".into(),
+            }),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
+    }
+
+    #[tokio::test]
+    async fn playbox_logout_clears_credentials_and_rotates_twice() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(Store::open(dir.path().to_str().unwrap()).unwrap());
+        std::mem::forget(dir);
+        store
+            .set(
+                crate::playbox::STORE_KEY_CREDENTIALS,
+                &serde_json::json!({"phone": "9876543210", "token": "AT"}).to_string(),
+            )
+            .unwrap();
+        let cfg = Config {
+            playbox: true,
+            ..Default::default()
+        };
+        let s = Arc::new(AppState {
+            config: cfg,
+            path_prefix: String::new(),
+            access: Arc::new(Access::new(store.clone())),
+            store: store.clone(),
+            tv: Arc::new(Television::new(reqwest::Client::new())),
+            secure: Arc::new(SecureUrl::new(false)),
+            http: reqwest::Client::new(),
+            drm_channels: Default::default(),
+            custom_channels: Arc::new(crate::custom_channels::CustomChannels::new()),
+            render_caches: Default::default(),
+            dash_state: Default::default(),
+            epg_state: Default::default(),
+            extras: Arc::new(crate::extras_state::ExtrasState::new(false, None)),
+            fastway: Arc::new(crate::fastway_state::FastwayState::new(false)),
+            playbox: Arc::new(crate::playbox_state::PlayboxState::new(true)),
+            vzy: Arc::new(crate::vzy_state::VzyState::new(false)),
+            vod_state: Default::default(),
+            public_ip: Arc::new(crate::unlock::PublicIp::new(reqwest::Client::new())),
+            unlock_limiter: Arc::new(crate::unlock::AttemptLimiter::default()),
+            listen: Default::default(),
+            tunnel_origin: Default::default(),
+        });
+        s.playbox.init(&s.http, &s.store);
+        assert!(s.playbox.connected());
+        let before = s.secure.current_epoch();
+        let resp = playbox_logout(State(s.clone())).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(s.secure.current_epoch(), before + 2);
+        assert!(!s.playbox.connected());
+        assert!(store
+            .get_opt(crate::playbox::STORE_KEY_CREDENTIALS)
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn tataplay_status_reports_isolated_beta_capabilities() {
+        let s = state();
+        let json = response_json(tataplay_status(State(s)).await).await;
+        assert_eq!(json["tataplay"]["enabled"], false);
+        assert_eq!(json["tataplay"]["beta"], true);
+        assert_eq!(json["tataplay"]["implemented"]["login"], true);
+        assert_eq!(json["tataplay"]["implemented"]["catalogueSeed"], true);
+        assert_eq!(json["tataplay"]["implemented"]["sharedCatalogue"], false);
+        assert_eq!(json["tataplay"]["implemented"]["liveProxy"], false);
+        assert_eq!(json["tataplay"]["implemented"]["licenseProxy"], false);
+    }
+
+    #[tokio::test]
+    async fn vzy_status_reports_the_free_tier() {
+        let json = response_json(vzy_status(State(state())).await).await;
+        assert_eq!(json["vzy"]["enabled"], false);
+        assert_eq!(json["vzy"]["tier"], "anonymous-free");
+        let status = response_json(status(State(state())).await).await;
+        assert_eq!(status["vzy"]["tier"], "anonymous-free");
+    }
+
+    #[tokio::test]
+    async fn disabled_vzy_rejects_catalogue_and_playback() {
+        let s = state();
+        let resp = vzy_channels(State(s.clone())).await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let resp = vzy_play(Path("vzy_1".into()), State(s)).await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn vzyone_status_is_an_identity_record_only() {
+        let json = response_json(vzyone_status().await).await;
+        assert_eq!(json["vzyone"]["package"], "com.uptodown");
+        assert_eq!(json["vzyone"]["provider"], false);
+    }
+
+    #[tokio::test]
+    async fn playbox_epg_is_explicitly_unavailable() {
+        let resp = playbox_epg(Path("pb_ch1".into())).await;
+        assert_eq!(resp.status(), StatusCode::NOT_IMPLEMENTED);
+        let json = response_json(resp).await;
+        assert!(
+            json["message"]
+                .as_str()
+                .unwrap()
+                .contains("playbox EPG is unavailable"),
+            "{json}"
+        );
+        assert!(json["message"].as_str().unwrap().contains("startTime"));
     }
 }

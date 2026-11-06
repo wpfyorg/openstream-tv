@@ -713,10 +713,28 @@ impl Television {
     /// `__hdnea__` the upstream set via `Set-Cookie` — mirroring
     /// `Television.Render`.
     pub async fn render(&self, stream_url: &str, hdnea_token: &str) -> (Vec<u8>, u16, String) {
-        let mut req = self
-            .client
-            .get(stream_url)
-            .header("User-Agent", PLAYER_USER_AGENT);
+        self.render_with_headers(stream_url, hdnea_token, &[]).await
+    }
+
+    /// Same as `render`, plus provider headers that the upstream CDN requires
+    /// (PlayboxTV returns its media headers with the resolved playback URL).
+    pub async fn render_with_headers(
+        &self,
+        stream_url: &str,
+        hdnea_token: &str,
+        extra_headers: &[(String, String)],
+    ) -> (Vec<u8>, u16, String) {
+        let mut req = self.client.get(stream_url);
+        let mut has_user_agent = false;
+        for (name, value) in extra_headers {
+            if name.eq_ignore_ascii_case("user-agent") {
+                has_user_agent = true;
+            }
+            req = req.header(name.as_str(), value.as_str());
+        }
+        if !has_user_agent {
+            req = req.header("User-Agent", PLAYER_USER_AGENT);
+        }
         let token = if !hdnea_token.is_empty() {
             Some(hdnea_token.to_string())
         } else {

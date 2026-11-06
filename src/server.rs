@@ -21,12 +21,12 @@
 
 use crate::api::KeyPrefix;
 use crate::state::AppState;
-use axum::Router;
 use axum::body::Body;
 use axum::extract::{Query, Request, State};
-use axum::http::{StatusCode, header};
+use axum::http::{header, StatusCode};
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
+use axum::Router;
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::future::Future;
@@ -93,6 +93,50 @@ fn api_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/api/extras/logout", post(crate::api::extras_logout))
         .route("/api/extras/unlock", post(crate::api::extras_unlock))
         .route("/api/extras/lock", post(crate::api::extras_lock))
+        .route("/api/playbox/status", get(crate::api::playbox_status))
+        .route(
+            "/api/playbox/login/sendOTP",
+            post(crate::api::playbox_send_otp),
+        )
+        .route(
+            "/api/playbox/login/verifyOTP",
+            post(crate::api::playbox_verify_otp),
+        )
+        .route("/api/playbox/logout", post(crate::api::playbox_logout))
+        .route("/api/playbox/channels", get(crate::api::playbox_channels))
+        .route("/api/playbox/play/:id", get(crate::api::playbox_play))
+        .route(
+            "/api/playbox/subscription",
+            get(crate::api::playbox_subscription),
+        )
+        .route("/api/playbox/epg/:id", get(crate::api::playbox_epg))
+        .route("/api/vzy/status", get(crate::api::vzy_status))
+        .route("/api/vzy/channels", get(crate::api::vzy_channels))
+        .route("/api/vzy/play/:id", get(crate::api::vzy_play))
+        .route("/api/vzy/epg/:id", get(crate::api::vzy_epg))
+        .route("/api/vzy/logout", post(crate::api::vzy_logout))
+        .route("/api/tataplay/status", get(crate::api::tataplay_status))
+        .route(
+            "/api/tataplay/login/sendOTP",
+            post(crate::api::tataplay_send_otp),
+        )
+        .route(
+            "/api/tataplay/login/verifyOTP",
+            post(crate::api::tataplay_verify_otp),
+        )
+        .route("/api/tataplay/refresh", post(crate::api::tataplay_refresh))
+        .route("/api/tataplay/logout", post(crate::api::tataplay_logout))
+        .route(
+            "/api/tataplay/catalogue-seed",
+            get(crate::api::tataplay_catalogue_seed),
+        )
+        .route("/api/tataplay/epg", get(crate::api::tataplay_epg))
+        .route(
+            "/api/tataplay/entitlement",
+            get(crate::api::tataplay_entitlement),
+        )
+        .route("/api/tataplay/play/:id", get(crate::api::tataplay_play))
+        .route("/api/vzyone/status", get(crate::api::vzyone_status))
         .route("/api/ott/search", get(crate::vod::api_ott_search))
         .route("/api/ott/screen/:id", get(crate::vod::api_ott_screen))
         .route("/api/ott/show/:id", get(crate::vod::api_ott_episodes))
@@ -358,6 +402,10 @@ async fn channels_or_playlist(
         return axum::Json(channels).into_response();
     }
 
+    if matches!(state.active_product(), crate::state::ActiveProduct::Playbox) {
+        state.playbox.prepare_playlist_metadata().await;
+    }
+
     let host_url = base_url(&state, &https, &prefix, &headers);
     let empty = String::new();
     let opts = crate::television::PlaylistOptions {
@@ -373,7 +421,13 @@ async fn channels_or_playlist(
         &opts,
         |id| state.is_drm_channel(id),
         |id| state.is_dash_channel(id),
-        |id| state.is_playable(id),
+        |id| {
+            if crate::playbox::is_playbox_channel(id) {
+                state.playbox.playlist_ready(id)
+            } else {
+                state.is_playable(id)
+            }
+        },
     );
 
     Response::builder()
@@ -403,7 +457,7 @@ fn base_url(
             Some(&state.config.public_origin)
         },
     );
-    let p = prefix.as_ref().map(|e| e.0.0.clone()).unwrap_or_default();
+    let p = prefix.as_ref().map(|e| e.0 .0.clone()).unwrap_or_default();
     format!("{origin}{p}")
 }
 
@@ -504,6 +558,8 @@ mod tests {
             epg_state: Default::default(),
             extras: Arc::new(crate::extras_state::ExtrasState::new(false, None)),
             fastway: Arc::new(crate::fastway_state::FastwayState::new(false)),
+            playbox: Arc::new(crate::playbox_state::PlayboxState::new(false)),
+            vzy: Arc::new(crate::vzy_state::VzyState::new(false)),
             vod_state: Default::default(),
             public_ip: Arc::new(crate::unlock::PublicIp::new(reqwest::Client::new())),
             unlock_limiter: Arc::new(crate::unlock::AttemptLimiter::default()),
@@ -633,14 +689,29 @@ mod tests {
         let segment_path = temp.path().join("fixture.ts");
         let ffmpeg = std::process::Command::new("ffmpeg")
             .args([
-                "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i",
-                "testsrc=size=160x90:rate=10", "-t", "2", "-an", "-c:v", "mpeg2video",
-                "-f", "mpegts",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                "testsrc=size=160x90:rate=10",
+                "-t",
+                "2",
+                "-an",
+                "-c:v",
+                "mpeg2video",
+                "-f",
+                "mpegts",
             ])
             .arg(&segment_path)
             .output()
             .expect("ffmpeg must be installed to create the deterministic media fixture");
-        assert!(ffmpeg.status.success(), "ffmpeg fixture generation failed: {}", String::from_utf8_lossy(&ffmpeg.stderr));
+        assert!(
+            ffmpeg.status.success(),
+            "ffmpeg fixture generation failed: {}",
+            String::from_utf8_lossy(&ffmpeg.stderr)
+        );
         let segment = std::fs::read(&segment_path).unwrap();
 
         let upstream = MockServer::start().await;
@@ -686,13 +757,8 @@ mod tests {
 
         let key = state.access.key().unwrap();
         let tls_dir = temp.path().join("tls");
-        let material = crate::tls::load_or_create(
-            "",
-            "",
-            tls_dir.to_str().unwrap(),
-            "127.0.0.1",
-        )
-        .unwrap();
+        let material =
+            crate::tls::load_or_create("", "", tls_dir.to_str().unwrap(), "127.0.0.1").unwrap();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
         Arc::get_mut(&mut state).unwrap().config.public_origin =
@@ -725,13 +791,13 @@ mod tests {
         assert!(stream_url.starts_with(&format!("https://127.0.0.1:{port}/k/{key}/")));
 
         let ffprobe = tokio::process::Command::new("ffprobe")
-            .args([
-                "-v", "error", "-tls_verify", "1", "-ca_file",
-            ])
+            .args(["-v", "error", "-tls_verify", "1", "-ca_file"])
             .arg(tls_dir.join("tls/cert.pem"))
             .args([
                 "-show_entries",
-                "stream=codec_name,codec_type,width,height", "-of", "json",
+                "stream=codec_name,codec_type,width,height",
+                "-of",
+                "json",
             ])
             .arg(&stream_url)
             .output();
@@ -739,7 +805,11 @@ mod tests {
             .await
             .expect("ffprobe timed out while fetching the generated playlist")
             .expect("ffprobe must be installed to verify IPTV playback");
-        assert!(ffprobe.status.success(), "ffprobe failed: {}", String::from_utf8_lossy(&ffprobe.stderr));
+        assert!(
+            ffprobe.status.success(),
+            "ffprobe failed: {}",
+            String::from_utf8_lossy(&ffprobe.stderr)
+        );
         let probe: serde_json::Value = serde_json::from_slice(&ffprobe.stdout).unwrap();
         let video = probe["streams"]
             .as_array()
@@ -1046,8 +1116,8 @@ mod tests {
             .load(custom_path.to_str().unwrap())
             .unwrap();
         let key = state.access.key().unwrap();
-        let enc_host = state.secure.encrypt_deterministic(&mock_addr);
-        let enc_path = state.secure.encrypt_deterministic("/seg/");
+        let enc_host = crate::dash::encrypt_dash_route_value(&state.secure, "custom1", &mock_addr);
+        let enc_path = crate::dash::encrypt_dash_route_value(&state.secure, "custom1", "/seg/");
         let path = format!("/render.dash/channel/custom1/host/{enc_host}/path/{enc_path}/init.mp4");
 
         // /render.dash is an open path (no key needed), but it's still a

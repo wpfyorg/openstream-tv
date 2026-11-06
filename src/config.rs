@@ -20,6 +20,17 @@ pub struct Config {
     /// Enables the optional Fastway Live TV provider. It still needs
     /// `ost fastway login` (or the Settings card) before channels appear.
     pub fastway: bool,
+    /// Optional PlayboxTV account, backed by the reverse-engineered
+    /// `playboxtv.tv.android.in` client (see `docs/ott-providers/playbox.md`).
+    /// Off by default.
+    #[serde(default)]
+    pub playbox: bool,
+    /// Experimental Tata Play Smart diagnostic provider. Off by default.
+    #[serde(default)]
+    pub tataplay: bool,
+    /// VZY (Dish/Watcho white-label) free tier. Off by default.
+    #[serde(default)]
+    pub vzy: bool,
     pub disable_auth: bool,
     pub title: String,
     pub disable_url_encryption: bool,
@@ -49,6 +60,9 @@ impl Default for Config {
             drm: true,
             extras: false,
             fastway: false,
+            playbox: false,
+            tataplay: false,
+            vzy: false,
             disable_auth: false,
             title: "OpenStream TV".to_string(),
             disable_url_encryption: false,
@@ -132,6 +146,9 @@ impl Config {
         }
         env_bool!(extras, "JIOTV_TVPLUS", "OPENSTREAM_TVPLUS");
         env_bool!(fastway, "JIOTV_FASTWAY", "OPENSTREAM_FASTWAY");
+        env_bool!(playbox, "JIOTV_PLAYBOX", "OPENSTREAM_PLAYBOX");
+        env_bool!(tataplay, "JIOTV_TATAPLAY", "OPENSTREAM_TATAPLAY");
+        env_bool!(vzy, "JIOTV_VZY", "OPENSTREAM_VZY");
         env_bool!(
             disable_auth,
             "JIOTV_DISABLE_AUTH",
@@ -270,6 +287,73 @@ mod tests {
         assert!(cfg.extras);
         std::env::remove_var("OPENSTREAM_TVPLUS");
         std::env::remove_var("JIOTV_TVPLUS");
+    }
+
+    #[test]
+    fn playbox_is_off_by_default_and_can_be_enabled() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        assert!(!Config::default().playbox);
+        std::env::set_var("JIOTV_PLAYBOX", "true");
+        let cfg = Config::load(None).unwrap();
+        assert!(cfg.playbox);
+        std::env::remove_var("JIOTV_PLAYBOX");
+    }
+
+    #[test]
+    fn vzy_is_off_by_default_and_can_be_enabled() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        assert!(!Config::default().vzy);
+        std::env::set_var("JIOTV_VZY", "true");
+        let cfg = Config::load(None).unwrap();
+        assert!(cfg.vzy);
+        std::env::remove_var("JIOTV_VZY");
+    }
+
+    #[test]
+    fn toml_vzy_key_is_read() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("jiotv_go.toml");
+        std::fs::write(&path, "vzy = true\n").unwrap();
+        assert!(Config::load(Some(path.to_str().unwrap())).unwrap().vzy);
+    }
+
+    #[test]
+    fn toml_playbox_key_is_read() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("jiotv_go.toml");
+        std::fs::write(&path, "playbox = true\n").unwrap();
+        assert!(Config::load(Some(path.to_str().unwrap())).unwrap().playbox);
+    }
+
+    #[test]
+    fn tataplay_is_off_by_default_and_can_be_enabled() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        assert!(!Config::default().tataplay);
+        std::env::set_var("JIOTV_TATAPLAY", "true");
+        let cfg = Config::load(None).unwrap();
+        assert!(cfg.tataplay);
+        std::env::remove_var("JIOTV_TATAPLAY");
+    }
+
+    #[test]
+    fn toml_tataplay_key_is_read() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("jiotv_go.toml");
+        std::fs::write(&path, "tataplay = true\n").unwrap();
+        assert!(Config::load(Some(path.to_str().unwrap())).unwrap().tataplay);
+    }
+
+    #[test]
+    fn removed_vzyone_switch_is_not_configuration() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::set_var("JIOTV_VZYONE", "true");
+        let cfg = Config::load(None).unwrap();
+        assert!(!cfg.playbox);
+        assert!(!cfg.tataplay);
+        std::env::remove_var("JIOTV_VZYONE");
     }
 
     #[test]

@@ -19,6 +19,37 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const DRM_MPD_CACHE_TTL: Duration = Duration::from_secs(30);
+const DASH_ROUTE_BINDING_PREFIX: &str = "openstream-dash-v1:";
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct DashRouteBinding {
+    channel_id: String,
+    value: String,
+}
+
+pub(crate) fn encrypt_dash_route_value(
+    secure: &crate::secureurl::SecureUrl,
+    channel_id: &str,
+    value: &str,
+) -> String {
+    let payload = DashRouteBinding {
+        channel_id: channel_id.to_string(),
+        value: value.to_string(),
+    };
+    let serialized = serde_json::to_string(&payload).expect("dash route binding serializes");
+    secure.encrypt_deterministic(&format!("{DASH_ROUTE_BINDING_PREFIX}{serialized}"))
+}
+
+fn decrypt_dash_route_value(
+    secure: &crate::secureurl::SecureUrl,
+    channel_id: &str,
+    encrypted: &str,
+) -> Option<String> {
+    let decoded = secure.decrypt(encrypted).ok()?;
+    let serialized = decoded.strip_prefix(DASH_ROUTE_BINDING_PREFIX)?;
+    let payload: DashRouteBinding = serde_json::from_str(serialized).ok()?;
+    (payload.channel_id == channel_id).then_some(payload.value)
+}
 
 #[derive(Clone, Default)]
 pub struct DrmMpdOutput {
@@ -251,9 +282,10 @@ pub(crate) fn build_drm_mpd_output(
         });
     }
 
-    let channel_enc_url = state.secure.encrypt(&tv_url);
+    let channel_enc_url = encrypt_dash_route_value(&state.secure, channel_id, &tv_url);
     let license_url = if !live.resolved_license_url().is_empty() {
-        let enc_key = state.secure.encrypt(live.resolved_license_url());
+        let enc_key =
+            encrypt_dash_route_value(&state.secure, channel_id, live.resolved_license_url());
         format!("/drm?auth={enc_key}&channel_id={channel_id}&channel={channel_enc_url}")
     } else {
         String::new()
@@ -406,11 +438,11 @@ async fn drm_license_impl(
     else {
         return (StatusCode::BAD_REQUEST, "channel_id is required").into_response();
     };
-    let decoded_url = match state.secure.decrypt(auth) {
-        Ok(u) => u,
+    let decoded_url = match decrypt_dash_route_value(&state.secure, &channel_id, auth) {
+        Some(u) => u,
         // A 400, like `/render.mpd`: 403 on a media request must mean the
         // provider refused, which the player UI reports as a denial.
-        Err(_) => return (StatusCode::BAD_REQUEST, "invalid auth parameter").into_response(),
+        None => return (StatusCode::BAD_REQUEST, "invalid auth parameter").into_response(),
     };
 
     // A Fastway channel's license is a PallyCon token exchange: the provider
@@ -431,6 +463,19 @@ async fn drm_license_impl(
             .header(header::CONTENT_TYPE, "application/octet-stream")
             .header("pallycon-customdata-v2", token)
             .header("pallycon-client-meta", meta);
+        return send_license_request(req, body).await;
+    }
+
+    // PlayboxTV's license request carries the playback token in the same
+    // multi-DRM headers the app sets (`buildCustomDrmSessionManager`).
+    if crate::playbox::is_playbox_channel(&channel_id) {
+        let mut req = state
+            .http
+            .request(method, &decoded_url)
+            .header(header::CONTENT_TYPE, "application/octet-stream");
+        for (k, v) in state.playbox.license_headers(&channel_id).await {
+            req = req.header(k.as_str(), v.as_str());
+        }
         return send_license_request(req, body).await;
     }
 
@@ -459,7 +504,8 @@ async fn drm_license_impl(
     // request, mirroring DRMKeyHandler's cookie relay.
     let mut cookie_header = None;
     if let Some(channel_enc) = params.get("channel") {
-        if let Ok(channel_url) = state.secure.decrypt(channel_enc) {
+        if let Some(channel_url) = decrypt_dash_route_value(&state.secure, &channel_id, channel_enc)
+        {
             if let Ok(resp) = state.http.head(&channel_url).send().await {
                 let cookies: Vec<String> = resp
                     .headers()
@@ -565,9 +611,9 @@ async fn render_mpd_inner(state: Arc<AppState>, q: RenderMpdQuery) -> Response {
     let Some(channel_id) = q.channel_id.as_deref().filter(|id| !id.is_empty()) else {
         return (StatusCode::BAD_REQUEST, "channel_id is required").into_response();
     };
-    let mut decrypted = match state.secure.decrypt(&q.auth) {
-        Ok(u) => u,
-        Err(_) => return (StatusCode::BAD_REQUEST, "invalid auth parameter").into_response(),
+    let mut decrypted = match decrypt_dash_route_value(&state.secure, channel_id, &q.auth) {
+        Some(u) => u,
+        None => return (StatusCode::BAD_REQUEST, "invalid auth parameter").into_response(),
     };
     let quality = q.q.clone().unwrap_or_default();
 
@@ -581,8 +627,8 @@ async fn render_mpd_inner(state: Arc<AppState>, q: RenderMpdQuery) -> Response {
     let Some((proxy_origin, proxy_host, base_path)) = cdn_host_and_dir(&decrypted) else {
         return (StatusCode::BAD_REQUEST, "invalid upstream URL").into_response();
     };
-    let enc_host = state.secure.encrypt_deterministic(&proxy_origin);
-    let enc_path = state.secure.encrypt_deterministic(&base_path);
+    let enc_host = encrypt_dash_route_value(&state.secure, channel_id, &proxy_origin);
+    let enc_path = encrypt_dash_route_value(&state.secure, channel_id, &base_path);
 
     let encoded_channel = urlencoding::encode(channel_id);
     let cached_hdnea = q.hdnea.clone();
@@ -590,23 +636,25 @@ async fn render_mpd_inner(state: Arc<AppState>, q: RenderMpdQuery) -> Response {
         format!("/render.dash/channel/{encoded_channel}/host/{enc_host}/path/{enc_path}");
     if let Some(h) = &cached_hdnea {
         if !h.is_empty() {
-            let enc = state
-                .secure
-                .encrypt_deterministic(&format!("__hdnea__={h}"));
+            let enc =
+                encrypt_dash_route_value(&state.secure, channel_id, &format!("__hdnea__={h}"));
             dash_base = format!("/render.dash/channel/{encoded_channel}/host/{enc_host}/path/{enc_path}/hdnea/{enc}");
         }
     }
 
-    let (status, body, set_cookies) = proxy_mpd(&state, &decrypted).await;
+    let (status, body, set_cookies) = proxy_mpd(&state, channel_id, &decrypted).await;
     let mut status = status;
     let mut body = body;
     let mut set_cookies = set_cookies;
     if matches!(status, 401 | 403) {
         let stripped = crate::stream::strip_hdnea_from_url(&decrypted);
-        let (s, b, c) = proxy_mpd(&state, &stripped).await;
+        let (s, b, c) = proxy_mpd(&state, channel_id, &stripped).await;
         status = s;
         body = b;
         set_cookies = c;
+    }
+    if matches!(status, 401 | 403 | 404) && crate::playbox::is_playbox_channel(channel_id) {
+        state.playbox.invalidate_playback(channel_id).await;
     }
 
     let upstream_hdnea = set_cookies.iter().find_map(|sc| {
@@ -615,9 +663,7 @@ async fn render_mpd_inner(state: Arc<AppState>, q: RenderMpdQuery) -> Response {
             .find_map(|p| p.strip_prefix("__hdnea__="))
     });
     if let Some(h) = upstream_hdnea {
-        let enc = state
-            .secure
-            .encrypt_deterministic(&format!("__hdnea__={h}"));
+        let enc = encrypt_dash_route_value(&state.secure, channel_id, &format!("__hdnea__={h}"));
         dash_base = format!(
             "/render.dash/channel/{encoded_channel}/host/{enc_host}/path/{enc_path}/hdnea/{enc}"
         );
@@ -768,15 +814,23 @@ fn player_user_agent_for(state: &AppState, url: &str) -> &'static str {
         .unwrap_or(television::PLAYER_USER_AGENT)
 }
 
-async fn proxy_mpd(state: &AppState, url: &str) -> (u16, Vec<u8>, Vec<String>) {
-    let ua = player_user_agent_for(state, url);
-    match state
-        .http
-        .get(url)
-        .header(header::USER_AGENT, ua)
-        .send()
-        .await
-    {
+async fn proxy_mpd(state: &AppState, channel_id: &str, url: &str) -> (u16, Vec<u8>, Vec<String>) {
+    let mut req = state.http.get(url);
+    if crate::playbox::is_playbox_channel(channel_id) {
+        let mut has_user_agent = false;
+        for (name, value) in state.playbox.media_headers(channel_id).await {
+            if name.eq_ignore_ascii_case("user-agent") {
+                has_user_agent = true;
+            }
+            req = req.header(name.as_str(), value.as_str());
+        }
+        if !has_user_agent {
+            req = req.header(header::USER_AGENT, television::PLAYER_USER_AGENT);
+        }
+    } else {
+        req = req.header(header::USER_AGENT, player_user_agent_for(state, url));
+    }
+    match req.send().await {
         Ok(resp) => {
             let status = resp.status().as_u16();
             let cookies: Vec<String> = resp
@@ -843,27 +897,29 @@ pub async fn render_dash_handler(
     State(state): State<Arc<AppState>>,
     uri: axum::http::Uri,
 ) -> Response {
-    let (_channel_id, enc_host, enc_path, enc_hdnea, segment_path) =
+    let (channel_id, enc_host, enc_path, enc_hdnea, segment_path) =
         match split_dash_path(uri.path()) {
             Some(v) => v,
             None => return (StatusCode::BAD_REQUEST, "malformed dash path").into_response(),
         };
 
-    let hdnea_token = enc_hdnea.and_then(|enc| {
-        state
-            .secure
-            .decrypt(enc)
-            .ok()
+    let hdnea_token = match enc_hdnea {
+        Some(enc) => match decrypt_dash_route_value(&state.secure, &channel_id, enc)
             .and_then(|s| s.strip_prefix("__hdnea__=").map(str::to_string))
-    });
-
-    let origin = match state.secure.decrypt(enc_host) {
-        Ok(h) => h,
-        Err(_) => return (StatusCode::BAD_REQUEST, "invalid host parameter").into_response(),
+        {
+            Some(token) => Some(token),
+            None => return (StatusCode::BAD_REQUEST, "invalid hdnea parameter").into_response(),
+        },
+        None => None,
     };
-    let base_path = match state.secure.decrypt(enc_path) {
-        Ok(p) => p,
-        Err(_) => return (StatusCode::BAD_REQUEST, "invalid path parameter").into_response(),
+
+    let origin = match decrypt_dash_route_value(&state.secure, &channel_id, enc_host) {
+        Some(h) => h,
+        None => return (StatusCode::BAD_REQUEST, "invalid host parameter").into_response(),
+    };
+    let base_path = match decrypt_dash_route_value(&state.secure, &channel_id, enc_path) {
+        Some(p) => p,
+        None => return (StatusCode::BAD_REQUEST, "invalid path parameter").into_response(),
     };
 
     let proxy_url = build_dash_proxy_url(
@@ -873,15 +929,28 @@ pub async fn render_dash_handler(
         uri.query().unwrap_or(""),
     );
 
-    let (status, body, ct) = proxy_dash_segment(&state, &proxy_url, hdnea_token.as_deref()).await;
+    let (status, body, ct) =
+        proxy_dash_segment(&state, &channel_id, &proxy_url, hdnea_token.as_deref()).await;
     let mut status = status;
     let mut body = body;
     let mut ct = ct;
     if matches!(status, 401 | 403) {
-        let (s, b, c) = proxy_dash_segment(&state, &proxy_url, None).await;
-        status = s;
-        body = b;
-        ct = c;
+        if crate::playbox::is_playbox_channel(&channel_id) {
+            state.playbox.invalidate_playback(&channel_id).await;
+            if crate::stream::fetch_live(&state, &channel_id).await.is_ok() {
+                let (s, b, c) =
+                    proxy_dash_segment(&state, &channel_id, &proxy_url, hdnea_token.as_deref())
+                        .await;
+                status = s;
+                body = b;
+                ct = c;
+            }
+        } else {
+            let (s, b, c) = proxy_dash_segment(&state, &channel_id, &proxy_url, None).await;
+            status = s;
+            body = b;
+            ct = c;
+        }
     }
 
     let mut builder =
@@ -894,13 +963,27 @@ pub async fn render_dash_handler(
 
 async fn proxy_dash_segment(
     state: &AppState,
+    channel_id: &str,
     url: &str,
     hdnea: Option<&str>,
 ) -> (u16, Vec<u8>, Option<String>) {
-    let ua = player_user_agent_for(state, url);
-    let mut req = state.http.get(url).header(header::USER_AGENT, ua);
-    if let Some(t) = hdnea {
-        req = req.header(header::COOKIE, format!("__hdnea__={t}"));
+    let mut req = state.http.get(url);
+    if crate::playbox::is_playbox_channel(channel_id) {
+        let mut has_user_agent = false;
+        for (name, value) in state.playbox.media_headers(channel_id).await {
+            if name.eq_ignore_ascii_case("user-agent") {
+                has_user_agent = true;
+            }
+            req = req.header(name.as_str(), value.as_str());
+        }
+        if !has_user_agent {
+            req = req.header(header::USER_AGENT, television::PLAYER_USER_AGENT);
+        }
+    } else {
+        req = req.header(header::USER_AGENT, player_user_agent_for(state, url));
+        if let Some(t) = hdnea {
+            req = req.header(header::COOKIE, format!("__hdnea__={t}"));
+        }
     }
     match req.send().await {
         Ok(resp) => {
@@ -976,6 +1059,8 @@ mod tests {
             epg_state: Default::default(),
             extras: Arc::new(crate::extras_state::ExtrasState::new(false, None)),
             fastway,
+            playbox: Arc::new(crate::playbox_state::PlayboxState::new(false)),
+            vzy: Arc::new(crate::vzy_state::VzyState::new(false)),
             vod_state: Default::default(),
             public_ip: Arc::new(crate::unlock::PublicIp::new(http)),
             unlock_limiter: Arc::new(crate::unlock::AttemptLimiter::default()),
@@ -1054,7 +1139,10 @@ mod tests {
 
         let state = fastway_app_state(store, fastway);
         let params = std::collections::HashMap::from([
-            ("auth".to_string(), state.secure.encrypt("http://example/license")),
+            (
+                "auth".to_string(),
+                encrypt_dash_route_value(&state.secure, "fw_7", "http://example/license"),
+            ),
             ("channel_id".to_string(), "fw_7".to_string()),
         ]);
         let response = drm_license_handler(
@@ -1078,6 +1166,287 @@ mod tests {
             play_url: "/render.mpd?x".into(),
             ..Default::default()
         }
+    }
+
+    fn license_test_state(playbox: Arc<crate::playbox_state::PlayboxState>) -> Arc<AppState> {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(crate::store::Store::open(dir.path().to_str().unwrap()).unwrap());
+        std::mem::forget(dir);
+        Arc::new(AppState {
+            config: crate::config::Config::default(),
+            path_prefix: String::new(),
+            access: Arc::new(crate::access::Access::new(store.clone())),
+            store,
+            tv: Arc::new(television::Television::new(reqwest::Client::new())),
+            secure: Arc::new(crate::secureurl::SecureUrl::new(false)),
+            http: reqwest::Client::new(),
+            drm_channels: Default::default(),
+            custom_channels: Arc::new(crate::custom_channels::CustomChannels::new()),
+            render_caches: Default::default(),
+            dash_state: Default::default(),
+            epg_state: Default::default(),
+            extras: Arc::new(crate::extras_state::ExtrasState::new(false, None)),
+            fastway: Arc::new(crate::fastway_state::FastwayState::new(false)),
+            playbox,
+            vzy: Arc::new(crate::vzy_state::VzyState::new(false)),
+            vod_state: Default::default(),
+            public_ip: Arc::new(crate::unlock::PublicIp::new(reqwest::Client::new())),
+            unlock_limiter: Arc::new(crate::unlock::AttemptLimiter::default()),
+            listen: Default::default(),
+            tunnel_origin: Default::default(),
+        })
+    }
+
+    #[tokio::test]
+    async fn playbox_license_forwards_the_resolved_token_headers() {
+        use wiremock::matchers::{header, method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/consume/v1/playback/resolve"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "code": 200,
+                "data": {"url": {
+                    "playable": "https://cdn.example/ch1.mpd",
+                    "licenceUrl": format!("{}/license", server.uri()),
+                    "token": "drm-token"
+                }}
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/license"))
+            .and(header("X-AxDRM-Message", "drm-token"))
+            .and(header("Authorization", "Bearer drm-token"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(b"license".to_vec()))
+            .mount(&server)
+            .await;
+
+        let playbox = Arc::new(crate::playbox_state::PlayboxState::new(true));
+        let mut client =
+            crate::playbox::Client::new(reqwest::Client::new(), crate::playbox::Device::new());
+        client.set_bases_for_test(&server.uri());
+        *client.creds.write().unwrap() = crate::playbox::Credentials {
+            phone: "9876543210".into(),
+            token: "opaque-session-token".into(),
+            customer_id: "cust-1".into(),
+        };
+        playbox.set_client_for_test(Arc::new(client));
+
+        let state = license_test_state(playbox);
+        let license_url = format!("{}/license", server.uri());
+        let params = std::collections::HashMap::from([
+            (
+                "auth".to_string(),
+                encrypt_dash_route_value(&state.secure, "pb_ch1", &license_url),
+            ),
+            ("channel_id".to_string(), "pb_ch1".to_string()),
+        ]);
+        let resp = drm_license_handler(
+            State(state),
+            Query(params),
+            Method::POST,
+            axum::http::HeaderMap::new(),
+            Bytes::from_static(b"challenge"),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn playbox_license_rejects_auth_bound_to_a_different_channel() {
+        let playbox = Arc::new(crate::playbox_state::PlayboxState::new(true));
+        let state = license_test_state(playbox);
+        let params = std::collections::HashMap::from([
+            (
+                "auth".to_string(),
+                encrypt_dash_route_value(
+                    &state.secure,
+                    "pb_source",
+                    "https://example.invalid/license",
+                ),
+            ),
+            ("channel_id".to_string(), "pb_target".to_string()),
+        ]);
+
+        let response = drm_license_handler(
+            State(state),
+            Query(params),
+            Method::POST,
+            axum::http::HeaderMap::new(),
+            Bytes::from_static(b"challenge"),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn playbox_mpd_rejection_invalidates_cached_playback() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, Request, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        let media_url = format!("{}/stale.mpd", server.uri());
+        Mock::given(method("GET"))
+            .and(path("/catalogue/v3/page/livetv2"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "statusCode": 200,
+                "livetv": [{"id": "ch1", "name": "One", "typeId": 106}]
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let resolve_calls = Arc::new(AtomicUsize::new(0));
+        let resolve_calls_for_response = resolve_calls.clone();
+        let media_for_response = media_url.clone();
+        Mock::given(method("POST"))
+            .and(path("/consume/v1/playback/resolve"))
+            .respond_with(move |_request: &Request| {
+                resolve_calls_for_response.fetch_add(1, Ordering::SeqCst);
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "code": 200,
+                    "data": {"url": {"playable": media_for_response, "token": "media-token"}}
+                }))
+            })
+            .expect(2)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/stale.mpd"))
+            .respond_with(ResponseTemplate::new(403))
+            .expect(2)
+            .mount(&server)
+            .await;
+
+        let playbox = Arc::new(crate::playbox_state::PlayboxState::new(true));
+        let mut client =
+            crate::playbox::Client::new(reqwest::Client::new(), crate::playbox::Device::new());
+        client.set_bases_for_test(&server.uri());
+        *client.creds.write().unwrap() = crate::playbox::Credentials {
+            phone: "9876543210".into(),
+            token: "opaque-session-token".into(),
+            customer_id: "cust-1".into(),
+        };
+        playbox.set_client_for_test(Arc::new(client));
+        let state = license_test_state(playbox);
+
+        let first = state.playbox.live("pb_ch1").await.unwrap();
+        assert_eq!(first.mpd.auto, media_url);
+        assert!(state.playbox.playlist_ready("pb_ch1"));
+
+        let response = render_mpd_inner(
+            state.clone(),
+            RenderMpdQuery {
+                auth: encrypt_dash_route_value(&state.secure, "pb_ch1", &media_url),
+                channel_id: Some("pb_ch1".into()),
+                q: Some("auto".into()),
+                hdnea: None,
+            },
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        assert!(!state.playbox.playlist_ready("pb_ch1"));
+
+        let _ = state.playbox.live("pb_ch1").await.unwrap();
+        assert_eq!(resolve_calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn playbox_dash_segment_rejection_reresolves_before_retry() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use wiremock::matchers::{header, method, path};
+        use wiremock::{Mock, MockServer, Request, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/catalogue/v3/page/livetv2"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "statusCode": 200,
+                "livetv": [{"id": "ch1", "name": "One", "typeId": 106}]
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let resolve_calls = Arc::new(AtomicUsize::new(0));
+        let resolve_calls_for_response = resolve_calls.clone();
+        Mock::given(method("POST"))
+            .and(path("/consume/v1/playback/resolve"))
+            .respond_with(move |_request: &Request| {
+                let first = resolve_calls_for_response.fetch_add(1, Ordering::SeqCst) == 0;
+                let user_id = if first { "stale-user" } else { "fresh-user" };
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "code": 200,
+                    "data": {"url": {
+                        "playable": "https://cdn.example/ch1.mpd",
+                        "token": "media-token",
+                        "headers": {"user_id": user_id}
+                    }}
+                }))
+            })
+            .expect(2)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/dash/seg.m4s"))
+            .and(header("user_id", "stale-user"))
+            .respond_with(ResponseTemplate::new(403))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/dash/seg.m4s"))
+            .and(header("user_id", "fresh-user"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(b"segment".to_vec()))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let playbox = Arc::new(crate::playbox_state::PlayboxState::new(true));
+        let mut client =
+            crate::playbox::Client::new(reqwest::Client::new(), crate::playbox::Device::new());
+        client.set_bases_for_test(&server.uri());
+        *client.creds.write().unwrap() = crate::playbox::Credentials {
+            phone: "9876543210".into(),
+            token: "opaque-session-token".into(),
+            customer_id: "cust-1".into(),
+        };
+        playbox.set_client_for_test(Arc::new(client));
+        let state = license_test_state(playbox);
+        let _ = state.playbox.live("pb_ch1").await.unwrap();
+
+        let enc_host = encrypt_dash_route_value(&state.secure, "pb_ch1", &server.uri());
+        let enc_path = encrypt_dash_route_value(&state.secure, "pb_ch1", "/");
+        let uri: axum::http::Uri =
+            format!("/render.dash/channel/pb_ch1/host/{enc_host}/path/{enc_path}/dash/seg.m4s")
+                .parse()
+                .unwrap();
+        let response = render_dash_handler(State(state), uri).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert_eq!(&body[..], b"segment");
+        assert_eq!(resolve_calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn dash_route_rejects_destination_bound_to_a_different_channel() {
+        let playbox = Arc::new(crate::playbox_state::PlayboxState::new(true));
+        let state = license_test_state(playbox);
+        let enc_host =
+            encrypt_dash_route_value(&state.secure, "pb_source", "https://example.invalid");
+        let enc_path = encrypt_dash_route_value(&state.secure, "pb_source", "/media/");
+        let uri: axum::http::Uri =
+            format!("/render.dash/channel/pb_target/host/{enc_host}/path/{enc_path}/seg.m4s")
+                .parse()
+                .unwrap();
+
+        let response = render_dash_handler(State(state), uri).await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 
     #[test]
@@ -1276,8 +1645,8 @@ mod tests {
         let (origin, _host, dir_path) = cdn_host_and_dir(upstream).unwrap();
         assert_eq!(origin, "https://cdn.example.com");
         assert_eq!(dir_path, "/bpk-tv/MoviesNow_BTS/WDVLive/");
-        let enc_host = secure.encrypt_deterministic(&origin);
-        let enc_path = secure.encrypt_deterministic(&dir_path);
+        let enc_host = encrypt_dash_route_value(&secure, "ex_151", &origin);
+        let enc_path = encrypt_dash_route_value(&secure, "ex_151", &dir_path);
 
         // Shaka resolves the relative SegmentTemplate reference
         // "index_video_7_0_init.mp4?m=1773052885" against our rewritten
@@ -1292,8 +1661,8 @@ mod tests {
         assert!(got_hdnea.is_none());
         assert_eq!(segment_path, "/dash/index_video_7_0_init.mp4");
 
-        let decrypted_host = secure.decrypt(got_enc_host).unwrap();
-        let decrypted_dir = secure.decrypt(got_enc_path).unwrap();
+        let decrypted_host = decrypt_dash_route_value(&secure, "ex_151", got_enc_host).unwrap();
+        let decrypted_dir = decrypt_dash_route_value(&secure, "ex_151", got_enc_path).unwrap();
         assert_eq!(decrypted_host, "https://cdn.example.com");
         assert_eq!(decrypted_dir, "/bpk-tv/MoviesNow_BTS/WDVLive/");
 

@@ -22,6 +22,12 @@ epg = true
 drm = true
 tv_plus = false
 fastway = false
+# Beta: PlayboxTV account (OTP login). Off unless you sign in.
+playbox = false
+# Beta: Tata Play Smart diagnostics. Off by default.
+tataplay = false
+# Beta: VZY free tier (anonymous). Off unless you want its catalogue.
+vzy = false
 disable_auth = false
 debug = false
 log_to_stdout = true
@@ -44,6 +50,9 @@ Save, start with `ost --config ./openstream.toml serve`, then open `http://local
 | `drm` | `JIOTV_DRM`, `OPENSTREAM_DRM` | `true` | Boolean. Allow the protected DASH pathway; does not bypass DRM. |
 | `tv_plus` | `JIOTV_TVPLUS`, `OPENSTREAM_TVPLUS` | `false` | Boolean. Enable the optional JioTV+ account. Needs a JioFiber or AirFiber login. |
 | `fastway` | `JIOTV_FASTWAY`, `OPENSTREAM_FASTWAY` | `false` | Boolean. Enable the optional Fastway Live TV provider. Connect an account with `ost fastway login` or Settings before channels appear. |
+| `playbox` | `OPENSTREAM_PLAYBOX`, `JIOTV_PLAYBOX` | `false` | **Beta.** Enable the PlayboxTV account. Sign in with `POST /api/playbox/login/sendOTP` then `POST /api/playbox/login/verifyOTP`; the channel catalogue and live playback then use the normal `/live/...` routes. |
+| `tataplay` | `OPENSTREAM_TATAPLAY`, `JIOTV_TATAPLAY` | `false` | **Beta.** Enable the Tata Play Smart diagnostic API. It can test OTP/session, catalogue document IDs, EPG, entitlement and official access-control. It does not join the shared catalogue or `/live`, and never returns upstream play/license URLs or session tokens. |
+| `vzy` | `OPENSTREAM_VZY`, `JIOTV_VZY` | `false` | **Beta.** Enable the VZY (Dish/Watcho white-label) **free tier**. It uses an anonymous Kaltura session; no account or OTP is needed. Only `EntitlementType=Free` channels are exposed. Premium/login-required channels are not advertised. |
 | `disable_auth` | `JIOTV_DISABLE_AUTH`, `OPENSTREAM_DISABLE_AUTH` | `false` | Boolean. Disable app access checks. Dangerous on reachable networks; use only with a trusted external access control. |
 | `title` | `JIOTV_TITLE`, `OPENSTREAM_TITLE` | `"OpenStream TV"` | Display title; any TOML string. |
 | `disable_url_encryption` | `JIOTV_DISABLE_URL_ENCRYPTION`, `OPENSTREAM_DISABLE_URL_ENCRYPTION` | `false` | Boolean. Disable encryption of local proxy parameters. Leave false. |
@@ -60,6 +69,14 @@ Boolean environment values must be `true` or `false` in lowercase (as Rust's par
 
 The TOML key is `tv_plus`; `JIOTV_TVPLUS` and `OPENSTREAM_TVPLUS` are accepted, with `OPENSTREAM_TVPLUS` taking precedence. The previous TOML key `extras` and legacy `JIOTV_EXTRAS` variable are also accepted. Both `JIOTV_*` and `OPENSTREAM_*` aliases are accepted for tunnel and update tokens.
 
-When more than one alternate source is connected, Fastway takes priority over JioTV+, and JioTV+ takes priority over the JioTV catalogue. See [Connect Fastway Live TV](../account-fastway/index.md).
+When more than one source is connected, catalogue precedence is **Fastway > JioTV+ > PlayboxTV (beta) > VZY (beta) > JioTV**. JioTV remains the normal fallback source. See [Connect Fastway Live TV](../account-fastway/index.md).
+
+`playbox` / `OPENSTREAM_PLAYBOX` (legacy alias `JIOTV_PLAYBOX`) enables the **beta** PlayboxTV integration. When a PlayboxTV session is signed in it supplies the catalogue only if Fastway and JioTV+ are not connected; it takes precedence over VZY and JioTV. Its channel IDs start with `pb_`. EPG for PlayboxTV is not published because the client's guide response has no programme end time.
+
+`vzy` / `OPENSTREAM_VZY` (legacy alias `JIOTV_VZY`) enables the **beta** VZY free tier. It signs in anonymously to the Dish/Watcho Kaltura tenant, exposes only free channels (`vzy_*` IDs), and proxies their clear HLS/DASH. It does not implement account login, premium entitlement, or DRM license forwarding for paid channels.
+
+`tataplay` / `OPENSTREAM_TATAPLAY` (legacy alias `JIOTV_TATAPLAY`) enables a deliberately isolated **beta** built from the recovered `com.tataplay.livetv` Retrofit contracts. Its routes live under `/api/tataplay/*`: OTP send/verify, refresh, catalogue seed, EPG, entitlement and sanitized access-control. The beta preserves Tata Play's own entitlement decision. Shared catalogue selection, `/live`, DRM/license proxying and session heartbeat remain disabled until runtime testers prove those flows.
+
+The supplied older `com.vzy.one.apk` is the Uptodown app store rather than a TV service; the real VZY build is `com.vzy.one.atv`.
 
 For runtime listening options, see [CLI commands](../configuration-cli/index.md); for protection see [Network and HTTPS](../configuration-network-security/index.md); for storage see [Data and logs](../configuration-storage-logs/index.md).
