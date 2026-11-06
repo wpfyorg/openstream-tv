@@ -15,6 +15,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant, SystemTime};
 
 const CATALOGUE_TTL: Duration = Duration::from_secs(6 * 60 * 60);
+const CATALOGUE_RETRY_BACKOFF: Duration = Duration::from_secs(15);
 const PLAYBACK_TTL: Duration = Duration::from_secs(5 * 60);
 
 pub struct VzyState {
@@ -23,6 +24,7 @@ pub struct VzyState {
     bootstrapped: std::sync::atomic::AtomicBool,
     catalogue: RwLock<Vec<Asset>>,
     catalogue_fetched_at: RwLock<Option<Instant>>,
+    catalogue_failed_at: RwLock<Option<Instant>>,
     playback: RwLock<HashMap<String, (LiveUrlOutput, Instant)>>,
     generation: std::sync::atomic::AtomicU64,
     commit: Mutex<()>,
@@ -37,6 +39,7 @@ impl VzyState {
             bootstrapped: std::sync::atomic::AtomicBool::new(false),
             catalogue: RwLock::new(Vec::new()),
             catalogue_fetched_at: RwLock::new(None),
+            catalogue_failed_at: RwLock::new(None),
             playback: RwLock::new(HashMap::new()),
             generation: std::sync::atomic::AtomicU64::new(0),
             commit: Mutex::new(()),
@@ -97,6 +100,7 @@ impl VzyState {
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         *self.catalogue.write().unwrap() = Vec::new();
         *self.catalogue_fetched_at.write().unwrap() = None;
+        *self.catalogue_failed_at.write().unwrap() = None;
         self.playback.write().unwrap().clear();
     }
 
@@ -142,6 +146,14 @@ impl VzyState {
         {
             return true;
         }
+        if self
+            .catalogue_failed_at
+            .read()
+            .unwrap()
+            .is_some_and(|at| at.elapsed() < CATALOGUE_RETRY_BACKOFF)
+        {
+            return false;
+        }
         let _guard = self.locks.lock("catalogue").await;
         if self
             .catalogue_fetched_at
@@ -151,10 +163,21 @@ impl VzyState {
         {
             return true;
         }
-        if !self.ensure_bootstrap(&client, store).await {
+        if self
+            .catalogue_failed_at
+            .read()
+            .unwrap()
+            .is_some_and(|at| at.elapsed() < CATALOGUE_RETRY_BACKOFF)
+        {
             return false;
         }
         let generation = self.generation();
+        if !self.ensure_bootstrap(&client, store).await {
+            let _ = self.commit_if_current(generation, || {
+                *self.catalogue_failed_at.write().unwrap() = Some(Instant::now());
+            });
+            return false;
+        }
         let mut all = Vec::new();
         let mut fetched_total = 0i64;
         let mut page = 1;
@@ -169,13 +192,19 @@ impl VzyState {
                     }
                     page += 1;
                 }
-                Err(_) => return false,
+                Err(_) => {
+                    let _ = self.commit_if_current(generation, || {
+                        *self.catalogue_failed_at.write().unwrap() = Some(Instant::now());
+                    });
+                    return false;
+                }
             }
         }
         let now = Instant::now();
         self.commit_if_current(generation, || {
             *self.catalogue.write().unwrap() = all;
             *self.catalogue_fetched_at.write().unwrap() = Some(now);
+            *self.catalogue_failed_at.write().unwrap() = None;
         })
         .is_some()
     }
@@ -351,6 +380,16 @@ mod tests {
             })))
             .mount(&server)
             .await;
+        Mock::given(method("POST"))
+            .and(path("/asset/action/get"))
+            .and(body_string_contains("\"id\":2"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "result": {"id": 2, "name": "Paid Two",
+                    "metas": {"EntitlementType": {"value": "Premium"}},
+                    "mediaFiles": [{"url": "https://cdn/paid.m3u8"}]}
+            })))
+            .mount(&server)
+            .await;
         server
     }
 
@@ -371,7 +410,36 @@ mod tests {
 
         let live = state.live("vzy_1", &store).await.unwrap();
         assert_eq!(live.bitrates.auto, "https://cdn/free.m3u8");
-        assert!(state.live("vzy_2", &store).await.is_err());
+        assert_eq!(
+            state.live("vzy_2", &store).await.unwrap_err().to_string(),
+            "vzy: asset 2 is not in the free tier"
+        );
+    }
+
+    #[tokio::test]
+    async fn catalogue_failure_uses_short_backoff() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/ottuser/action/anonymousLogin"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "result": {"ks": "anon-ks", "expiry": 9999999999u64}
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/asset/action/list"))
+            .respond_with(ResponseTemplate::new(503))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let dir = tempfile::tempdir().unwrap();
+        let store = crate::store::Store::open(dir.path().to_str().unwrap()).unwrap();
+        let state = VzyState::new(true);
+        state.set_client_for_test(client_for(&server));
+
+        assert!(!state.ensure_catalogue(&store).await);
+        assert!(!state.ensure_catalogue(&store).await);
+        assert!(state.catalogue_failed_at.read().unwrap().is_some());
     }
 
     #[tokio::test]

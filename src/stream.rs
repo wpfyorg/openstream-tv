@@ -1363,6 +1363,9 @@ pub async fn render_ts_handler(
     {
         // No cookie refresh exists for PlayboxTV: re-resolve once for fresh
         // headers, then retry the same segment URL.
+        if crate::playbox::is_playbox_channel(&channel_id) {
+            state.playbox.invalidate_playback(&channel_id).await;
+        }
         if refresh_channel_token(&state, &channel_id).await.is_ok() {
             let (s, b, h) = proxy_segment(&state, &channel_id, &decoded, token.as_deref()).await;
             status = s;

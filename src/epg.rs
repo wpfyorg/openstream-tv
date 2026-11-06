@@ -661,6 +661,9 @@ pub async fn web_epg_handler(
     if let Some(content_id) = crate::fastway::content_id(&channel_id) {
         return fastway_web_epg(&state, content_id, &offset).await;
     }
+    if crate::vzy::is_vzy_channel(&channel_id) {
+        return vzy_web_epg(&state, &channel_id, &offset).await;
+    }
     if let Some(content_id) = crate::extras::content_id::content_id(&channel_id) {
         return extras_web_epg(&state, content_id, &offset).await;
     }
@@ -724,6 +727,59 @@ async fn fastway_web_epg(state: &AppState, content_id: &str, offset: &str) -> Re
             })
         })
         .collect();
+    axum::Json(serde_json::json!({ "epg": entries })).into_response()
+}
+
+/// VZY browser guide normalized to the same shape as JioTV/Fastway.
+async fn vzy_web_epg(state: &AppState, channel_id: &str, offset: &str) -> Response {
+    let Some(content_id) = crate::vzy::parse_channel_id(channel_id) else {
+        return (StatusCode::BAD_REQUEST, "Invalid channel ID").into_response();
+    };
+    let offset = match offset.parse::<i64>() {
+        Ok(o) if o >= 0 => o,
+        _ => return (StatusCode::BAD_REQUEST, "Invalid offset").into_response(),
+    };
+    if !state.vzy.ensure_catalogue(&state.store).await {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "vzy catalogue is unavailable",
+        )
+            .into_response();
+    }
+    let Some(client) = state.vzy.client() else {
+        return (StatusCode::NOT_FOUND, "vzy is not enabled").into_response();
+    };
+    let date =
+        crate::vzy::midnight_utc(SystemTime::now()).saturating_add(offset.saturating_mul(86_400));
+    let guide = match client
+        .epg(
+            &state.store,
+            &[content_id],
+            date,
+            crate::vzy::local_offset_minutes(),
+        )
+        .await
+    {
+        Ok(guide) => guide,
+        Err(e) => return (StatusCode::BAD_GATEWAY, e.to_string()).into_response(),
+    };
+    let entries: Vec<serde_json::Value> = guide
+        .get(&content_id.to_string())
+        .map(|programmes| {
+            programmes
+                .iter()
+                .map(|p| {
+                    serde_json::json!({
+                        "showname": p.name,
+                        "description": p.description,
+                        "startEpoch": if p.start_date.abs() < 10_000_000_000 { p.start_date.saturating_mul(1000) } else { p.start_date },
+                        "endEpoch": if p.end_date.abs() < 10_000_000_000 { p.end_date.saturating_mul(1000) } else { p.end_date },
+                        "episodePoster": "",
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
     axum::Json(serde_json::json!({ "epg": entries })).into_response()
 }
 
@@ -840,6 +896,90 @@ mod tests {
         });
         let resp = web_epg_handler(Path(("pb_ch1".into(), "0".into())), State(state)).await;
         assert_eq!(resp.status(), StatusCode::NOT_IMPLEMENTED);
+    }
+
+    #[tokio::test]
+    async fn vzy_web_epg_uses_shared_browser_route_shape() {
+        use wiremock::matchers::{header as match_header, method, path, path_regex};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/ottuser/action/anonymousLogin"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "result": {"ks": "anon-ks", "expiry": 9999999999u64}
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/asset/action/list"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "result": {"totalCount": 1, "objects": [
+                    {"id": 1, "name": "Free One", "metas": {"EntitlementType": {"value": "Free"}}}
+                ]}
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path_regex(
+                r"^/api_v3/service/epg/action/get/date/\d+/slots/all$",
+            ))
+            .and(match_header("Authorization", "Bearer anon-ks"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "epgChunk": {
+                    "1": [{
+                        "id": 9,
+                        "name": "Show",
+                        "description": "Desc",
+                        "startDate": 1793923200,
+                        "endDate": 1793926800,
+                        "linearAssetId": 1
+                    }]
+                }
+            })))
+            .mount(&server)
+            .await;
+
+        let dir = tempfile::tempdir().unwrap();
+        let store =
+            std::sync::Arc::new(crate::store::Store::open(dir.path().to_str().unwrap()).unwrap());
+        let http = reqwest::Client::new();
+        let mut client = crate::vzy::Client::new(http.clone(), crate::vzy::Device::new());
+        client.set_bases_for_test(&server.uri(), &format!("{}/api_v3", server.uri()));
+        let vzy = std::sync::Arc::new(crate::vzy_state::VzyState::new(true));
+        vzy.set_client_for_test(std::sync::Arc::new(client));
+        let state = std::sync::Arc::new(AppState {
+            config: crate::config::Config::default(),
+            path_prefix: String::new(),
+            access: std::sync::Arc::new(crate::access::Access::new(store.clone())),
+            store,
+            tv: std::sync::Arc::new(crate::television::Television::new(http.clone())),
+            secure: std::sync::Arc::new(crate::secureurl::SecureUrl::new(false)),
+            http: http.clone(),
+            drm_channels: Default::default(),
+            custom_channels: std::sync::Arc::new(crate::custom_channels::CustomChannels::new()),
+            render_caches: Default::default(),
+            dash_state: Default::default(),
+            epg_state: Default::default(),
+            extras: std::sync::Arc::new(crate::extras_state::ExtrasState::new(false, None)),
+            fastway: std::sync::Arc::new(crate::fastway_state::FastwayState::new(false)),
+            playbox: std::sync::Arc::new(crate::playbox_state::PlayboxState::new(false)),
+            vzy,
+            vod_state: Default::default(),
+            public_ip: std::sync::Arc::new(crate::unlock::PublicIp::new(http)),
+            unlock_limiter: std::sync::Arc::new(crate::unlock::AttemptLimiter::default()),
+            listen: Default::default(),
+            tunnel_origin: Default::default(),
+        });
+
+        let resp = web_epg_handler(Path(("vzy_1".into(), "0".into())), State(state)).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["epg"][0]["showname"], "Show");
+        assert_eq!(json["epg"][0]["description"], "Desc");
+        assert_eq!(json["epg"][0]["startEpoch"], 1793923200000i64);
+        assert_eq!(json["epg"][0]["endEpoch"], 1793926800000i64);
     }
     use http_body_util::BodyExt;
     use std::collections::HashMap;

@@ -96,8 +96,28 @@ impl Session {
 }
 
 pub fn delete_session(store: &crate::store::Store) -> anyhow::Result<()> {
-    let _ = store.delete(STORE_KEY_SESSION);
+    store.delete(STORE_KEY_SESSION)?;
     Ok(())
+}
+
+fn kaltura_application_error(value: &serde_json::Value) -> Option<(String, String)> {
+    let error = value.pointer("/result/error")?;
+    let code = error
+        .get("code")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("UNKNOWN")
+        .to_string();
+    let message = error
+        .get("message")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("Kaltura application error")
+        .to_string();
+    Some((code, message))
+}
+
+fn is_invalid_session_error(code: &str) -> bool {
+    let code = code.to_ascii_uppercase();
+    code.contains("KS") && (code.contains("INVALID") || code.contains("EXPIRED"))
 }
 
 pub fn content_id(channel_id: &str) -> Option<&str> {
@@ -293,10 +313,26 @@ impl Client {
         format!("{}{path}", self.base.read().unwrap())
     }
 
+    async fn request_bytes(
+        &self,
+        request: reqwest::RequestBuilder,
+        label: &str,
+    ) -> anyhow::Result<(reqwest::StatusCode, Vec<u8>)> {
+        let result = tokio::time::timeout(header_timeout(), async move {
+            let response = request.send().await?;
+            let status = response.status();
+            let body = response.bytes().await?;
+            Ok::<_, reqwest::Error>((status, body.to_vec()))
+        })
+        .await
+        .map_err(|_| anyhow::anyhow!("vzy: {label} timed out"))??;
+        Ok(result)
+    }
+
     /// `configurations/action/serveByDevice`; supplies the EPG collection id
     /// and, when present, the Kaltura proxy base.
     pub async fn bootstrap(&self, store: &crate::store::Store) -> anyhow::Result<()> {
-        let url = format!("{BASE_KALTURA}configurations/action/serveByDevice");
+        let url = self.service_url("configurations/action/serveByDevice");
         let body = serde_json::json!({
             "apiVersion": API_VERSION,
             "applicationName": APPLICATION_NAME,
@@ -306,17 +342,19 @@ impl Client {
             "tag": "",
             "udid": self.device.udid,
         });
-        let resp = self
-            .http
-            .post(&url)
-            .header(reqwest::header::USER_AGENT, USER_AGENT)
-            .json(&body)
-            .send()
+        let (status, bytes) = self
+            .request_bytes(
+                self.http
+                    .post(&url)
+                    .header(reqwest::header::USER_AGENT, USER_AGENT)
+                    .json(&body),
+                "DMS bootstrap",
+            )
             .await?;
-        if !resp.status().is_success() {
-            anyhow::bail!("vzy: DMS bootstrap failed: HTTP {}", resp.status());
+        if !status.is_success() {
+            anyhow::bail!("vzy: DMS bootstrap failed: HTTP {status}");
         }
-        let dms: DmsEnvelope = resp.json().await?;
+        let dms: DmsEnvelope = serde_json::from_slice(&bytes)?;
         let params = dms.params.unwrap_or_default();
         let collection_id = params
             .mini_epg_collection_id
@@ -349,17 +387,19 @@ impl Client {
             "udid": self.device.udid,
             "language": "en",
         });
-        let resp = self
-            .http
-            .post(&url)
-            .header(reqwest::header::USER_AGENT, USER_AGENT)
-            .json(&body)
-            .send()
+        let (status, bytes) = self
+            .request_bytes(
+                self.http
+                    .post(&url)
+                    .header(reqwest::header::USER_AGENT, USER_AGENT)
+                    .json(&body),
+                "anonymous login",
+            )
             .await?;
-        if !resp.status().is_success() {
-            anyhow::bail!("vzy: anonymous login failed: HTTP {}", resp.status());
+        if !status.is_success() {
+            anyhow::bail!("vzy: anonymous login failed: HTTP {status}");
         }
-        let login: LoginEnvelope = resp.json().await?;
+        let login: LoginEnvelope = serde_json::from_slice(&bytes)?;
         let result = login
             .result
             .ok_or_else(|| anyhow::anyhow!("vzy: anonymous login returned no session"))?;
@@ -402,22 +442,33 @@ impl Client {
                 obj.insert("ks".to_string(), serde_json::json!(session.ks));
                 obj.insert("apiVersion".to_string(), serde_json::json!(API_VERSION));
             }
-            let resp = self
-                .http
-                .post(self.service_url(path))
-                .header(reqwest::header::USER_AGENT, USER_AGENT)
-                .json(&body)
-                .send()
+            let (status, bytes) = self
+                .request_bytes(
+                    self.http
+                        .post(self.service_url(path))
+                        .header(reqwest::header::USER_AGENT, USER_AGENT)
+                        .json(&body),
+                    path,
+                )
                 .await?;
-            if matches!(resp.status().as_u16(), 401 | 403) && attempt == 0 {
+            if matches!(status.as_u16(), 401 | 403) && attempt == 0 {
                 delete_session(store)?;
                 *self.session.write().unwrap() = None;
                 continue;
             }
-            if !resp.status().is_success() {
-                anyhow::bail!("vzy: {path} failed: HTTP {}", resp.status());
+            if !status.is_success() {
+                anyhow::bail!("vzy: {path} failed: HTTP {status}");
             }
-            return Ok(resp.json::<T>().await?);
+            let value: serde_json::Value = serde_json::from_slice(&bytes)?;
+            if let Some((code, message)) = kaltura_application_error(&value) {
+                if attempt == 0 && is_invalid_session_error(&code) {
+                    delete_session(store)?;
+                    *self.session.write().unwrap() = None;
+                    continue;
+                }
+                anyhow::bail!("vzy: {path} failed: {code}: {message}");
+            }
+            return Ok(serde_json::from_value(value)?);
         }
         anyhow::bail!("vzy: {path} rejected the anonymous session")
     }
@@ -501,20 +552,22 @@ impl Client {
             "{}service/epg/action/get/date/{date_epoch}/slots/all?channels={channels}&pageIndex=1&pageSize=100&offsetInMin={offset_minutes}",
             self.epg_base
         );
-        let resp = self
-            .http
-            .get(&url)
-            .header(reqwest::header::USER_AGENT, USER_AGENT)
-            .header(
-                reqwest::header::AUTHORIZATION,
-                format!("Bearer {}", session.ks),
+        let (status, bytes) = self
+            .request_bytes(
+                self.http
+                    .get(&url)
+                    .header(reqwest::header::USER_AGENT, USER_AGENT)
+                    .header(
+                        reqwest::header::AUTHORIZATION,
+                        format!("Bearer {}", session.ks),
+                    ),
+                "EPG",
             )
-            .send()
             .await?;
-        if !resp.status().is_success() {
-            anyhow::bail!("vzy: EPG failed: HTTP {}", resp.status());
+        if !status.is_success() {
+            anyhow::bail!("vzy: EPG failed: HTTP {status}");
         }
-        Ok(resp.json::<EpgEnvelope>().await?.epg_chunk)
+        Ok(serde_json::from_slice::<EpgEnvelope>(&bytes)?.epg_chunk)
     }
 }
 
@@ -544,7 +597,6 @@ pub fn parse_channel_id(channel_id: &str) -> Option<i64> {
     content_id(channel_id)?.parse().ok()
 }
 
-#[allow(dead_code)]
 pub fn header_timeout() -> Duration {
     Duration::from_secs(30)
 }
@@ -641,6 +693,16 @@ mod tests {
             })))
             .mount(&server)
             .await;
+        Mock::given(method("POST"))
+            .and(path("/asset/action/get"))
+            .and(body_string_contains("\"id\":2"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "result": {"id": 2, "name": "Paid Two",
+                    "metas": {"EntitlementType": {"value": "Premium"}},
+                    "mediaFiles": [{"url": "https://cdn/paid.m3u8"}]}
+            })))
+            .mount(&server)
+            .await;
         Mock::given(method("GET"))
             .and(path("/api_v3/service/epg/action/get/date/1793923200/slots/all"))
             .and(header("Authorization", "Bearer anon-ks"))
@@ -665,9 +727,64 @@ mod tests {
         assert_eq!(assets.len(), 2);
         let playback = client.playback(&store, 1).await.unwrap();
         assert_eq!(playback.hls, "https://cdn/free.m3u8");
-        assert!(client.playback(&store, 2).await.is_err());
+        assert_eq!(
+            client.playback(&store, 2).await.unwrap_err().to_string(),
+            "vzy: asset 2 is not in the free tier"
+        );
         let epg = client.epg(&store, &[1], 1793923200, 330).await.unwrap();
         assert_eq!(epg["1"][0].name, "Show");
+    }
+
+    #[tokio::test]
+    async fn invalid_ks_application_error_reauthenticates_once() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/asset/action/list"))
+            .and(body_string_contains("old-ks"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "result": {"error": {"code": "INVALID_KS", "message": "expired"}}
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/ottuser/action/anonymousLogin"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "result": {"ks": "new-ks", "expiry": 9999999999u64}
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/asset/action/list"))
+            .and(body_string_contains("new-ks"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "result": {"totalCount": 1, "objects": [
+                    {"id": 1, "name": "Free One", "metas": {"EntitlementType": {"value": "Free"}}}
+                ]}
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let dir = tempfile::tempdir().unwrap();
+        let store = crate::store::Store::open(dir.path().to_str().unwrap()).unwrap();
+        let mut client = Client::new(reqwest::Client::new(), Device::new());
+        client.set_bases_for_test(&server.uri(), &server.uri());
+        let old = Session {
+            ks: "old-ks".into(),
+            expiry: 9999999999,
+        };
+        old.save(&store).unwrap();
+        *client.session.write().unwrap() = Some(old);
+
+        let (assets, total) = client.channels_page(&store, 1, 200).await.unwrap();
+        assert_eq!(total, 1);
+        assert_eq!(assets[0].id, 1);
+        assert_eq!(
+            client.session.read().unwrap().as_ref().unwrap().ks,
+            "new-ks"
+        );
     }
 
     #[test]

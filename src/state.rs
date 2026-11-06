@@ -243,9 +243,16 @@ impl AppState {
     }
 
     /// Whether the channel is DASH even without a Widevine license. Fastway's
-    /// whole catalogue is DASH, so its clear channels still use `/live/mpd`.
+    /// whole catalogue is DASH, while Playbox learns the container from its
+    /// resolved playback metadata.
     pub fn is_dash_channel(&self, id: &str) -> bool {
-        FastwayState::is_fastway_channel(id) && self.fastway.is_dash(id)
+        if FastwayState::is_fastway_channel(id) {
+            return self.fastway.is_dash(id);
+        }
+        if crate::playbox::is_playbox_channel(id) {
+            return self.playbox.is_dash(id);
+        }
+        false
     }
 
     /// The user agent a provider's CDN expects for manifests and segments.

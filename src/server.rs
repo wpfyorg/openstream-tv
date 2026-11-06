@@ -21,12 +21,12 @@
 
 use crate::api::KeyPrefix;
 use crate::state::AppState;
-use axum::Router;
 use axum::body::Body;
 use axum::extract::{Query, Request, State};
-use axum::http::{StatusCode, header};
+use axum::http::{header, StatusCode};
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
+use axum::Router;
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::future::Future;
@@ -402,6 +402,10 @@ async fn channels_or_playlist(
         return axum::Json(channels).into_response();
     }
 
+    if matches!(state.active_product(), crate::state::ActiveProduct::Playbox) {
+        state.playbox.prepare_playlist_metadata().await;
+    }
+
     let host_url = base_url(&state, &https, &prefix, &headers);
     let empty = String::new();
     let opts = crate::television::PlaylistOptions {
@@ -417,7 +421,13 @@ async fn channels_or_playlist(
         &opts,
         |id| state.is_drm_channel(id),
         |id| state.is_dash_channel(id),
-        |id| state.is_playable(id),
+        |id| {
+            if crate::playbox::is_playbox_channel(id) {
+                state.playbox.playlist_ready(id)
+            } else {
+                state.is_playable(id)
+            }
+        },
     );
 
     Response::builder()
@@ -447,7 +457,7 @@ fn base_url(
             Some(&state.config.public_origin)
         },
     );
-    let p = prefix.as_ref().map(|e| e.0.0.clone()).unwrap_or_default();
+    let p = prefix.as_ref().map(|e| e.0 .0.clone()).unwrap_or_default();
     format!("{origin}{p}")
 }
 
@@ -679,14 +689,29 @@ mod tests {
         let segment_path = temp.path().join("fixture.ts");
         let ffmpeg = std::process::Command::new("ffmpeg")
             .args([
-                "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i",
-                "testsrc=size=160x90:rate=10", "-t", "2", "-an", "-c:v", "mpeg2video",
-                "-f", "mpegts",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                "testsrc=size=160x90:rate=10",
+                "-t",
+                "2",
+                "-an",
+                "-c:v",
+                "mpeg2video",
+                "-f",
+                "mpegts",
             ])
             .arg(&segment_path)
             .output()
             .expect("ffmpeg must be installed to create the deterministic media fixture");
-        assert!(ffmpeg.status.success(), "ffmpeg fixture generation failed: {}", String::from_utf8_lossy(&ffmpeg.stderr));
+        assert!(
+            ffmpeg.status.success(),
+            "ffmpeg fixture generation failed: {}",
+            String::from_utf8_lossy(&ffmpeg.stderr)
+        );
         let segment = std::fs::read(&segment_path).unwrap();
 
         let upstream = MockServer::start().await;
@@ -732,13 +757,8 @@ mod tests {
 
         let key = state.access.key().unwrap();
         let tls_dir = temp.path().join("tls");
-        let material = crate::tls::load_or_create(
-            "",
-            "",
-            tls_dir.to_str().unwrap(),
-            "127.0.0.1",
-        )
-        .unwrap();
+        let material =
+            crate::tls::load_or_create("", "", tls_dir.to_str().unwrap(), "127.0.0.1").unwrap();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
         Arc::get_mut(&mut state).unwrap().config.public_origin =
@@ -771,13 +791,13 @@ mod tests {
         assert!(stream_url.starts_with(&format!("https://127.0.0.1:{port}/k/{key}/")));
 
         let ffprobe = tokio::process::Command::new("ffprobe")
-            .args([
-                "-v", "error", "-tls_verify", "1", "-ca_file",
-            ])
+            .args(["-v", "error", "-tls_verify", "1", "-ca_file"])
             .arg(tls_dir.join("tls/cert.pem"))
             .args([
                 "-show_entries",
-                "stream=codec_name,codec_type,width,height", "-of", "json",
+                "stream=codec_name,codec_type,width,height",
+                "-of",
+                "json",
             ])
             .arg(&stream_url)
             .output();
@@ -785,7 +805,11 @@ mod tests {
             .await
             .expect("ffprobe timed out while fetching the generated playlist")
             .expect("ffprobe must be installed to verify IPTV playback");
-        assert!(ffprobe.status.success(), "ffprobe failed: {}", String::from_utf8_lossy(&ffprobe.stderr));
+        assert!(
+            ffprobe.status.success(),
+            "ffprobe failed: {}",
+            String::from_utf8_lossy(&ffprobe.stderr)
+        );
         let probe: serde_json::Value = serde_json::from_slice(&ffprobe.stdout).unwrap();
         let video = probe["streams"]
             .as_array()

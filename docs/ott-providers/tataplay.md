@@ -1,4 +1,4 @@
-# OTT provider: Tata Play Smart
+# Beta OTT provider: Tata Play Smart
 
 This record covers two app generations: the older `com.ryzmedia.tatasky`
 509.0/894 installed on the A15, and the newer `com.tataplay.livetv` 1.0.10/101
@@ -7,7 +7,8 @@ artifact whose native Retrofit layer is recoverable.
 ## Experimental backend status
 
 The newer app's verified Retrofit contracts are now implemented behind
-`tataplay = true` / `JIOTV_TATAPLAY=true` as a diagnostic beta. No live
+`tataplay = true` / `OPENSTREAM_TATAPLAY=true` (legacy alias
+`JIOTV_TATAPLAY=true`) as a diagnostic beta. No live
 Tata Play request has been made by this implementation yet.
 
 Implemented beta routes:
@@ -77,10 +78,12 @@ re-inspected the bundle:
   (raw/MD5/SHA-1/SHA-256, AES-CBC/ECB, several IV placements) produced no
   Hermes header or JS text.
 
-**Conclusion:** no login, catalogue, EPG, playback, license or subscription
-contract is statically recoverable. Guessed paths were therefore removed from
-the backend; `/api/tataplay/status` reports the artifact identity and this exact
-gap, and no Tata Play channel can enter the shared catalogue.
+**Conclusion for the original `com.ryzmedia.tatasky` base artifact:** no login,
+catalogue, EPG, playback, license or subscription contract is statically
+recoverable from its encrypted fallback bundle or DEX files. This historical
+conclusion does not apply to the separate `com.tataplay.livetv` artifact below.
+The diagnostic beta uses recovered contracts from that newer app and keeps Tata
+Play out of the shared catalogue and shared playback paths.
 
 ## 1b. New artifact and runtime evidence (follow-up pass)
 

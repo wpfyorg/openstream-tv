@@ -1,4 +1,4 @@
-# OTT provider: PlayboxTV for Android TV (`playboxtv.tv.android.in` 5.20.1/128)
+# Beta OTT provider: PlayboxTV for Android TV (`playboxtv.tv.android.in` 5.20.1/128)
 
 Evidence-backed static record. No live calls. All account-shaped values
 redacted. The first inventory had no JADX; section 3a records the contracts

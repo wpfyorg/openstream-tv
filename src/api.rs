@@ -12,7 +12,7 @@ use serde::Deserialize;
 use serde_json::json;
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::SystemTime;
 
 pub type SharedState = Arc<AppState>;
@@ -644,6 +644,23 @@ pub struct ProviderVerifyOtpBody {
     pub otp: String,
 }
 
+fn playbox_otp_limiter() -> &'static crate::unlock::AttemptLimiter {
+    static LIMITER: OnceLock<crate::unlock::AttemptLimiter> = OnceLock::new();
+    LIMITER.get_or_init(crate::unlock::AttemptLimiter::default)
+}
+
+fn playbox_otp_attempt(kind: &str, addr: SocketAddr) -> Option<String> {
+    let key = format!("{kind}:{}", addr.ip());
+    let now = SystemTime::now();
+    let limiter = playbox_otp_limiter();
+    if !limiter.allowed(&key, now) {
+        return None;
+    }
+    // Count before forwarding upstream so failed requests are limited too.
+    limiter.record_failure(&key, now);
+    Some(key)
+}
+
 /// `GET /api/playbox/status`
 pub async fn playbox_status(State(state): State<SharedState>) -> Response {
     Json(json!({
@@ -660,10 +677,17 @@ pub async fn playbox_status(State(state): State<SharedState>) -> Response {
 /// gateway (see `playbox.rs`).
 pub async fn playbox_send_otp(
     State(state): State<SharedState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
     Json(body): Json<ProviderSendOtpBody>,
 ) -> Response {
     if !state.playbox.enabled() {
         return err(StatusCode::BAD_REQUEST, "playbox is not enabled");
+    }
+    if playbox_otp_attempt("send", addr).is_none() {
+        return err(
+            StatusCode::TOO_MANY_REQUESTS,
+            "too many PlayboxTV OTP attempts, try again later",
+        );
     }
     match state
         .playbox
@@ -680,11 +704,21 @@ pub async fn playbox_send_otp(
 /// like the JioTV+ flow, so no old-account URL or cache survives a switch.
 pub async fn playbox_verify_otp(
     State(state): State<SharedState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
     Json(body): Json<ProviderVerifyOtpBody>,
 ) -> Response {
     if !state.playbox.enabled() {
         return err(StatusCode::BAD_REQUEST, "playbox is not enabled");
     }
+    let attempt_key = match playbox_otp_attempt("verify", addr) {
+        Some(key) => key,
+        None => {
+            return err(
+                StatusCode::TOO_MANY_REQUESTS,
+                "too many PlayboxTV OTP attempts, try again later",
+            )
+        }
+    };
     let installed = std::sync::atomic::AtomicBool::new(false);
     let result = state
         .playbox
@@ -698,7 +732,10 @@ pub async fn playbox_verify_otp(
         crate::epg::trigger_regeneration(&state);
     }
     match result {
-        Ok(true) => Json(json!({"status": true})).into_response(),
+        Ok(true) => {
+            playbox_otp_limiter().record_success(&attempt_key);
+            Json(json!({"status": true})).into_response()
+        }
         Ok(false) => err(StatusCode::BAD_REQUEST, "wrong OTP"),
         Err(e) => err(StatusCode::BAD_REQUEST, e.to_string()),
     }
@@ -859,10 +896,7 @@ pub async fn vzy_channels(State(state): State<SharedState>) -> Response {
 }
 
 /// `GET /api/vzy/play/:id` — source kind only; the URL stays server-side.
-pub async fn vzy_play(
-    Path(id): Path<String>,
-    State(state): State<SharedState>,
-) -> Response {
+pub async fn vzy_play(Path(id): Path<String>, State(state): State<SharedState>) -> Response {
     if !state.vzy.enabled() {
         return err(StatusCode::BAD_REQUEST, "vzy is not enabled");
     }
@@ -885,10 +919,7 @@ pub async fn vzy_play(
 }
 
 /// `GET /api/vzy/epg/:id` — programme list for a free channel.
-pub async fn vzy_epg(
-    Path(id): Path<String>,
-    State(state): State<SharedState>,
-) -> Response {
+pub async fn vzy_epg(Path(id): Path<String>, State(state): State<SharedState>) -> Response {
     if !state.vzy.enabled() {
         return err(StatusCode::BAD_REQUEST, "vzy is not enabled");
     }
@@ -900,9 +931,9 @@ pub async fn vzy_epg(
             let rows: Vec<_> = programmes
                 .into_iter()
                 .filter(|p| p.channel == id)
-                .map(|p| {
-                    json!({"start": p.start, "stop": p.stop, "title": p.title, "desc": p.desc})
-                })
+                .map(
+                    |p| json!({"start": p.start, "stop": p.stop, "title": p.title, "desc": p.desc}),
+                )
                 .collect();
             Json(json!({"status": true, "programmes": rows})).into_response()
         }
@@ -1238,6 +1269,10 @@ mod tests {
     use http_body_util::BodyExt;
 
     use crate::config::Config;
+
+    fn test_connect_info(last_octet: u8) -> ConnectInfo<SocketAddr> {
+        ConnectInfo(SocketAddr::from(([127, 0, 0, last_octet], 5000)))
+    }
 
     fn state() -> Arc<AppState> {
         let dir = tempfile::tempdir().unwrap();
@@ -1855,6 +1890,7 @@ mod tests {
         let s = state();
         let resp = playbox_send_otp(
             State(s.clone()),
+            test_connect_info(10),
             Json(ProviderSendOtpBody {
                 number: "9876543210".into(),
             }),
@@ -1926,6 +1962,7 @@ mod tests {
         let before = s.secure.current_epoch();
         let resp = playbox_verify_otp(
             State(s.clone()),
+            test_connect_info(11),
             Json(ProviderVerifyOtpBody {
                 number: "9876543210".into(),
                 otp: "000000".into(),
@@ -1954,6 +1991,7 @@ mod tests {
         let before = s.secure.current_epoch();
         let resp = playbox_verify_otp(
             State(s.clone()),
+            test_connect_info(12),
             Json(ProviderVerifyOtpBody {
                 number: "9876543210".into(),
                 otp: "123456".into(),
@@ -1963,6 +2001,43 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::OK);
         assert_eq!(s.secure.current_epoch(), before + 2);
         assert!(s.playbox.connected());
+    }
+
+    #[tokio::test]
+    async fn playbox_send_otp_is_rate_limited_before_upstream() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/login/v2/communication"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "statusCode": 200
+            })))
+            .expect(5)
+            .mount(&server)
+            .await;
+        let s = playbox_state_for_api(&server.uri());
+        for _ in 0..5 {
+            let resp = playbox_send_otp(
+                State(s.clone()),
+                test_connect_info(55),
+                Json(ProviderSendOtpBody {
+                    number: "9876543210".into(),
+                }),
+            )
+            .await;
+            assert_eq!(resp.status(), StatusCode::OK);
+        }
+        let resp = playbox_send_otp(
+            State(s),
+            test_connect_info(55),
+            Json(ProviderSendOtpBody {
+                number: "9876543210".into(),
+            }),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
     }
 
     #[tokio::test]

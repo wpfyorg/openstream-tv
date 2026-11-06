@@ -1,4 +1,4 @@
-# OTT provider: VZY (`com.vzy.one.atv` 1.0.253)
+# Beta OTT provider: VZY (`com.vzy.one.atv` 1.0.253)
 
 Evidence record for `/Users/arnab/Downloads/VZY.zip`. This is **not** the old
 mislabelled `com.vzy.one.apk`; it is a Dish/Watcho white-label OTT app.

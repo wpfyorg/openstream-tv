@@ -308,24 +308,19 @@ impl Client {
 
     pub async fn guide(&self, query: &GuideQuery) -> anyhow::Result<Value> {
         query.validate()?;
-        let authenticated = self.credentials.is_some();
-        let params = query.params(authenticated);
-        let request = if let Some(credentials) = &self.credentials {
-            self.http
-                .get(self.url("lit-mobile-common-bff/api/v2/channels/guide"))
-                .header(reqwest::header::CONTENT_TYPE, "application/json")
-                .header("sid", &credentials.sid)
-                .header(reqwest::header::AUTHORIZATION, self.auth()?)
-                .header("platform", PLATFORM)
-                .query(&params)
-        } else {
-            self.http
-                .get(self.url("portal-search/pub/api/v2/channels/guide"))
-                .header(reqwest::header::CONTENT_TYPE, "application/json")
-                .header("device_details", "")
-                .header("platform", PLATFORM)
-                .query(&params)
-        };
+        let credentials = self
+            .credentials
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("tataplay: login is required for EPG guide"))?;
+        let params = query.params(true);
+        let request = self
+            .http
+            .get(self.url("lit-mobile-common-bff/api/v2/channels/guide"))
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .header("sid", &credentials.sid)
+            .header(reqwest::header::AUTHORIZATION, self.auth()?)
+            .header("platform", PLATFORM)
+            .query(&params);
         let value = self.checked_json(request, "EPG guide").await?;
         Ok(sanitize_guide(&value))
     }
@@ -802,6 +797,28 @@ mod tests {
         assert_eq!(seed["documentIds"]["10"], "doc-a");
         assert_eq!(seed["hydratedChannels"], false);
         assert!(seed.get("channels").is_none());
+    }
+
+    #[tokio::test]
+    async fn guide_requires_login_before_any_upstream_request() {
+        let server = MockServer::start().await;
+        let client = Client::with_base(reqwest::Client::new(), device(), &server.uri());
+        let query = GuideQuery {
+            offset: Some(0),
+            limit: Some(100),
+            category_filters: None,
+            language_filters: None,
+            date: Some("2026-11-06".into()),
+            epg_start_time: Some("00:00:00".into()),
+            epg_end_time: Some("23:59:59".into()),
+            subscribed_filter: Some(false),
+        };
+
+        assert_eq!(
+            client.guide(&query).await.unwrap_err().to_string(),
+            "tataplay: login is required for EPG guide"
+        );
+        assert!(server.received_requests().await.unwrap().is_empty());
     }
 
     #[tokio::test]

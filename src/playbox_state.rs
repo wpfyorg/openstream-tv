@@ -244,14 +244,17 @@ impl PlayboxState {
                 return Some(resolved.clone());
             }
         }
+        let generation = self.generation();
         let client = self.client()?;
         let _guard = self.locks.lock(&format!("playback:{content}")).await;
+        if self.generation() != generation {
+            return None;
+        }
         if let Some((resolved, at)) = self.resolved.read().unwrap().get(content) {
             if at.elapsed() < PLAYBACK_TTL {
                 return Some(resolved.clone());
             }
         }
-        let generation = self.generation();
         let item = self
             .catalogue
             .read()
@@ -270,6 +273,86 @@ impl PlayboxState {
                 .insert(content.to_string(), (resolved, now));
         })?;
         Some(clone)
+    }
+
+    /// Resolve enough playback metadata for a cold M3U request to classify
+    /// Playbox channels as HLS/DASH and clear/DRM before the playlist is
+    /// rendered. Work is bounded so a large catalogue cannot create an
+    /// unbounded burst of upstream requests.
+    pub async fn prepare_playlist_metadata(&self) {
+        let _guard = self.locks.lock("playlist-metadata").await;
+        let generation = self.generation();
+        let Some(client) = self.client() else {
+            return;
+        };
+        if self.generation() != generation {
+            return;
+        }
+
+        let work: Vec<(String, i32)> = self
+            .catalogue
+            .read()
+            .unwrap()
+            .iter()
+            .filter_map(|item| {
+                let content = item.content_id();
+                let fresh = self
+                    .resolved
+                    .read()
+                    .unwrap()
+                    .get(content)
+                    .is_some_and(|(_, at)| at.elapsed() < PLAYBACK_TTL);
+                (!fresh).then(|| (content.to_string(), item.playback_type_id()))
+            })
+            .collect();
+
+        const MAX_IN_FLIGHT: usize = 8;
+        let mut pending = work.into_iter();
+        let mut tasks = tokio::task::JoinSet::new();
+        for _ in 0..MAX_IN_FLIGHT {
+            let Some((content, type_id)) = pending.next() else {
+                break;
+            };
+            let client = client.clone();
+            tasks.spawn(async move {
+                let resolved = client.resolve(&content, type_id).await;
+                (content, resolved)
+            });
+        }
+
+        while let Some(joined) = tasks.join_next().await {
+            if self.generation() != generation {
+                tasks.abort_all();
+                return;
+            }
+            if let Ok((content, Ok(resolved))) = joined {
+                let now = Instant::now();
+                let _ = self.commit_if_current(generation, || {
+                    self.resolved
+                        .write()
+                        .unwrap()
+                        .insert(content, (resolved, now));
+                });
+            }
+            if let Some((content, type_id)) = pending.next() {
+                let client = client.clone();
+                tasks.spawn(async move {
+                    let resolved = client.resolve(&content, type_id).await;
+                    (content, resolved)
+                });
+            }
+        }
+    }
+
+    /// Drop one cached playback entry after the CDN rejects its media token.
+    /// Taking the same per-channel lock as resolution guarantees an in-flight
+    /// old resolve cannot repopulate the entry after this invalidation.
+    pub async fn invalidate_playback(&self, channel_id: &str) {
+        let Some(content) = content_id(channel_id) else {
+            return;
+        };
+        let _guard = self.locks.lock(&format!("playback:{content}")).await;
+        self.resolved.write().unwrap().remove(content);
     }
 
     /// Resolves a `pb_` channel to the shared playback shape. The 60-second
@@ -333,6 +416,28 @@ impl PlayboxState {
             .get(content)
             .map(|(resolved, _)| !resolved.license_url.is_empty())
             .unwrap_or(false)
+    }
+
+    pub fn is_dash(&self, channel_id: &str) -> bool {
+        let Some(content) = content_id(channel_id) else {
+            return false;
+        };
+        self.resolved
+            .read()
+            .unwrap()
+            .get(content)
+            .is_some_and(|(resolved, at)| at.elapsed() < PLAYBACK_TTL && resolved.is_dash)
+    }
+
+    pub fn playlist_ready(&self, channel_id: &str) -> bool {
+        let Some(content) = content_id(channel_id) else {
+            return false;
+        };
+        self.resolved
+            .read()
+            .unwrap()
+            .get(content)
+            .is_some_and(|(_, at)| at.elapsed() < PLAYBACK_TTL)
     }
 
     pub async fn subscription(&self) -> Option<bool> {
@@ -423,6 +528,102 @@ mod tests {
         assert!(!state.connected());
         assert!(!state.contains("pb_ch1"));
         assert!(state.media_headers("pb_ch1").await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn cold_playlist_preflight_marks_dash_widevine_before_m3u_generation() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/catalogue/v3/page/livetv2"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "statusCode": 200,
+                "livetv": [{"id": "drm1", "name": "Protected", "typeId": 106}]
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/consume/v1/playback/resolve"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "code": 200,
+                "data": {"url": {
+                    "playable": "https://cdn.example/drm1/manifest.mpd",
+                    "licenceUrl": "https://license.example/widevine",
+                    "token": "license-token"
+                }}
+            })))
+            .mount(&server)
+            .await;
+
+        let state = PlayboxState::new(true);
+        state.set_client_for_test(client_for(&server));
+        assert!(state.ensure_catalogue().await);
+        assert!(!state.is_drm("pb_drm1"), "cold cache must start unresolved");
+
+        state.prepare_playlist_metadata().await;
+        assert!(state.playlist_ready("pb_drm1"));
+        assert!(state.is_drm("pb_drm1"));
+        assert!(state.is_dash("pb_drm1"));
+
+        let channels = state.channels();
+        let opts = crate::television::PlaylistOptions {
+            host_url: "http://localhost:5001",
+            quality: "",
+            split_category: "",
+            languages: "",
+            skip_genres: "",
+            sub_filter: "",
+        };
+        let m3u = crate::television::generate_m3u_playlist(
+            &channels,
+            &opts,
+            |id| state.is_drm(id),
+            |id| state.is_dash(id),
+            |id| state.playlist_ready(id),
+        );
+        assert!(m3u.contains("/live/mpd/pb_drm1"));
+        assert!(m3u.contains("inputstream.adaptive.license_type=com.widevine.alpha"));
+        assert!(m3u.contains("/live/key/pb_drm1"));
+    }
+
+    #[tokio::test]
+    async fn generation_change_while_waiting_for_playback_lock_cannot_repopulate_cache() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/catalogue/v3/page/livetv2"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "statusCode": 200,
+                "livetv": [{"id": "ch1", "name": "One", "typeId": 106}]
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/consume/v1/playback/resolve"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({
+                        "code": 200,
+                        "data": {"url": {"playable": "https://old.example/ch1.m3u8"}}
+                    }))
+                    .set_delay(Duration::from_millis(200)),
+            )
+            .mount(&server)
+            .await;
+
+        let state = Arc::new(PlayboxState::new(true));
+        state.set_client_for_test(client_for(&server));
+        assert!(state.ensure_catalogue().await);
+
+        let first_state = state.clone();
+        let first = tokio::spawn(async move { first_state.live("pb_ch1").await });
+        tokio::time::sleep(Duration::from_millis(30)).await;
+        let second_state = state.clone();
+        let second = tokio::spawn(async move { second_state.live("pb_ch1").await });
+        tokio::time::sleep(Duration::from_millis(30)).await;
+        state.clear();
+
+        let _ = first.await.unwrap();
+        assert!(second.await.unwrap().is_err());
+        assert!(state.resolved.read().unwrap().is_empty());
     }
 
     #[tokio::test]
