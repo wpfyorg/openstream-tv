@@ -52,9 +52,11 @@ fn main() -> anyhow::Result<()> {
 
     let path_prefix = resolve_path_prefix(&cfg)?;
     let store = Arc::new(store::Store::open(&path_prefix)?);
+    let force_epg = std::env::var(epg::COMPANION_APP_ENV).as_deref() == Ok("1");
     cfg.epg = epg::enabled_with_override(
         cfg.epg,
         store.get_opt(epg::STORE_KEY_ENABLED).as_deref(),
+        force_epg,
     );
     let access = Arc::new(access::Access::new(store.clone()));
     let secure = Arc::new(secureurl::SecureUrl::new(cfg.disable_url_encryption));

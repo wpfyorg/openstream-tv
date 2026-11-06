@@ -22,17 +22,14 @@ pub const EPG_POSTER_URL: &str = "https://jiotv.catchup.cdn.jio.com/dare_images/
 const CACHE_METADATA_VERSION: u32 = 1;
 const CACHE_MAX_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 pub const STORE_KEY_ENABLED: &str = "epg_enabled";
+pub const COMPANION_APP_ENV: &str = "OPENSTREAM_COMPANION_APP";
 
-pub fn enabled_with_override(config_enabled: bool, stored: Option<&str>) -> bool {
-    enabled_with_platform_override(config_enabled, stored, cfg!(target_os = "android"))
-}
-
-fn enabled_with_platform_override(
+pub fn enabled_with_override(
     config_enabled: bool,
     stored: Option<&str>,
-    android: bool,
+    force_enabled: bool,
 ) -> bool {
-    if android {
+    if force_enabled {
         return true;
     }
     match stored {
@@ -764,25 +761,21 @@ mod tests {
     use std::collections::HashMap;
 
     #[test]
-    fn android_forces_epg_on_regardless_of_config_or_persisted_override() {
-        assert!(enabled_with_platform_override(false, Some("false"), true));
-        assert!(enabled_with_platform_override(false, Some("invalid"), true));
-        assert!(enabled_with_platform_override(false, None, true));
+    fn companion_app_forces_epg_on_regardless_of_config_or_persisted_override() {
+        assert!(enabled_with_override(false, Some("false"), true));
+        assert!(enabled_with_override(false, Some("invalid"), true));
+        assert!(enabled_with_override(false, None, true));
     }
 
     #[test]
-    fn non_android_stored_override_takes_precedence_over_config() {
-        assert!(!enabled_with_platform_override(true, Some("false"), false));
-        assert!(enabled_with_platform_override(false, Some("true"), false));
-        assert!(enabled_with_platform_override(true, Some("invalid"), false));
-        assert!(enabled_with_platform_override(true, None, false));
-        assert!(!enabled_with_platform_override(false, Some("false"), false));
-        assert!(!enabled_with_platform_override(
-            false,
-            Some("invalid"),
-            false
-        ));
-        assert!(!enabled_with_platform_override(false, None, false));
+    fn stored_override_takes_precedence_when_epg_is_not_forced() {
+        assert!(!enabled_with_override(true, Some("false"), false));
+        assert!(enabled_with_override(false, Some("true"), false));
+        assert!(enabled_with_override(true, Some("invalid"), false));
+        assert!(enabled_with_override(true, None, false));
+        assert!(!enabled_with_override(false, Some("false"), false));
+        assert!(!enabled_with_override(false, Some("invalid"), false));
+        assert!(!enabled_with_override(false, None, false));
     }
 
     fn tv_channel(id: &str, name: &str) -> crate::television::Channel {

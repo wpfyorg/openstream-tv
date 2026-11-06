@@ -48,7 +48,8 @@ public final class ServerService extends Service {
             env.put("HOME", getFilesDir().getAbsolutePath());
             env.put("OPENSTREAM_FASTWAY", "false");
             env.put("OPENSTREAM_TVPLUS", "true");
-            // Android always serves EPG, regardless of imported config or persisted override.
+            // Only the companion app forces EPG on; Termux uses the same Android binary target.
+            env.put("OPENSTREAM_COMPANION_APP", "1");
             env.put("OPENSTREAM_EPG", "true");
             process = pb.start();
             Process started = process;
