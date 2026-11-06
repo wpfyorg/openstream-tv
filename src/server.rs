@@ -1116,8 +1116,8 @@ mod tests {
             .load(custom_path.to_str().unwrap())
             .unwrap();
         let key = state.access.key().unwrap();
-        let enc_host = state.secure.encrypt_deterministic(&mock_addr);
-        let enc_path = state.secure.encrypt_deterministic("/seg/");
+        let enc_host = crate::dash::encrypt_dash_route_value(&state.secure, "custom1", &mock_addr);
+        let enc_path = crate::dash::encrypt_dash_route_value(&state.secure, "custom1", "/seg/");
         let path = format!("/render.dash/channel/custom1/host/{enc_host}/path/{enc_path}/init.mp4");
 
         // /render.dash is an open path (no key needed), but it's still a

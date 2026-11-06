@@ -19,6 +19,37 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const DRM_MPD_CACHE_TTL: Duration = Duration::from_secs(30);
+const DASH_ROUTE_BINDING_PREFIX: &str = "openstream-dash-v1:";
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct DashRouteBinding {
+    channel_id: String,
+    value: String,
+}
+
+pub(crate) fn encrypt_dash_route_value(
+    secure: &crate::secureurl::SecureUrl,
+    channel_id: &str,
+    value: &str,
+) -> String {
+    let payload = DashRouteBinding {
+        channel_id: channel_id.to_string(),
+        value: value.to_string(),
+    };
+    let serialized = serde_json::to_string(&payload).expect("dash route binding serializes");
+    secure.encrypt_deterministic(&format!("{DASH_ROUTE_BINDING_PREFIX}{serialized}"))
+}
+
+fn decrypt_dash_route_value(
+    secure: &crate::secureurl::SecureUrl,
+    channel_id: &str,
+    encrypted: &str,
+) -> Option<String> {
+    let decoded = secure.decrypt(encrypted).ok()?;
+    let serialized = decoded.strip_prefix(DASH_ROUTE_BINDING_PREFIX)?;
+    let payload: DashRouteBinding = serde_json::from_str(serialized).ok()?;
+    (payload.channel_id == channel_id).then_some(payload.value)
+}
 
 #[derive(Clone, Default)]
 pub struct DrmMpdOutput {
@@ -594,8 +625,8 @@ async fn render_mpd_inner(state: Arc<AppState>, q: RenderMpdQuery) -> Response {
     let Some((proxy_origin, proxy_host, base_path)) = cdn_host_and_dir(&decrypted) else {
         return (StatusCode::BAD_REQUEST, "invalid upstream URL").into_response();
     };
-    let enc_host = state.secure.encrypt_deterministic(&proxy_origin);
-    let enc_path = state.secure.encrypt_deterministic(&base_path);
+    let enc_host = encrypt_dash_route_value(&state.secure, channel_id, &proxy_origin);
+    let enc_path = encrypt_dash_route_value(&state.secure, channel_id, &base_path);
 
     let encoded_channel = urlencoding::encode(channel_id);
     let cached_hdnea = q.hdnea.clone();
@@ -603,9 +634,8 @@ async fn render_mpd_inner(state: Arc<AppState>, q: RenderMpdQuery) -> Response {
         format!("/render.dash/channel/{encoded_channel}/host/{enc_host}/path/{enc_path}");
     if let Some(h) = &cached_hdnea {
         if !h.is_empty() {
-            let enc = state
-                .secure
-                .encrypt_deterministic(&format!("__hdnea__={h}"));
+            let enc =
+                encrypt_dash_route_value(&state.secure, channel_id, &format!("__hdnea__={h}"));
             dash_base = format!("/render.dash/channel/{encoded_channel}/host/{enc_host}/path/{enc_path}/hdnea/{enc}");
         }
     }
@@ -631,9 +661,7 @@ async fn render_mpd_inner(state: Arc<AppState>, q: RenderMpdQuery) -> Response {
             .find_map(|p| p.strip_prefix("__hdnea__="))
     });
     if let Some(h) = upstream_hdnea {
-        let enc = state
-            .secure
-            .encrypt_deterministic(&format!("__hdnea__={h}"));
+        let enc = encrypt_dash_route_value(&state.secure, channel_id, &format!("__hdnea__={h}"));
         dash_base = format!(
             "/render.dash/channel/{encoded_channel}/host/{enc_host}/path/{enc_path}/hdnea/{enc}"
         );
@@ -873,21 +901,23 @@ pub async fn render_dash_handler(
             None => return (StatusCode::BAD_REQUEST, "malformed dash path").into_response(),
         };
 
-    let hdnea_token = enc_hdnea.and_then(|enc| {
-        state
-            .secure
-            .decrypt(enc)
-            .ok()
+    let hdnea_token = match enc_hdnea {
+        Some(enc) => match decrypt_dash_route_value(&state.secure, &channel_id, enc)
             .and_then(|s| s.strip_prefix("__hdnea__=").map(str::to_string))
-    });
-
-    let origin = match state.secure.decrypt(enc_host) {
-        Ok(h) => h,
-        Err(_) => return (StatusCode::BAD_REQUEST, "invalid host parameter").into_response(),
+        {
+            Some(token) => Some(token),
+            None => return (StatusCode::BAD_REQUEST, "invalid hdnea parameter").into_response(),
+        },
+        None => None,
     };
-    let base_path = match state.secure.decrypt(enc_path) {
-        Ok(p) => p,
-        Err(_) => return (StatusCode::BAD_REQUEST, "invalid path parameter").into_response(),
+
+    let origin = match decrypt_dash_route_value(&state.secure, &channel_id, enc_host) {
+        Some(h) => h,
+        None => return (StatusCode::BAD_REQUEST, "invalid host parameter").into_response(),
+    };
+    let base_path = match decrypt_dash_route_value(&state.secure, &channel_id, enc_path) {
+        Some(p) => p,
+        None => return (StatusCode::BAD_REQUEST, "invalid path parameter").into_response(),
     };
 
     let proxy_url = build_dash_proxy_url(
@@ -1352,13 +1382,12 @@ mod tests {
         let state = license_test_state(playbox);
         let _ = state.playbox.live("pb_ch1").await.unwrap();
 
-        let enc_host = state.secure.encrypt_deterministic(&server.uri());
-        let enc_path = state.secure.encrypt_deterministic("/");
-        let uri: axum::http::Uri = format!(
-            "/render.dash/channel/pb_ch1/host/{enc_host}/path/{enc_path}/dash/seg.m4s"
-        )
-        .parse()
-        .unwrap();
+        let enc_host = encrypt_dash_route_value(&state.secure, "pb_ch1", &server.uri());
+        let enc_path = encrypt_dash_route_value(&state.secure, "pb_ch1", "/");
+        let uri: axum::http::Uri =
+            format!("/render.dash/channel/pb_ch1/host/{enc_host}/path/{enc_path}/dash/seg.m4s")
+                .parse()
+                .unwrap();
         let response = render_dash_handler(State(state), uri).await;
         assert_eq!(response.status(), StatusCode::OK);
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
@@ -1366,6 +1395,22 @@ mod tests {
             .unwrap();
         assert_eq!(&body[..], b"segment");
         assert_eq!(resolve_calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn dash_route_rejects_destination_bound_to_a_different_channel() {
+        let playbox = Arc::new(crate::playbox_state::PlayboxState::new(true));
+        let state = license_test_state(playbox);
+        let enc_host =
+            encrypt_dash_route_value(&state.secure, "pb_source", "https://example.invalid");
+        let enc_path = encrypt_dash_route_value(&state.secure, "pb_source", "/media/");
+        let uri: axum::http::Uri =
+            format!("/render.dash/channel/pb_target/host/{enc_host}/path/{enc_path}/seg.m4s")
+                .parse()
+                .unwrap();
+
+        let response = render_dash_handler(State(state), uri).await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 
     #[test]
@@ -1564,8 +1609,8 @@ mod tests {
         let (origin, _host, dir_path) = cdn_host_and_dir(upstream).unwrap();
         assert_eq!(origin, "https://cdn.example.com");
         assert_eq!(dir_path, "/bpk-tv/MoviesNow_BTS/WDVLive/");
-        let enc_host = secure.encrypt_deterministic(&origin);
-        let enc_path = secure.encrypt_deterministic(&dir_path);
+        let enc_host = encrypt_dash_route_value(&secure, "ex_151", &origin);
+        let enc_path = encrypt_dash_route_value(&secure, "ex_151", &dir_path);
 
         // Shaka resolves the relative SegmentTemplate reference
         // "index_video_7_0_init.mp4?m=1773052885" against our rewritten
@@ -1580,8 +1625,8 @@ mod tests {
         assert!(got_hdnea.is_none());
         assert_eq!(segment_path, "/dash/index_video_7_0_init.mp4");
 
-        let decrypted_host = secure.decrypt(got_enc_host).unwrap();
-        let decrypted_dir = secure.decrypt(got_enc_path).unwrap();
+        let decrypted_host = decrypt_dash_route_value(&secure, "ex_151", got_enc_host).unwrap();
+        let decrypted_dir = decrypt_dash_route_value(&secure, "ex_151", got_enc_path).unwrap();
         assert_eq!(decrypted_host, "https://cdn.example.com");
         assert_eq!(decrypted_dir, "/bpk-tv/MoviesNow_BTS/WDVLive/");
 
