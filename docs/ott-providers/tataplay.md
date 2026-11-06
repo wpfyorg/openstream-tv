@@ -17,6 +17,35 @@ redacted. Content/auth paths are **unknown statically** (encrypted RN bundle).
   `assets/index.android.bundle` 12.2 MB, **encrypted**: magic `05011cc1…`,
   zero URLs, max printable run 16 chars); CodePush OTA.
 
+## 1a. Static follow-up (JADX 1.5.6, full base.apk)
+
+The earlier pass could not run JADX. This pass decompiled all 12 DEX files and
+re-inspected the bundle:
+
+- `com/ryzmedia/tatasky` contains only `MainApplication`, `BuildConfig`, `R`,
+  UI/utility packages and SDK glue. **There is no app-level Retrofit/OkHttp API
+  class, no request builder, and no endpoint map anywhere in the DEX.**
+- `BuildConfig` exposes `BASE_URL=https://tm.tapi.videoready.tv/`,
+  `ACTION_NAME_CONFIG=rest-api/pub/api/v1/config`, `X_API_KEY`, `X_APP_ID=ott-app`,
+  `X_APP_KEY`, `IRDETO_BASE_URL`, `CODEPUSH_SERVER_URL`, `BUNDLE_ID=com.hungama.tatasky`.
+  Nothing in the DEX consumes `ACTION_NAME_CONFIG`; it is read from JS.
+- `MainApplication` uses `DefaultReactNativeHost.getJSBundleFile()` →
+  `CodePush.getJSBundleFile()`, so the JS layer is the API layer.
+- `assets/index.android.bundle` is **encrypted**, not Hermes bytecode:
+  first bytes `05 01 1c c1`, no `c6 1f bc 03` magic anywhere in 12.2 MB,
+  Shannon entropy 7.997 bits/byte, no readable strings, no ZIP/gzip container.
+- No AES key or bundle-decryption routine is reachable from the DEX: the app
+  classes are DexGuard-obfuscated and the only native crypto-capable libraries
+  are stock Hermes/React Native plus packed `libc2f2.so`/`libc7a509.so`.
+  A brute-force check of plausible keys derived from the BuildConfig values
+  (raw/MD5/SHA-1/SHA-256, AES-CBC/ECB, several IV placements) produced no
+  Hermes header or JS text.
+
+**Conclusion:** no login, catalogue, EPG, playback, license or subscription
+contract is statically recoverable. Guessed paths were therefore removed from
+the backend; `/api/tataplay/status` reports the artifact identity and this exact
+gap, and no Tata Play channel can enter the shared catalogue.
+
 ## 2. API bases (observed static strings)
 
 - `BASE_URL = https://tm.tapi.videoready.tv/` (`BASE_URL_CONFIG_AKAMAI` same;
