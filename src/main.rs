@@ -31,6 +31,8 @@ mod tunnel_setup;
 mod unlock;
 mod update;
 mod vod;
+mod vzy;
+mod vzy_state;
 mod vzyone;
 
 #[cfg(feature = "full")]
@@ -812,6 +814,8 @@ fn build_app_state(
     fastway_state.init(&http, &store);
     let playbox_state = Arc::new(playbox_state::PlayboxState::new(cfg.playbox));
     playbox_state.init(&http, &store);
+    let vzy_state = Arc::new(vzy_state::VzyState::new(cfg.vzy));
+    vzy_state.init(&http, &store);
 
     Ok(Arc::new(state::AppState {
         config: cfg.clone(),
@@ -829,6 +833,7 @@ fn build_app_state(
         extras: extras_state,
         fastway: fastway_state,
         playbox: playbox_state,
+        vzy: vzy_state,
         vod_state: Default::default(),
         public_ip: Arc::new(unlock::PublicIp::new(http)),
         unlock_limiter: Arc::new(unlock::AttemptLimiter::default()),

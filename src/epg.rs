@@ -114,6 +114,10 @@ fn snapshot_fingerprint(
             hash_field(&mut hasher, &state.playbox.account_fingerprint());
             hash_field(&mut hasher, "playbox-epg:unavailable");
         }
+        crate::state::ActiveProduct::Vzy => {
+            hash_field(&mut hasher, &state.vzy.account_fingerprint());
+            hash_field(&mut hasher, "vzy-free-tier");
+        }
     }
 
     // XMLTV currently contains only upstream channels. Sorting makes this a
@@ -478,6 +482,14 @@ pub async fn regenerate_for_state(state: &Arc<AppState>) -> anyhow::Result<()> {
                 .collect();
             generate_channels_only_xml_gz(channels)?
         }
+        crate::state::ActiveProduct::Vzy => {
+            let (sources, programmes) = state.vzy.epg_source(&state.store).await?;
+            if programmes.is_empty() {
+                generate_channels_only_xml_gz(sources)?
+            } else {
+                generate_xml_gz_from_sources(&state.http, Vec::new(), sources, programmes).await?
+            }
+        }
     };
 
     // Entitlement/catalogue state can change while network EPG requests are
@@ -818,6 +830,7 @@ mod tests {
             epg_state: Default::default(),
             extras: std::sync::Arc::new(crate::extras_state::ExtrasState::new(false, None)),
             playbox: std::sync::Arc::new(crate::playbox_state::PlayboxState::new(false)),
+            vzy: std::sync::Arc::new(crate::vzy_state::VzyState::new(false)),
             vod_state: Default::default(),
             public_ip: std::sync::Arc::new(crate::unlock::PublicIp::new(reqwest::Client::new())),
             unlock_limiter: std::sync::Arc::new(crate::unlock::AttemptLimiter::default()),
@@ -931,6 +944,7 @@ mod tests {
             extras: extras_state,
             fastway: Arc::new(crate::fastway_state::FastwayState::new(false)),
             playbox: Arc::new(crate::playbox_state::PlayboxState::new(false)),
+            vzy: Arc::new(crate::vzy_state::VzyState::new(false)),
             vod_state: Default::default(),
             public_ip: Arc::new(crate::unlock::PublicIp::new(http)),
             unlock_limiter: Arc::new(crate::unlock::AttemptLimiter::default()),

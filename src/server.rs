@@ -110,6 +110,11 @@ fn api_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
             get(crate::api::playbox_subscription),
         )
         .route("/api/playbox/epg/:id", get(crate::api::playbox_epg))
+        .route("/api/vzy/status", get(crate::api::vzy_status))
+        .route("/api/vzy/channels", get(crate::api::vzy_channels))
+        .route("/api/vzy/play/:id", get(crate::api::vzy_play))
+        .route("/api/vzy/epg/:id", get(crate::api::vzy_epg))
+        .route("/api/vzy/logout", post(crate::api::vzy_logout))
         .route("/api/tataplay/status", get(crate::api::tataplay_status))
         .route("/api/vzyone/status", get(crate::api::vzyone_status))
         .route("/api/ott/search", get(crate::vod::api_ott_search))
@@ -524,6 +529,7 @@ mod tests {
             extras: Arc::new(crate::extras_state::ExtrasState::new(false, None)),
             fastway: Arc::new(crate::fastway_state::FastwayState::new(false)),
             playbox: Arc::new(crate::playbox_state::PlayboxState::new(false)),
+            vzy: Arc::new(crate::vzy_state::VzyState::new(false)),
             vod_state: Default::default(),
             public_ip: Arc::new(crate::unlock::PublicIp::new(reqwest::Client::new())),
             unlock_limiter: Arc::new(crate::unlock::AttemptLimiter::default()),

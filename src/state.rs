@@ -9,6 +9,7 @@ use crate::secureurl::SecureUrl;
 use crate::store::Store;
 use crate::stream::RenderCaches;
 use crate::television::Television;
+use crate::vzy_state::VzyState;
 use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -17,6 +18,7 @@ pub enum ActiveProduct {
     Extras,
     Fastway,
     Playbox,
+    Vzy,
 }
 
 impl ActiveProduct {
@@ -26,6 +28,7 @@ impl ActiveProduct {
             ActiveProduct::Extras => "extras",
             ActiveProduct::Fastway => "fastway",
             ActiveProduct::Playbox => "playbox",
+            ActiveProduct::Vzy => "vzy",
         }
     }
 }
@@ -53,6 +56,7 @@ pub struct AppState {
     pub extras: Arc<ExtrasState>,
     pub fastway: Arc<FastwayState>,
     pub playbox: Arc<PlayboxState>,
+    pub vzy: Arc<VzyState>,
     pub vod_state: crate::vod::VodState,
     /// The server's cached public IPv4, used to compute today's extras
     /// unlock code. See `unlock.rs`.
@@ -115,6 +119,7 @@ impl AppState {
         // Provider switching must not leak one account's catalogue into the
         // next context: drop provider caches at the same boundary.
         self.playbox.clear();
+        self.vzy.clear();
     }
 
     /// Product selection follows the authenticated session that can actually
@@ -128,6 +133,8 @@ impl AppState {
             ActiveProduct::Extras
         } else if self.playbox.connected() {
             ActiveProduct::Playbox
+        } else if self.vzy.connected() {
+            ActiveProduct::Vzy
         } else {
             ActiveProduct::Tv
         }
@@ -151,6 +158,10 @@ impl AppState {
             ActiveProduct::Playbox => {
                 self.playbox.ensure_catalogue().await;
                 Ok(self.playbox.channels())
+            }
+            ActiveProduct::Vzy => {
+                self.vzy.ensure_catalogue(&self.store).await;
+                Ok(self.vzy.channels())
             }
             ActiveProduct::Tv => Ok(self.tv.channels().await?.result),
         }
@@ -180,6 +191,10 @@ impl AppState {
             ActiveProduct::Playbox => {
                 self.playbox.ensure_catalogue().await;
                 self.playbox.contains(id)
+            }
+            ActiveProduct::Vzy => {
+                self.vzy.ensure_catalogue(&self.store).await;
+                self.vzy.contains(id)
             }
             ActiveProduct::Tv => self
                 .tv
@@ -252,6 +267,7 @@ impl AppState {
             ActiveProduct::Fastway => self.fastway.connected(),
             ActiveProduct::Extras => self.extras.connected(),
             ActiveProduct::Playbox => self.playbox.connected(),
+            ActiveProduct::Vzy => self.vzy.connected(),
             ActiveProduct::Tv => self.tv.logged_in(),
         }
     }
@@ -282,6 +298,7 @@ mod tests {
             extras: Arc::new(ExtrasState::new(false, None)),
             fastway: Arc::new(FastwayState::new(false)),
             playbox: Arc::new(PlayboxState::new(false)),
+            vzy: Arc::new(VzyState::new(false)),
             vod_state: Default::default(),
             public_ip: Arc::new(crate::unlock::PublicIp::new(reqwest::Client::new())),
             unlock_limiter: Arc::new(crate::unlock::AttemptLimiter::default()),
@@ -310,6 +327,7 @@ mod tests {
             epg_state: Default::default(),
             extras,
             playbox,
+            vzy: Arc::new(VzyState::new(false)),
             vod_state: Default::default(),
             public_ip: Arc::new(crate::unlock::PublicIp::new(reqwest::Client::new())),
             unlock_limiter: Arc::new(crate::unlock::AttemptLimiter::default()),

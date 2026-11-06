@@ -215,6 +215,17 @@ pub async fn status(State(state): State<SharedState>) -> Response {
             }
         },
         "tataplay": crate::tataplay::status(),
+        "vzy": {
+            "enabled": state.vzy.enabled(),
+            "connected": state.vzy.connected(),
+            "tier": "anonymous-free",
+            "artifact": {
+                "package": crate::vzy::PACKAGE,
+                "version": crate::vzy::VERSION_NAME,
+                "versionCode": crate::vzy::VERSION_CODE,
+                "sha256": crate::vzy::ARTIFACT_SHA256,
+            }
+        },
         "vzyone": crate::vzyone::status(),
         "catalogue": {
             "activeProduct": state.active_product().as_str(),
@@ -788,6 +799,114 @@ pub async fn playbox_epg(Path(_id): Path<String>) -> Response {
     )
 }
 
+/// `GET /api/vzy/status`
+pub async fn vzy_status(State(state): State<SharedState>) -> Response {
+    Json(json!({
+        "status": true,
+        "vzy": {
+            "enabled": state.vzy.enabled(),
+            "connected": state.vzy.connected(),
+            "tier": "anonymous-free",
+            "artifact": {
+                "package": crate::vzy::PACKAGE,
+                "version": crate::vzy::VERSION_NAME,
+                "versionCode": crate::vzy::VERSION_CODE,
+                "sha256": crate::vzy::ARTIFACT_SHA256,
+            }
+        }
+    }))
+    .into_response()
+}
+
+/// `POST /api/vzy/logout` — drops the anonymous session and every free-tier
+/// cache; the next catalogue request starts a fresh anonymous session.
+pub async fn vzy_logout(State(state): State<SharedState>) -> Response {
+    if state.config.disable_logout {
+        return err(StatusCode::FORBIDDEN, "logout is disabled");
+    }
+    state.invalidate_context();
+    match state.vzy.logout(&state.store) {
+        Ok(()) => {
+            state.invalidate_context();
+            crate::epg::trigger_regeneration(&state);
+            Json(json!({"status": true})).into_response()
+        }
+        Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    }
+}
+
+/// `GET /api/vzy/channels` — free-tier catalogue only.
+pub async fn vzy_channels(State(state): State<SharedState>) -> Response {
+    if !state.vzy.enabled() {
+        return err(StatusCode::BAD_REQUEST, "vzy is not enabled");
+    }
+    if !state.vzy.ensure_catalogue(&state.store).await {
+        return err(
+            StatusCode::BAD_GATEWAY,
+            "vzy: the free-tier catalogue could not be loaded",
+        );
+    }
+    let channels: Vec<_> = state
+        .vzy
+        .channels()
+        .into_iter()
+        .map(|ch| json!({"id": ch.id, "name": ch.name, "logo": ch.logo_url}))
+        .collect();
+    Json(json!({"status": true, "channels": channels})).into_response()
+}
+
+/// `GET /api/vzy/play/:id` — source kind only; the URL stays server-side.
+pub async fn vzy_play(
+    Path(id): Path<String>,
+    State(state): State<SharedState>,
+) -> Response {
+    if !state.vzy.enabled() {
+        return err(StatusCode::BAD_REQUEST, "vzy is not enabled");
+    }
+    if crate::vzy::parse_channel_id(&id).is_none() {
+        return err(StatusCode::NOT_FOUND, "not a vzy channel");
+    }
+    if !state.channel_allowed(&id).await {
+        return err(
+            StatusCode::NOT_FOUND,
+            format!("Channel {id} is not available for the active account"),
+        );
+    }
+    match state.vzy.live(&id, &state.store).await {
+        Ok(out) => {
+            let dash = !out.mpd.auto.is_empty();
+            Json(json!({"status": true, "dash": dash, "license": false})).into_response()
+        }
+        Err(e) => err(StatusCode::BAD_GATEWAY, e.to_string()),
+    }
+}
+
+/// `GET /api/vzy/epg/:id` — programme list for a free channel.
+pub async fn vzy_epg(
+    Path(id): Path<String>,
+    State(state): State<SharedState>,
+) -> Response {
+    if !state.vzy.enabled() {
+        return err(StatusCode::BAD_REQUEST, "vzy is not enabled");
+    }
+    if crate::vzy::parse_channel_id(&id).is_none() {
+        return err(StatusCode::NOT_FOUND, "not a vzy channel");
+    }
+    match state.vzy.epg_source(&state.store).await {
+        Ok((_, programmes)) => {
+            let rows: Vec<_> = programmes
+                .into_iter()
+                .filter(|p| p.channel == id)
+                .map(|p| {
+                    json!({"start": p.start, "stop": p.stop, "title": p.title, "desc": p.desc})
+                })
+                .collect();
+            Json(json!({"status": true, "programmes": rows})).into_response()
+        }
+        Err(e) => err(StatusCode::BAD_GATEWAY, e.to_string()),
+    }
+}
+
 /// `GET /api/tataplay/status` — identity and the exact runtime evidence gap.
 pub async fn tataplay_status() -> Response {
     Json(json!({"status": true, "tataplay": crate::tataplay::status()})).into_response()
@@ -945,6 +1064,7 @@ mod tests {
             extras,
             fastway,
             playbox: Arc::new(crate::playbox_state::PlayboxState::new(false)),
+            vzy: Arc::new(crate::vzy_state::VzyState::new(false)),
             vod_state: Default::default(),
             public_ip: Arc::new(crate::unlock::PublicIp::new(reqwest::Client::new())),
             unlock_limiter: Arc::new(crate::unlock::AttemptLimiter::default()),
@@ -1554,6 +1674,7 @@ mod tests {
             epg_state: Default::default(),
             extras: Arc::new(crate::extras_state::ExtrasState::new(false, None)),
             playbox: Arc::new(state),
+            vzy: Arc::new(crate::vzy_state::VzyState::new(false)),
             vod_state: Default::default(),
             public_ip: Arc::new(crate::unlock::PublicIp::new(reqwest::Client::new())),
             unlock_limiter: Arc::new(crate::unlock::AttemptLimiter::default()),
@@ -1648,6 +1769,7 @@ mod tests {
             epg_state: Default::default(),
             extras: Arc::new(crate::extras_state::ExtrasState::new(false, None)),
             playbox: Arc::new(crate::playbox_state::PlayboxState::new(true)),
+            vzy: Arc::new(crate::vzy_state::VzyState::new(false)),
             vod_state: Default::default(),
             public_ip: Arc::new(crate::unlock::PublicIp::new(reqwest::Client::new())),
             unlock_limiter: Arc::new(crate::unlock::AttemptLimiter::default()),
@@ -1674,7 +1796,25 @@ mod tests {
         assert!(json["tataplay"]["gap"]
             .as_str()
             .unwrap()
-            .contains("encrypted"));
+            .contains("runtime API"));
+    }
+
+    #[tokio::test]
+    async fn vzy_status_reports_the_free_tier() {
+        let json = response_json(vzy_status(State(state())).await).await;
+        assert_eq!(json["vzy"]["enabled"], false);
+        assert_eq!(json["vzy"]["tier"], "anonymous-free");
+        let status = response_json(status(State(state())).await).await;
+        assert_eq!(status["vzy"]["tier"], "anonymous-free");
+    }
+
+    #[tokio::test]
+    async fn disabled_vzy_rejects_catalogue_and_playback() {
+        let s = state();
+        let resp = vzy_channels(State(s.clone())).await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let resp = vzy_play(Path("vzy_1".into()), State(s)).await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]

@@ -24,6 +24,8 @@ tv_plus = false
 fastway = false
 # Optional PlayboxTV account (OTP login). Off unless you sign in.
 playbox = false
+# Optional VZY free-tier account (anonymous). Off unless you want its catalogue.
+vzy = false
 disable_auth = false
 debug = false
 log_to_stdout = true
@@ -47,6 +49,7 @@ Save, start with `ost --config ./openstream.toml serve`, then open `http://local
 | `tv_plus` | `JIOTV_TVPLUS`, `OPENSTREAM_TVPLUS` | `false` | Boolean. Enable the optional JioTV+ account. Needs a JioFiber or AirFiber login. |
 | `fastway` | `JIOTV_FASTWAY`, `OPENSTREAM_FASTWAY` | `false` | Boolean. Enable the optional Fastway Live TV provider. Connect an account with `ost fastway login` or Settings before channels appear. |
 | `playbox` | `JIOTV_PLAYBOX`, `OPENSTREAM_PLAYBOX` | `false` | Boolean. Enable the optional PlayboxTV account. Sign in with `POST /api/playbox/login/sendOTP` then `POST /api/playbox/login/verifyOTP`; the channel catalogue and live playback then use the normal `/live/...` routes. |
+| `vzy` | `JIOTV_VZY`, `OPENSTREAM_VZY` | `false` | Boolean. Enable the VZY (Dish/Watcho white-label) **free tier**. It uses an anonymous Kaltura session; no account or OTP is needed. Only `EntitlementType=Free` channels are exposed. Premium/login-required channels are not advertised. |
 | `disable_auth` | `JIOTV_DISABLE_AUTH`, `OPENSTREAM_DISABLE_AUTH` | `false` | Boolean. Disable app access checks. Dangerous on reachable networks; use only with a trusted external access control. |
 | `title` | `JIOTV_TITLE`, `OPENSTREAM_TITLE` | `"OpenStream TV"` | Display title; any TOML string. |
 | `disable_url_encryption` | `JIOTV_DISABLE_URL_ENCRYPTION`, `OPENSTREAM_DISABLE_URL_ENCRYPTION` | `false` | Boolean. Disable encryption of local proxy parameters. Leave false. |
@@ -65,6 +68,10 @@ The TOML key is `tv_plus`; `JIOTV_TVPLUS` and `OPENSTREAM_TVPLUS` are accepted, 
 
 When more than one alternate source is connected, Fastway takes priority over JioTV+, and JioTV+ takes priority over the JioTV catalogue. See [Connect Fastway Live TV](../account-fastway/index.md).
 
-`playbox` / `JIOTV_PLAYBOX` enables PlayboxTV. When a PlayboxTV session is signed in it takes over the catalogue only if JioTV+ is not signed in; JioTV+ keeps precedence. Its channel IDs start with `pb_`. EPG for PlayboxTV is not published because the client's guide response has no programme end time. There is no configuration switch for the Tata Play or Uptodown artifacts: Tata Play's content contracts are not recoverable from the shipped app, and the supplied `com.vzy.one.apk` is the Uptodown app store rather than a TV service.
+`playbox` / `JIOTV_PLAYBOX` enables PlayboxTV. When a PlayboxTV session is signed in it takes over the catalogue only if JioTV+ is not signed in; JioTV+ keeps precedence. Its channel IDs start with `pb_`. EPG for PlayboxTV is not published because the client's guide response has no programme end time.
+
+`vzy` / `JIOTV_VZY` enables the VZY free tier. It signs in anonymously to the Dish/Watcho Kaltura tenant, exposes only free channels (`vzy_*` IDs), and proxies their clear HLS/DASH. It does not implement account login, premium entitlement, or DRM license forwarding for paid channels.
+
+There is no configuration switch for the Tata Play or Uptodown artifacts. Tata Play remains status-only: the logged-in app's catalogue/EPG work without a subscription, but no API request/response contract has been captured at runtime, so enabling it would be guesswork. The supplied `com.vzy.one.apk` is the Uptodown app store rather than a TV service; the real VZY build is `com.vzy.one.atv`.
 
 For runtime listening options, see [CLI commands](../configuration-cli/index.md); for protection see [Network and HTTPS](../configuration-network-security/index.md); for storage see [Data and logs](../configuration-storage-logs/index.md).

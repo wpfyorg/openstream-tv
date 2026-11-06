@@ -318,6 +318,9 @@ pub(crate) async fn fetch_live(
     if crate::playbox::is_playbox_channel(channel_id) {
         return state.playbox.live(channel_id).await;
     }
+    if crate::vzy::is_vzy_channel(channel_id) {
+        return state.vzy.live(channel_id, &state.store).await;
+    }
     let is_custom = state.custom_channels.contains(channel_id);
     if let Some(content_id) = state.fastway.route(channel_id) {
         return state.fastway.live(&content_id).await;
@@ -400,6 +403,12 @@ pub(crate) async fn fetch_media(
     if crate::playbox::is_playbox_channel(channel_id) {
         let headers = state.playbox.media_headers(channel_id).await;
         return state.tv.render_with_headers(url, "", &headers).await;
+    }
+    if crate::vzy::is_vzy_channel(channel_id) {
+        return state
+            .tv
+            .render_with_headers(url, token, &[("User-Agent".into(), "okhttp/4.12.0".into())])
+            .await;
     }
     state.tv.render(url, token).await
 }
@@ -698,7 +707,8 @@ async fn live_impl_inner(
             .route(id, state.tv.logged_in(), is_custom)
             .is_some();
         let via_playbox = crate::playbox::is_playbox_channel(id);
-        if (via_fastway || via_extras || via_playbox) && television::has_dash(&live) {
+        let via_vzy = crate::vzy::is_vzy_channel(id);
+        if (via_fastway || via_extras || via_playbox || via_vzy) && television::has_dash(&live) {
             let prefix_str = prefix.as_ref().map(|p| p.0 .0.clone()).unwrap_or_default();
             return Redirect::to(&format!("{prefix_str}/live/mpd/{id}?q={quality}"))
                 .into_response();
@@ -1113,6 +1123,10 @@ async fn render_m3u8_inner(state: Arc<AppState>, q: RenderQuery) -> Response {
             return (StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_GATEWAY))
                 .into_response();
         }
+        if crate::vzy::is_vzy_channel(&channel_id) {
+            return (StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_GATEWAY))
+                .into_response();
+        }
         if !recently_dead && !channel_id.is_empty() {
             if let Ok(refreshed) = refresh_channel_token(&state, &channel_id).await {
                 let retry_quality = if quality.is_empty() {
@@ -1343,7 +1357,10 @@ pub async fn render_ts_handler(
     let resp = proxy_segment(&state, &channel_id, &decoded, token.as_deref()).await;
     let (mut status, mut body, mut headers) = resp;
 
-    if matches!(status, 401 | 403) && crate::playbox::is_playbox_channel(&channel_id) {
+    if matches!(status, 401 | 403)
+        && (crate::playbox::is_playbox_channel(&channel_id)
+            || crate::vzy::is_vzy_channel(&channel_id))
+    {
         // No cookie refresh exists for PlayboxTV: re-resolve once for fresh
         // headers, then retry the same segment URL.
         if refresh_channel_token(&state, &channel_id).await.is_ok() {
@@ -1414,6 +1431,10 @@ async fn proxy_segment(
         if !has_user_agent {
             req = req.header(header::USER_AGENT, television::PLAYER_USER_AGENT);
         }
+    } else if crate::vzy::is_vzy_channel(channel_id) {
+        req = req
+            .header(header::USER_AGENT, "okhttp/4.12.0")
+            .header(header::ACCEPT, "*/*");
     } else {
         let ua = url::Url::parse(url)
             .ok()
@@ -1790,6 +1811,7 @@ mod tests {
             extras: Arc::new(crate::extras_state::ExtrasState::new(false, None)),
             fastway: Arc::new(crate::fastway_state::FastwayState::new(false)),
             playbox: Arc::new(crate::playbox_state::PlayboxState::new(false)),
+            vzy: Arc::new(crate::vzy_state::VzyState::new(false)),
             vod_state: Default::default(),
             public_ip: Arc::new(crate::unlock::PublicIp::new(reqwest::Client::new())),
             unlock_limiter: Arc::new(crate::unlock::AttemptLimiter::default()),
@@ -2321,6 +2343,7 @@ mod tests {
             extras: Arc::new(crate::extras_state::ExtrasState::new(false, None)),
             fastway: Arc::new(crate::fastway_state::FastwayState::new(false)),
             playbox: Arc::new(crate::playbox_state::PlayboxState::new(false)),
+            vzy: Arc::new(crate::vzy_state::VzyState::new(false)),
             vod_state: Default::default(),
             public_ip: Arc::new(crate::unlock::PublicIp::new(reqwest::Client::new())),
             unlock_limiter: Arc::new(crate::unlock::AttemptLimiter::default()),
@@ -2384,6 +2407,7 @@ mod tests {
             epg_state: Default::default(),
             extras: std::sync::Arc::new(crate::extras_state::ExtrasState::new(false, None)),
             playbox,
+            vzy: std::sync::Arc::new(crate::vzy_state::VzyState::new(false)),
             vod_state: Default::default(),
             public_ip: std::sync::Arc::new(crate::unlock::PublicIp::new(reqwest::Client::new())),
             unlock_limiter: std::sync::Arc::new(crate::unlock::AttemptLimiter::default()),

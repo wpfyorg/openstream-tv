@@ -25,6 +25,9 @@ pub struct Config {
     /// Off by default.
     #[serde(default)]
     pub playbox: bool,
+    /// VZY (Dish/Watcho white-label) free tier. Off by default.
+    #[serde(default)]
+    pub vzy: bool,
     pub disable_auth: bool,
     pub title: String,
     pub disable_url_encryption: bool,
@@ -55,6 +58,7 @@ impl Default for Config {
             extras: false,
             fastway: false,
             playbox: false,
+            vzy: false,
             disable_auth: false,
             title: "OpenStream TV".to_string(),
             disable_url_encryption: false,
@@ -139,7 +143,7 @@ impl Config {
         env_bool!(extras, "JIOTV_TVPLUS", "OPENSTREAM_TVPLUS");
         env_bool!(fastway, "JIOTV_FASTWAY", "OPENSTREAM_FASTWAY");
         env_bool!(playbox, "JIOTV_PLAYBOX", "OPENSTREAM_PLAYBOX");
-        env_bool!(playbox, "JIOTV_PLAYBOX", "OPENSTREAM_PLAYBOX");
+        env_bool!(vzy, "JIOTV_VZY", "OPENSTREAM_VZY");
         env_bool!(tataplay, "JIOTV_TATAPLAY", "OPENSTREAM_TATAPLAY");
         env_bool!(vzyone, "JIOTV_VZYONE", "OPENSTREAM_VZYONE");
         env_bool!(
@@ -290,6 +294,25 @@ mod tests {
         let cfg = Config::load(None).unwrap();
         assert!(cfg.playbox);
         std::env::remove_var("JIOTV_PLAYBOX");
+    }
+
+    #[test]
+    fn vzy_is_off_by_default_and_can_be_enabled() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        assert!(!Config::default().vzy);
+        std::env::set_var("JIOTV_VZY", "true");
+        let cfg = Config::load(None).unwrap();
+        assert!(cfg.vzy);
+        std::env::remove_var("JIOTV_VZY");
+    }
+
+    #[test]
+    fn toml_vzy_key_is_read() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("jiotv_go.toml");
+        std::fs::write(&path, "vzy = true\n").unwrap();
+        assert!(Config::load(Some(path.to_str().unwrap())).unwrap().vzy);
     }
 
     #[test]
