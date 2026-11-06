@@ -17,8 +17,10 @@ import android.content.IntentFilter;
 import android.system.Os;
 import android.view.*;
 import android.view.inputmethod.InputMethodManager;
+import android.text.Editable;
 import android.text.InputFilter;
 import android.text.InputType;
+import android.text.TextWatcher;
 import android.util.TypedValue;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.StateListDrawable;
@@ -433,13 +435,28 @@ public final class MainActivity extends Activity {
         number = tvInput("10-digit mobile number", 1010, 503, 840);
         number.setInputType(InputType.TYPE_CLASS_NUMBER);
         number.setFilters(new InputFilter[]{new InputFilter.LengthFilter(10)});
+        number.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) { }
+            @Override public void afterTextChanged(Editable s) {
+                if (!tvOtpRequested || tvAuthenticated) return;
+                tvOtpRequested = false;
+                otp.setText("");
+                updateTvLoginState();
+            }
+        });
         tvOtpLabel = tvLabel("One-time password", 1010, 590, 800, 30, 22, TV_TEXT, true);
         otp = tvInput("6-digit OTP", 1010, 622, 840);
         otp.setInputType(InputType.TYPE_CLASS_NUMBER);
         otp.setFilters(new InputFilter[]{new InputFilter.LengthFilter(6)});
+        otp.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) { }
+            @Override public void afterTextChanged(Editable s) { updateTvLoginActionLabel(); }
+        });
         tvOtpHint = tvLabel("", 1010, 785, 810, 28, 17, TV_MUTED, false);
         send = tvAction("Send OTP", 1010, 708, 840, 62, true);
-        send.setOnClickListener(v -> otpRequest(tvOtpRequested));
+        send.setOnClickListener(v -> otpRequest(tvOtpRequested && !otp.getText().toString().trim().isEmpty()));
         verify = send; // TV uses one changing action; phone retains separate buttons.
         tvAccountName = tvLabel("JioTV", 1040, 289, 470, 39, 30, TV_TEXT, true);
         tvAccountNote = tvLabel("●  Signed in", 1040, 333, 500, 30, 21, 0xff98e5c7, true);
@@ -473,8 +490,8 @@ public final class MainActivity extends Activity {
         for (View view : new View[]{tvMobileLabel, number, send}) view.setVisibility(tvAuthenticated ? View.GONE : View.VISIBLE);
         for (View view : new View[]{tvOtpLabel, otp, tvOtpHint})
             view.setVisibility(!tvAuthenticated && tvOtpRequested ? View.VISIBLE : View.GONE);
-        send.setText(tvLoginBusy ? (tvOtpRequested ? "Logging in…" : "Sending OTP…") :
-                tvOtpRequested ? "Login" : "Send OTP");
+        tvOtpHint.setText(tvOtpRequested ? "No code? Clear the OTP field, then choose Resend OTP." : "");
+        updateTvLoginActionLabel();
         for (View view : new View[]{tvAccountName, tvAccountNote, logoutButton, tvAccountRetentionNote})
             view.setVisibility(tvAuthenticated ? View.VISIBLE : View.GONE);
         tvAccountName.setText(authenticatedProvider);
@@ -485,6 +502,12 @@ public final class MainActivity extends Activity {
         tvCanvas.post(this::updateTvFocusGraph);
         if (focused != null && !isTvFocusable(focused))
             requestTvFocus(firstTvFocusable(tvAuthenticated ? logoutButton : send, number, jiotvProvider, service));
+    }
+    private void updateTvLoginActionLabel() {
+        if (!television || send == null) return;
+        boolean hasOtp = otp != null && !otp.getText().toString().trim().isEmpty();
+        send.setText(tvLoginBusy ? (tvOtpRequested && hasOtp ? "Logging in…" : "Sending OTP…") :
+                tvOtpRequested ? (hasOtp ? "Login" : "Resend OTP") : "Send OTP");
     }
     private void tvMove(View view, int y) {
         if (view == null) return;
