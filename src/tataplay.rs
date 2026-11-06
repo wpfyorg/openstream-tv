@@ -275,7 +275,8 @@ impl Client {
 
     pub async fn refresh(&self, store: &crate::store::Store) -> anyhow::Result<Credentials> {
         let _transition = account_transition_lock().lock().await;
-        let current = self.credentials()?.clone();
+        let current =
+            Credentials::load(store).ok_or_else(|| anyhow::anyhow!("tataplay: not logged in"))?;
         if current.refresh_token.is_empty() || current.subscriber_id.is_empty() {
             anyhow::bail!("tataplay: refresh token or subscriberId is missing");
         }
@@ -286,7 +287,10 @@ impl Client {
                     .header(reqwest::header::CONTENT_TYPE, "application/json")
                     .header("device_details", "")
                     .header("platform", PLATFORM)
-                    .header(reqwest::header::AUTHORIZATION, self.auth()?)
+                    .header(
+                        reqwest::header::AUTHORIZATION,
+                        format!("bearer {}", current.access_token),
+                    )
                     .header("locale", "ENG")
                     .json(&json!({
                         "refreshToken": current.refresh_token,
@@ -990,6 +994,61 @@ mod tests {
         refresh.await.unwrap().unwrap();
 
         assert!(Credentials::load(&store).is_none());
+    }
+
+    #[tokio::test]
+    async fn refresh_uses_credentials_reloaded_from_store() {
+        use wiremock::matchers::{body_json, header, method, path};
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/rest-api/pub/api/v3/refreshToken"))
+            .and(header("authorization", "bearer store-access"))
+            .and(body_json(json!({
+                "refreshToken": "store-refresh",
+                "subscriberId": "store-sub"
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "data": {
+                    "accessToken":"new-access",
+                    "refreshToken":"new-refresh",
+                    "subscriberId":"store-sub",
+                    "sid":"store-sid"
+                }
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let dir = tempfile::tempdir().unwrap();
+        let store = crate::store::Store::open(dir.path().to_str().unwrap()).unwrap();
+        Credentials {
+            access_token: "store-access".into(),
+            refresh_token: "store-refresh".into(),
+            subscriber_id: "store-sub".into(),
+            sid: "store-sid".into(),
+        }
+        .save(&store)
+        .unwrap();
+        let client = Client {
+            http: reqwest::Client::new(),
+            base: format!("{}/", server.uri()),
+            device: device(),
+            credentials: Some(Credentials {
+                access_token: "stale-access".into(),
+                refresh_token: "stale-refresh".into(),
+                subscriber_id: "stale-sub".into(),
+                sid: "stale-sid".into(),
+            }),
+        };
+
+        let refreshed = client.refresh(&store).await.unwrap();
+        assert_eq!(refreshed.access_token, "new-access");
+        assert_eq!(
+            Credentials::load(&store).unwrap().access_token,
+            "new-access"
+        );
+        server.verify().await;
     }
 
     #[test]
