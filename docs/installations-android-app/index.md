@@ -29,7 +29,7 @@ The key in the playlist URL grants access to the stream endpoints. Treat it as p
 
 Use **Import TOML config** to select a previously saved `.toml` configuration using Android's file picker. This imports server settings; it does **not** by itself transfer an authenticated provider account, tokens or the private runtime store. Sign in with your own provider account in the app if it has not been connected. Restart the local server for new settings to take effect.
 
-Choose **JioTV** or **JioTV+** in the app's provider row. Only one provider is active at a time, and the playlist and channel list follow the active provider. JioTV+ also needs its own eligible JioFiber or AirFiber login. The slim Android build does not serve the web Settings UI, so Fastway, PlayboxTV, VZY and the Tata Play diagnostic tools are configured on a full server build instead.
+Choose **JioTV** or **JioTV+** in the app's provider row to select the account that receives the OTP. The row does not switch an already connected provider catalogue, and on Android TV it is hidden after sign-in. To change the active provider after both accounts are connected, use the web Settings on a full server build; the slim Android build does not serve that UI. JioTV+ also needs its own eligible JioFiber or AirFiber login. Fastway, PlayboxTV, VZY and the Tata Play diagnostic tools are configured on a full server build as well.
 
 Use **Export TOML config** to save server settings through Android’s file picker. Login credentials are kept in the separate runtime store and are not added to the configuration export.
 
