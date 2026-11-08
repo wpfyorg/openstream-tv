@@ -39,9 +39,9 @@ Only import configuration files you trust. The app's local data and the server's
 
 ## Start at device boot
 
-Auto-start is enabled by default. Starting and stopping the server manually does not change this preference. Use **Disable auto-start** to turn it off, and **Enable auto-start** (shown as **Enable startup screen** when the overlay permission is needed) to turn it back on. The server runs as a foreground service with a persistent notification.
+Auto-start is enabled by default. At boot the app starts only its foreground server service in the background; it does not open the dashboard. The persistent notification opens the dashboard when needed. Starting and stopping the server manually does not change the preference. Use **Disable auto-start** to turn it off and **Enable auto-start** to turn it back on.
 
-On Android 10+, use **Enable startup screen** and grant the system “display over other apps” permission to let the app screen open at boot. Alternatively, with an authorized ADB connection: `adb shell appops set org.opebstreamstv.android SYSTEM_ALERT_WINDOW allow`. This permission does not require displaying an overlay; it permits the background activity launch. Without it, the server can still start and its notification opens the screen. Device battery or vendor startup restrictions may also apply.
+Boot startup no longer requires the “display over other apps” permission, ADB or Shizuku. The app runs the server in the background until you stop it or Android force-stops the app. Device battery or vendor startup restrictions may still apply.
 
 ## TV remote navigation
 

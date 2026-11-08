@@ -208,13 +208,13 @@ public final class MainActivity extends Activity {
 
         addText(left, "Server and provider", television ? 19 : 20, 0xffffffff);
         service = button(left, "Start local server"); service.setOnClickListener(v -> toggleService());
-        bootPermission = button(left, "Enable startup screen (Android 10+)"); bootPermission.setOnClickListener(v -> requestBootPermission());
+        bootPermission = button(left, "Enable auto-start"); bootPermission.setOnClickListener(v -> requestBootPermission());
         adbSetupButton = button(left, "Setup startup permissions using ADB"); adbSetupButton.setOnClickListener(v -> runLocalAdbSetup());
         shizukuButton = button(left, "Setup using Shizuku"); shizukuButton.setOnClickListener(v -> requestShizukuGrant());
         disableAutostartButton = button(left, "Disable auto-start");
         disableAutostartButton.setOnClickListener(v -> {
             if (ServerService.setBootStartEnabled(this, false)) {
-                say("Auto-start disabled. The current server keeps running; Android's overlay permission remains granted.");
+                say("Auto-start disabled. The current server keeps running.");
                 refreshPermissionButtons();
             } else say("Could not save the auto-start setting.");
         });
@@ -363,7 +363,7 @@ public final class MainActivity extends Activity {
         tvStartupCard = tvCard(70, 352, 840, 104);
         tvStartupCard.setBackground(tvSurface(0xff182b33, 0, 14));
         tvAutostartLabel = tvLabel("Auto-start enabled", 100, 388, 490, 48, 26, 0xff9ae8c9, true);
-        bootPermission = tvAction("Enable startup screen (Android 10+)", 70, 428, 840, 62, false);
+        bootPermission = tvAction("Enable auto-start", 70, 428, 840, 62, false);
         bootPermission.setOnClickListener(v -> requestBootPermission());
         adbSetupButton = tvAction("Set up using ADB", 70, 352, 410, 62, false);
         adbSetupButton.setOnClickListener(v -> runLocalAdbSetup());
@@ -374,7 +374,7 @@ public final class MainActivity extends Activity {
         disableAutostartButton.setBackground(tvBorderedActionSurface(0xff202d3e));
         disableAutostartButton.setOnClickListener(v -> {
             if (ServerService.setBootStartEnabled(this, false)) {
-                say("Auto-start disabled. The current server keeps running; Android's overlay permission remains granted.");
+                say("Auto-start disabled. The current server keeps running.");
                 refreshPermissionButtons();
             } else say("Could not save the auto-start setting.");
         });
@@ -565,57 +565,40 @@ public final class MainActivity extends Activity {
         });
     }
     private void requestBootPermission() {
-        if (Build.VERSION.SDK_INT < 29 || android.provider.Settings.canDrawOverlays(this)) {
-            if (ServerService.setBootStartEnabled(this, true)) {
-                say("Auto-start enabled. The current server state is unchanged.");
-                refreshPermissionButtons();
-            } else say("Could not save the auto-start setting.");
-            return;
-        }
-        try {
-            rememberTvReturnFocus(bootPermission);
-            startActivity(new Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + getPackageName())));
-        } catch (ActivityNotFoundException e) {
-            pendingTvReturnFocus = null;
-            say("Use ADB: adb shell appops set " + getPackageName() + " SYSTEM_ALERT_WINDOW allow");
+        if (ServerService.setBootStartEnabled(this, true)) {
+            say("Auto-start enabled. The server will start in the background at boot.");
+            refreshPermissionButtons();
+        } else {
+            say("Could not save the auto-start setting.");
         }
     }
     private void refreshPermissionButtons() {
-        boolean allowed = Build.VERSION.SDK_INT < 29 || android.provider.Settings.canDrawOverlays(this);
-        boolean permissionControlHadFocus = television && ((bootPermission != null && bootPermission.hasFocus()) || (adbSetupButton != null && adbSetupButton.hasFocus()) || (shizukuButton != null && shizukuButton.hasFocus()));
         boolean bootStartEnabled = ServerService.isBootStartEnabled(this);
-        tvAutoStartEnabled = allowed && bootStartEnabled;
-        bootPermission.setText(allowed ? "Enable auto-start" : "Enable startup screen (Android 10+)");
+        boolean permissionControlHadFocus = television && disableAutostartButton != null && disableAutostartButton.hasFocus();
+        tvAutoStartEnabled = bootStartEnabled;
+        bootPermission.setText("Enable auto-start");
         bootPermission.setEnabled(true);
-        if (adbSetupButton != null) {
-            adbSetupButton.setEnabled(!allowed);
-            if (television) adbSetupButton.setFocusable(!allowed);
-        }
-        if (shizukuButton != null) {
-            shizukuButton.setEnabled(!allowed);
-            if (television) shizukuButton.setFocusable(!allowed);
-        }
+        if (adbSetupButton != null) adbSetupButton.setVisibility(View.GONE);
+        if (shizukuButton != null) shizukuButton.setVisibility(View.GONE);
         if (!television && disableAutostartButton != null) {
             disableAutostartButton.setVisibility(bootStartEnabled ? View.VISIBLE : View.GONE);
-            bootPermission.setVisibility(allowed && bootStartEnabled ? View.GONE : View.VISIBLE);
+            bootPermission.setVisibility(bootStartEnabled ? View.GONE : View.VISIBLE);
         }
         if (television) {
-            bootPermission.setVisibility(tvAutoStartEnabled ? View.GONE : View.VISIBLE);
-            adbSetupButton.setVisibility(allowed ? View.GONE : View.VISIBLE);
-            shizukuButton.setVisibility(allowed ? View.GONE : View.VISIBLE);
+            bootPermission.setVisibility(bootStartEnabled ? View.GONE : View.VISIBLE);
             disableAutostartButton.setVisibility(bootStartEnabled ? View.VISIBLE : View.GONE);
-            tvAutostartLabel.setVisibility(tvAutoStartEnabled ? View.VISIBLE : View.GONE);
-            tvStartupCard.setVisibility(tvAutoStartEnabled ? View.VISIBLE : View.GONE);
+            tvAutostartLabel.setVisibility(bootStartEnabled ? View.VISIBLE : View.GONE);
+            tvStartupCard.setVisibility(bootStartEnabled ? View.VISIBLE : View.GONE);
             tvAutostartLabel.setText("Auto-start enabled");
-            tvMove(bootPermission, allowed ? 352 : 428);
-            boolean standaloneDisable = bootStartEnabled && !allowed;
-            tvMove(disableAutostartButton, standaloneDisable ? 500 : tvBaseY.get(disableAutostartButton));
-            int playlistShift = tvAutoStartEnabled ? -17 : allowed ? -55 : standaloneDisable ? 55 : 0;
-            int configShift = tvAutoStartEnabled ? -21 : allowed ? -55 : standaloneDisable ? 55 : 0;
+            tvMove(bootPermission, 352);
+            tvMove(disableAutostartButton, tvBaseY.get(disableAutostartButton));
+            int playlistShift = bootStartEnabled ? -17 : 0;
+            int configShift = bootStartEnabled ? -21 : 0;
             for (View view : tvPlaylistViews) tvMove(view, tvBaseY.get(view) + playlistShift);
             for (View view : tvConfigViews) tvMove(view, tvBaseY.get(view) + configShift);
             updateTvFocusGraph();
-            if (allowed && permissionControlHadFocus) requestTvFocus(firstTvFocusable(disableAutostartButton, bootPermission, service));
+            if (bootStartEnabled && permissionControlHadFocus)
+                requestTvFocus(firstTvFocusable(disableAutostartButton, bootPermission, service));
         }
     }
     private void showAdbSetup() {
