@@ -50,3 +50,7 @@ extra.md
 
 # Local reverse-engineering app packages (never commit)
 /reverse-engineering/apps/
+
+# Local design work (never commit)
+/design/tv-app-ui.pen
+/design/tv-app-ui-export/
