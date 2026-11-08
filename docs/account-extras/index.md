@@ -7,7 +7,7 @@ keywords: [JioTV+, account, OTP, JioTV+ channels, TV+]
 
 # Connect JioTV+
 
-**JioTV+** is an optional second source, marked **Beta**. It appears in Settings when `tv_plus` is enabled and the account has not been locked. A **Lock** selection is saved and overrides the server setting across restarts; unlock JioTV+ from **Channels** with the account's unlock code. It requires a separate registered mobile number and an eligible plan.
+**JioTV+** is an optional second source. It appears in Settings when `tv_plus` is enabled and the account has not been locked. A **Lock** selection is saved and overrides the server setting across restarts; unlock JioTV+ from **Channels** with the account's unlock code. It requires a separate registered mobile number and an eligible plan.
 
 ![Settings showing JioTV+ connected on OpenStream TV v1.5.0](../images/settings-jiotv-plus.png)
 

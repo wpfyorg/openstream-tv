@@ -15,7 +15,7 @@ This disposable v1.5.0 example has JioTV+ connected and JioTV disconnected. The 
 
 ## Accounts
 
-The enabled provider cards show whether each account is logged in or connected and whether it is the **Active** provider. JioTV+, Fastway, PlayboxTV and VZY are marked **Beta**. Only one provider can be active at a time: signing in makes that provider active, and connected cards offer a **Use …** control to switch. See [JioTV account sign-in](../account-connect-jiotv/index.md), [JioTV+ channels](../account-extras/index.md), [Fastway Live TV](../account-fastway/index.md), [PlayboxTV](../ott-provider-playbox/index.md) and [VZY](../ott-provider-vzy/index.md).
+The enabled provider cards show whether each account is logged in or connected and whether it is the **Active** provider. JioTV, JioTV+ and Fastway are **Stable**; PlayboxTV, VZY and Tata Play are **Beta**. Only one provider can be active at a time: signing in makes that provider active, and connected cards offer a **Use …** control to switch. See [JioTV account sign-in](../account-connect-jiotv/index.md), [JioTV+ channels](../account-extras/index.md), [Fastway Live TV](../account-fastway/index.md), [PlayboxTV](../ott-provider-playbox/index.md) and [VZY](../ott-provider-vzy/index.md).
 
 You can [switch JioTV accounts](../account-switch-jiotv/index.md) by logging out and signing in with another number; an administrator can hide provider logout controls with a server configuration option.
 

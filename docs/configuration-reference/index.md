@@ -69,7 +69,7 @@ Boolean environment values must be `true` or `false` in lowercase (as Rust's par
 
 The TOML key is `tv_plus`; `JIOTV_TVPLUS` and `OPENSTREAM_TVPLUS` are accepted, with `OPENSTREAM_TVPLUS` taking precedence. The previous TOML key `extras` and legacy `JIOTV_EXTRAS` variable are also accepted. Both `JIOTV_*` and `OPENSTREAM_*` aliases are accepted for tunnel and update tokens.
 
-When more than one source is connected, catalogue precedence is **Fastway > JioTV+ > PlayboxTV (beta) > VZY (beta) > JioTV**. JioTV remains the normal fallback source. See [Connect Fastway Live TV](../account-fastway/index.md).
+JioTV, JioTV+ and Fastway are stable providers; PlayboxTV, VZY and Tata Play are beta. The provider selected in **Settings** is the only catalogue exposed. When no selection is stored, or the selected provider is disconnected, the server falls back in the order **Fastway > JioTV+ > PlayboxTV > VZY > JioTV**. See [Connect Fastway Live TV](../account-fastway/index.md).
 
 `playbox` / `OPENSTREAM_PLAYBOX` (legacy alias `JIOTV_PLAYBOX`) enables the **beta** PlayboxTV integration. When a PlayboxTV session is signed in it can be selected as the active provider in Settings; only one provider catalogue is exposed at a time. Its channel IDs start with `pb_`. EPG for PlayboxTV is not published because the client's guide response has no programme end time.
 

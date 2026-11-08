@@ -134,6 +134,7 @@
     <section class="card">
       <div class="card-head">
         <h2>JioTV</h2>
+        <span class="pill stable">Stable</span>
         {#if activeProvider === "jiotv"}<span class="pill active">Active</span>{/if}
       </div>
       {#if status.jiotv.loggedIn}
@@ -151,7 +152,7 @@
     {#if status.extras.enabled}
       <section class="card">
         <div class="card-head">
-          <h2>JioTV+ <span class="pill beta">Beta</span></h2>
+          <h2>JioTV+ <span class="pill stable">Stable</span></h2>
           {#if activeProvider === "jiotv_plus"}<span class="pill active">Active</span>{/if}
         </div>
         {#if status.extras.connected}
@@ -171,7 +172,7 @@
     {#if status.fastway?.enabled}
       <section class="card">
         <div class="card-head">
-          <h2>Fastway <span class="pill beta">Beta</span></h2>
+          <h2>Fastway <span class="pill stable">Stable</span></h2>
           {#if activeProvider === "fastway"}<span class="pill active">Active</span>{/if}
         </div>
         {#if status.fastway.connected}
@@ -266,6 +267,7 @@
     text-transform: uppercase;
   }
   .pill.active { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, transparent); }
+  .pill.stable { color: var(--text); border-color: color-mix(in srgb, var(--text) 30%, transparent); }
   .pill.beta {
     color: var(--extras);
     border-color: color-mix(in srgb, var(--extras) 45%, transparent);

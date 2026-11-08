@@ -12,11 +12,13 @@ OpenStream TV can hold several provider accounts, but only one provider catalogu
 | Provider | Needs | Gives you |
 | --- | --- | --- |
 | **JioTV** | A JioTV account that can complete the mobile-number OTP flow | Live television and programme information |
-| **JioTV+** (Beta) | An eligible JioFiber or AirFiber login | JioTV+ channels plus supported on-demand catalogues |
-| **Fastway** (Beta) | Fastway credentials accepted by the provider | Fastway live TV only |
+| **JioTV+** | An eligible JioFiber or AirFiber login | JioTV+ channels plus supported on-demand catalogues |
+| **Fastway** | Fastway credentials accepted by the provider | Fastway live TV only |
 | **PlayboxTV** (Beta) | A PlayboxTV mobile number that can complete the OTP flow | PlayboxTV live channels |
 | **VZY** (Beta) | No account | VZY's free-tier live channels |
-| **Tata Play** (diagnostic) | A Tata Play Smart account | Diagnostic login/EPG tools only; not added to the channel list or playback yet |
+| **Tata Play** (Beta, diagnostic) | A Tata Play Smart account | Diagnostic login/EPG tools only; not added to the channel list or playback yet |
+
+**JioTV, JioTV+ and Fastway** are stable providers. **PlayboxTV, VZY and Tata Play** are beta.
 
 - **JioTV** is the default provider flow. OpenStream TV does not add a fixed-line-network gate to this login, but the provider still decides account and content availability.
 - **JioTV+** is the optional second source. It is off until `tv_plus = true` (or `JIOTV_TVPLUS=true` / `OPENSTREAM_TVPLUS=true`) is set, and it needs its own sign-in with the JioFiber or AirFiber number, separate from JioTV.
