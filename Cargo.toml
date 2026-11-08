@@ -1,11 +1,11 @@
 [package]
-name = "jiotv"
-version = "1.4.1"
+name = "openstream-tv"
+version = "1.6.0-beta.1"
 edition = "2021"
-default-run = "jiotv"
+default-run = "ost"
 
 [[bin]]
-name = "jiotv"
+name = "ost"
 path = "src/main.rs"
 
 [features]
@@ -19,8 +19,6 @@ slim = []
 # support (off by default even in the full build; gated at runtime by the
 # `tv_plus` config key too). The feature name is historical: nothing reads it.
 extras = []
-# android-epg: keep EPG enabled in Android builds, regardless of config/store overrides.
-android-epg = []
 
 [dependencies]
 axum = { version = "0.7", default-features = false, features = ["http1", "tokio", "query", "json"] }
@@ -59,6 +57,9 @@ urlencoding = "2"
 tempfile = "3"
 url = "2"
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+
+[target.'cfg(not(target_os = "android"))'.dependencies]
+if-addrs = "0.15.0"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }

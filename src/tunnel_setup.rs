@@ -229,7 +229,7 @@ pub async fn setup(
         "Connector token saved privately in {}",
         saved_tunnel_path(path_prefix).display()
     );
-    println!("Start with: jiotv serve --host 127.0.0.1 --port {port} --tunnel --tunnel-saved");
+    println!("Start with: ost serve --host 127.0.0.1 --port {port} --tunnel --tunnel-saved");
     Ok(())
 }
 
@@ -292,7 +292,7 @@ async fn provision(
         api_token,
         Method::POST,
         &format!("/accounts/{}/cfd_tunnel", zone.account.id),
-        Some(json!({"name": format!("jiotv-{subdomain}"), "config_src": "cloudflare"})),
+        Some(json!({"name": format!("openstream-{subdomain}"), "config_src": "cloudflare"})),
         "creating tunnel",
     )
     .await?;

@@ -10,14 +10,19 @@ mod drm_channels;
 mod epg;
 mod extras;
 mod extras_state;
+mod fastway;
+mod fastway_state;
 mod keyed_locks;
 mod login;
+mod playbox;
+mod playbox_state;
 mod public_origin;
 mod secureurl;
 mod server;
 mod state;
 mod store;
 mod stream;
+mod tataplay;
 mod television;
 mod tls;
 mod token_refresh;
@@ -26,11 +31,15 @@ mod tunnel_setup;
 mod unlock;
 mod update;
 mod vod;
+mod vzy;
+mod vzy_state;
+mod vzyone;
 
 #[cfg(feature = "full")]
 mod ui_assets;
 
 use std::io::Write;
+use std::net::Ipv4Addr;
 use std::sync::Arc;
 
 fn main() -> anyhow::Result<()> {
@@ -49,7 +58,12 @@ fn main() -> anyhow::Result<()> {
 
     let path_prefix = resolve_path_prefix(&cfg)?;
     let store = Arc::new(store::Store::open(&path_prefix)?);
-    cfg.epg = epg::enabled_with_override(cfg.epg, store.get_opt(epg::STORE_KEY_ENABLED).as_deref());
+    let force_epg = std::env::var(epg::COMPANION_APP_ENV).as_deref() == Ok("1");
+    cfg.epg = epg::enabled_with_override(
+        cfg.epg,
+        store.get_opt(epg::STORE_KEY_ENABLED).as_deref(),
+        force_epg,
+    );
     let access = Arc::new(access::Access::new(store.clone()));
     let secure = Arc::new(secureurl::SecureUrl::new(cfg.disable_url_encryption));
     if cfg.disable_url_encryption {
@@ -73,6 +87,8 @@ fn main() -> anyhow::Result<()> {
         cli::Command::LoginReset => login_reset(&store),
         cli::Command::ExtrasLogin => runtime.block_on(extras_login_cli(&store)),
         cli::Command::ExtrasLogout => extras_logout_cli(&store),
+        cli::Command::FastwayLogin => runtime.block_on(fastway_login_cli(&store)),
+        cli::Command::FastwayLogout => fastway_logout_cli(&store),
         cli::Command::AdminPassword => admin_password(&access, &path_prefix),
         cli::Command::KeyShow => show_key(&access),
         cli::Command::KeyRotate => rotate_key(&access),
@@ -80,8 +96,8 @@ fn main() -> anyhow::Result<()> {
             runtime.block_on(epg_generate(&cfg, &path_prefix, store, access, secure))
         }
         cli::Command::EpgDelete => epg_delete(&path_prefix),
-        cli::Command::EpgOn => set_epg_enabled(&store, true),
-        cli::Command::EpgOff => set_epg_enabled(&store, false),
+        cli::Command::EpgOn => set_epg_enabled(&store, &access, &cfg, true),
+        cli::Command::EpgOff => set_epg_enabled(&store, &access, &cfg, false),
         cli::Command::BackgroundStart { args } => background_start(&args, &path_prefix),
         cli::Command::BackgroundStop => background_stop(&path_prefix),
         cli::Command::Update { version } => runtime.block_on(update::run(version.as_deref())),
@@ -96,7 +112,7 @@ fn main() -> anyhow::Result<()> {
         } => {
             if !access.has_password() && cfg!(feature = "full") {
                 anyhow::bail!(
-                    "set an admin password with 'jiotv admin password' before publishing JioTV"
+                    "set an admin password with 'ost admin password' before publishing OpenStream TV"
                 );
             }
             let api_token = std::env::var("CLOUDFLARE_API_TOKEN").map_err(|_| {
@@ -153,13 +169,14 @@ async fn epg_generate(
     Ok(())
 }
 
-const PID_FILE_NAME: &str = ".jiotv.pid";
+const PID_FILE_NAME: &str = ".openstream.pid";
+const LEGACY_PID_FILE_NAME: &str = ".jiotv.pid";
 
 /// Starts `serve` as a detached child process (re-invoking this same
 /// binary) and records its PID, so `background stop` can find it later.
 /// Mirrors `RunInBackground`.
 fn background_start(args: &str, path_prefix: &str) -> anyhow::Result<()> {
-    println!("Starting jiotv server in background...");
+    println!("Starting OpenStream TV server in background...");
     let pid_path = format!("{path_prefix}{PID_FILE_NAME}");
     let exe = std::env::current_exe()?;
 
@@ -182,15 +199,21 @@ fn background_start(args: &str, path_prefix: &str) -> anyhow::Result<()> {
         anyhow::bail!("server exited immediately after start: {status}");
     }
 
-    println!("jiotv server started successfully in background.");
+    println!("OpenStream TV server started successfully in background.");
     Ok(())
 }
 
 /// Reads the PID file `background_start` wrote and kills that process.
 /// Mirrors `StopBackground`.
 fn background_stop(path_prefix: &str) -> anyhow::Result<()> {
-    println!("Stopping jiotv server running in background...");
-    let pid_path = format!("{path_prefix}{PID_FILE_NAME}");
+    println!("Stopping OpenStream TV server running in background...");
+    let new_pid_path = format!("{path_prefix}{PID_FILE_NAME}");
+    let legacy_pid_path = format!("{path_prefix}{LEGACY_PID_FILE_NAME}");
+    let pid_path = if std::path::Path::new(&new_pid_path).exists() {
+        new_pid_path
+    } else {
+        legacy_pid_path
+    };
     let pid_str = std::fs::read_to_string(&pid_path)
         .map_err(|e| anyhow::anyhow!("failed to read PID file: {e}"))?;
     let pid: u32 = pid_str
@@ -205,7 +228,7 @@ fn background_stop(path_prefix: &str) -> anyhow::Result<()> {
         // pointers or shared memory are involved.
         let ret = unsafe { libc_kill(pid as i32, 15) };
         if ret != 0 {
-            anyhow::bail!("failed to kill jiotv process {pid}");
+            anyhow::bail!("failed to kill OpenStream TV process {pid}");
         }
     }
     #[cfg(not(unix))]
@@ -213,11 +236,11 @@ fn background_stop(path_prefix: &str) -> anyhow::Result<()> {
         std::process::Command::new("taskkill")
             .args(["/PID", &pid.to_string(), "/F"])
             .status()
-            .map_err(|e| anyhow::anyhow!("failed to kill jiotv process {pid}: {e}"))?;
+            .map_err(|e| anyhow::anyhow!("failed to kill OpenStream TV process {pid}: {e}"))?;
     }
 
     std::fs::remove_file(&pid_path)?;
-    println!("jiotv server stopped successfully.");
+    println!("OpenStream TV server stopped successfully.");
     Ok(())
 }
 
@@ -243,15 +266,143 @@ fn epg_delete(path_prefix: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn set_epg_enabled(store: &store::Store, enabled: bool) -> anyhow::Result<()> {
+fn set_epg_enabled(
+    store: &store::Store,
+    access: &access::Access,
+    cfg: &config::Config,
+    enabled: bool,
+) -> anyhow::Result<()> {
     store.set(
         epg::STORE_KEY_ENABLED,
         if enabled { "true" } else { "false" },
     )?;
-    println!(
-        "EPG {} permanently. Restart the JioTV service to apply it.",
-        if enabled { "enabled" } else { "disabled" }
-    );
+    match restart_managed_service()? {
+        autostart::RestartOutcome::Restarted => println!(
+            "EPG {} permanently. OpenStream TV service restarted.",
+            if enabled { "enabled" } else { "disabled" }
+        ),
+        autostart::RestartOutcome::Stopped => println!(
+            "EPG {} permanently. The managed OpenStream TV service is stopped; the setting will apply on its next start.",
+            if enabled { "enabled" } else { "disabled" }
+        ),
+        autostart::RestartOutcome::NotInstalled => println!(
+            "EPG {} permanently. Restart OpenStream TV to apply it.",
+            if enabled { "enabled" } else { "disabled" }
+        ),
+    }
+    if enabled {
+        print_epg_urls(access, cfg)?;
+    }
+    Ok(())
+}
+
+fn restart_managed_service() -> anyhow::Result<autostart::RestartOutcome> {
+    if is_openwrt() {
+        let mut found = false;
+        for init in ["/etc/init.d/openstream", "/etc/init.d/jiotv"] {
+            let init = std::path::Path::new(init);
+            if init.exists() {
+                found = true;
+                if restart_init_service_if_running(init)? == autostart::RestartOutcome::Restarted {
+                    return Ok(autostart::RestartOutcome::Restarted);
+                }
+            }
+        }
+        if found {
+            return Ok(autostart::RestartOutcome::Stopped);
+        }
+    }
+    autostart::restart_if_running()
+}
+
+fn restart_init_service_if_running(
+    init: &std::path::Path,
+) -> anyhow::Result<autostart::RestartOutcome> {
+    let running = std::process::Command::new(init)
+        .arg("running")
+        .status()
+        .map_err(|e| anyhow::anyhow!("cannot query OpenStream TV service state: {e}"))?;
+    if !running.success() {
+        return Ok(autostart::RestartOutcome::Stopped);
+    }
+    let status = std::process::Command::new(init)
+        .arg("restart")
+        .status()
+        .map_err(|e| anyhow::anyhow!("cannot restart OpenStream TV service: {e}"))?;
+    if !status.success() {
+        anyhow::bail!("OpenStream TV service restart failed: {status}");
+    }
+    Ok(autostart::RestartOutcome::Restarted)
+}
+
+fn epg_url_path(access: &access::Access, disable_auth: bool) -> anyhow::Result<String> {
+    if disable_auth {
+        return Ok("/epg.xml.gz".to_string());
+    }
+    let playlist = access.playlist_path()?;
+    Ok(format!(
+        "{}epg.xml.gz",
+        playlist.trim_end_matches("playlist.m3u")
+    ))
+}
+
+fn uci_get(option: &str) -> Option<String> {
+    for package in ["openstream", "jiotv"] {
+        let key = format!("{package}.main.{option}");
+        let output = std::process::Command::new("uci")
+            .args(["-q", "get", &key])
+            .output()
+            .ok()?;
+        if output.status.success() {
+            let value = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !value.is_empty() {
+                return Some(value);
+            }
+        }
+    }
+    None
+}
+
+fn parse_uci_bool(value: &str) -> Option<bool> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => Some(true),
+        "0" | "false" | "no" | "off" => Some(false),
+        _ => None,
+    }
+}
+
+fn print_epg_urls(access: &access::Access, cfg: &config::Config) -> anyhow::Result<()> {
+    let (host, port, disable_auth) = if is_openwrt() {
+        (
+            uci_get("host").unwrap_or_else(|| "0.0.0.0".to_string()),
+            uci_get("port").unwrap_or_else(|| "5001".to_string()),
+            uci_get("disable_auth")
+                .as_deref()
+                .and_then(parse_uci_bool)
+                .unwrap_or(cfg.disable_auth),
+        )
+    } else {
+        (
+            "<server-ip>".to_string(),
+            autostart::service_port().unwrap_or_else(|| "<port>".to_string()),
+            cfg.disable_auth,
+        )
+    };
+    let path = epg_url_path(access, disable_auth)?;
+
+    if is_wildcard_host(&host) {
+        match lan_ipv4_addresses() {
+            Ok(addresses) if !addresses.is_empty() => {
+                for address in addresses {
+                    println!("EPG: http://{address}:{port}{path}");
+                }
+                return Ok(());
+            }
+            Ok(_) => {}
+            Err(error) => tracing::warn!("cannot detect LAN IPv4 addresses: {error}"),
+        }
+    }
+    println!("EPG: http://{}:{port}{path}", reachable_host(&host));
     Ok(())
 }
 
@@ -319,12 +470,23 @@ fn create_private_dir(path: &str) -> std::io::Result<()> {
 
 fn default_path_prefix() -> anyhow::Result<String> {
     if is_openwrt() {
+        if std::path::Path::new("/etc/openstream").exists()
+            || !std::path::Path::new("/etc/jiotv").exists()
+        {
+            return Ok("/etc/openstream".to_string());
+        }
         return Ok("/etc/jiotv".to_string());
     }
 
     let home =
         home_dir().ok_or_else(|| anyhow::anyhow!("cannot resolve the user profile directory"))?;
-    Ok(format!("{home}/.jiotv_go"))
+    let current = format!("{home}/.openstream-tv");
+    let legacy = format!("{home}/.jiotv_go");
+    if std::path::Path::new(&current).exists() || !std::path::Path::new(&legacy).exists() {
+        Ok(current)
+    } else {
+        Ok(legacy)
+    }
 }
 
 fn is_openwrt() -> bool {
@@ -383,7 +545,17 @@ async fn serve(
             if state.extras.connected() {
                 " (logged in)"
             } else {
-                " (run `jiotv tv+ login`)"
+                " (run `ost tv+ login`)"
+            }
+        );
+    }
+    if state.fastway.enabled() {
+        println!(
+            "fastway enabled{}",
+            if state.fastway.connected() {
+                " (logged in)"
+            } else {
+                " (run `ost fastway login`)"
             }
         );
     }
@@ -409,9 +581,9 @@ async fn serve(
         });
     }
 
-    if !cfg.disable_auth {
+    let playlist = if !cfg.disable_auth {
         let playlist = access.playlist_path()?;
-        let origin = format!("http://{}:{}", display_host(&args.host), args.port);
+        let origin = format!("http://{}:{}", reachable_host(&args.host), args.port);
         println!("Playlist: {origin}{playlist}");
         if cfg.epg {
             let epg_path = format!("{}epg.xml.gz", playlist.trim_end_matches("playlist.m3u"));
@@ -427,16 +599,18 @@ async fn serve(
             } else {
                 format!("http://{}:{}", display_host(&args.host), args.port)
             };
-            println!("Web setup: {origin}{setup} (or run: jiotv admin password)");
+            println!("Web setup: {origin}{setup} (or run: ost admin password)");
         }
+        playlist
     } else {
-        let origin = format!("http://{}:{}", display_host(&args.host), args.port);
+        let origin = format!("http://{}:{}", reachable_host(&args.host), args.port);
         println!("Auth is disabled");
         println!("Playlist: {origin}/playlist.m3u");
         if cfg.epg {
             println!("EPG: {origin}/epg.xml.gz");
         }
-    }
+        "/playlist.m3u".to_string()
+    };
 
     if let Ok(http) = args.port.parse::<u16>() {
         let tls = args
@@ -469,6 +643,12 @@ async fn serve(
     };
 
     let listener = tokio::net::TcpListener::bind(format!("{}:{}", args.host, args.port)).await?;
+    if args.host == "0.0.0.0" {
+        match lan_ipv4_addresses() {
+            Ok(addresses) => print_lan_playlists(&addresses, &playlist, &args.port),
+            Err(error) => tracing::warn!("cannot detect LAN IPv4 addresses: {error}"),
+        }
+    }
 
     let mut tunnel_handle = None;
     if args.tunnel {
@@ -477,10 +657,15 @@ async fn serve(
         if args.tunnel_quick && args.tunnel_saved {
             anyhow::bail!("--tunnel-quick and --tunnel-saved are mutually exclusive");
         }
-        let saved = if args.tunnel_quick {
-            None
-        } else {
+        let load_saved_tunnel = should_load_saved_tunnel(
+            args.tunnel_quick,
+            args.tunnel_saved,
+            args.tunnel_token.is_some(),
+        );
+        let saved = if load_saved_tunnel {
             tunnel_setup::load_token(&path_prefix)?
+        } else {
+            None
         };
         let using_saved_token = !args.tunnel_quick
             && (args.tunnel_saved || args.tunnel_token.is_none())
@@ -489,16 +674,17 @@ async fn serve(
             None
         } else if args.tunnel_saved {
             Some(saved.ok_or_else(|| {
-                anyhow::anyhow!("no API-managed tunnel saved; run 'jiotv tunnel setup'")
+                anyhow::anyhow!("no API-managed tunnel saved; run 'ost tunnel setup'")
             })?)
         } else {
             args.tunnel_token.clone().or(saved)
         };
         if let Some(token) = &token {
             if using_saved_token {
+                validate_saved_tunnel_listener(listener.local_addr()?)?;
                 let saved_port = tunnel_setup::load_port(&path_prefix)?.ok_or_else(|| {
                     anyhow::anyhow!(
-                        "saved tunnel has no configured port; run 'jiotv tunnel setup' again"
+                        "saved tunnel has no configured port; run 'ost tunnel setup' again"
                     )
                 })?;
                 let listener_port: u16 = args.port.parse()?;
@@ -568,6 +754,24 @@ async fn serve(
     serve_result.map_err(Into::into)
 }
 
+fn should_load_saved_tunnel(tunnel_quick: bool, tunnel_saved: bool, explicit_token: bool) -> bool {
+    !tunnel_quick && (tunnel_saved || !explicit_token)
+}
+
+fn validate_saved_tunnel_listener(address: std::net::SocketAddr) -> anyhow::Result<()> {
+    let supported = matches!(
+        address,
+        std::net::SocketAddr::V4(address)
+            if address.ip() == &std::net::Ipv4Addr::LOCALHOST
+                || address.ip().is_unspecified()
+    );
+    anyhow::ensure!(
+        supported,
+        "saved tunnels use IPv4 ingress; bind with --host 127.0.0.1 or --host 0.0.0.0"
+    );
+    Ok(())
+}
+
 fn build_app_state(
     cfg: &config::Config,
     path_prefix: &str,
@@ -606,6 +810,12 @@ fn build_app_state(
     };
     let extras_state = Arc::new(extras_state::ExtrasState::new(cfg.extras, stored_override));
     extras_state.init(&http, &store);
+    let fastway_state = Arc::new(fastway_state::FastwayState::new(cfg.fastway));
+    fastway_state.init(&http, &store);
+    let playbox_state = Arc::new(playbox_state::PlayboxState::new(cfg.playbox));
+    playbox_state.init(&http, &store);
+    let vzy_state = Arc::new(vzy_state::VzyState::new(cfg.vzy));
+    vzy_state.init(&http, &store);
 
     Ok(Arc::new(state::AppState {
         config: cfg.clone(),
@@ -621,6 +831,9 @@ fn build_app_state(
         dash_state: Default::default(),
         epg_state: Default::default(),
         extras: extras_state,
+        fastway: fastway_state,
+        playbox: playbox_state,
+        vzy: vzy_state,
         vod_state: Default::default(),
         public_ip: Arc::new(unlock::PublicIp::new(http)),
         unlock_limiter: Arc::new(unlock::AttemptLimiter::default()),
@@ -636,9 +849,49 @@ async fn shutdown_signal() {
 /// The host to print in a URL meant to be opened from another device. A
 /// wildcard bind address names no machine, so it becomes a placeholder.
 fn reachable_host(host: &str) -> String {
-    match host {
-        "0.0.0.0" | "[::]" | "::" | "[::0]" | "0:0:0:0:0:0:0:0" => "<server-ip>".to_string(),
-        other => display_host(other),
+    if is_wildcard_host(host) {
+        "<server-ip>".to_string()
+    } else {
+        display_host(host)
+    }
+}
+
+fn is_wildcard_host(host: &str) -> bool {
+    matches!(
+        host,
+        "0.0.0.0" | "[::]" | "::" | "[::0]" | "0:0:0:0:0:0:0:0"
+    )
+}
+
+#[cfg(not(target_os = "android"))]
+fn lan_ipv4_addresses() -> anyhow::Result<Vec<Ipv4Addr>> {
+    let interfaces = if_addrs::get_if_addrs()?;
+    Ok(private_ipv4_addresses(interfaces.into_iter().filter_map(
+        |interface| match interface.ip() {
+            std::net::IpAddr::V4(address) => Some(address),
+            std::net::IpAddr::V6(_) => None,
+        },
+    )))
+}
+
+#[cfg(target_os = "android")]
+fn lan_ipv4_addresses() -> anyhow::Result<Vec<Ipv4Addr>> {
+    // Android API 21 does not provide getifaddrs/freeifaddrs. The release
+    // matrix targets API 21, so interface enumeration must stay out of these
+    // binaries. The normal playlist URL is still printed above.
+    Ok(Vec::new())
+}
+
+fn private_ipv4_addresses(addresses: impl IntoIterator<Item = Ipv4Addr>) -> Vec<Ipv4Addr> {
+    let mut result: Vec<_> = addresses.into_iter().filter(Ipv4Addr::is_private).collect();
+    result.sort_unstable();
+    result.dedup();
+    result
+}
+
+fn print_lan_playlists(addresses: &[Ipv4Addr], playlist: &str, port: &str) {
+    for address in addresses {
+        println!("LAN playlist: http://{address}:{port}{playlist}");
     }
 }
 
@@ -754,6 +1007,33 @@ fn extras_logout_cli(store: &store::Store) -> anyhow::Result<()> {
     Ok(())
 }
 
+async fn fastway_login_cli(store: &store::Store) -> anyhow::Result<()> {
+    let device = fastway::Device::load_or_create(store)?;
+    let client = fastway::Client::new(reqwest::Client::new(), device);
+
+    print!("Fastway username: ");
+    std::io::stdout().flush()?;
+    let mut username = String::new();
+    std::io::stdin().read_line(&mut username)?;
+    let username = username.trim();
+    let password = rpassword_prompt("Fastway password: ")?;
+
+    match client.login(username, &password).await {
+        Ok(creds) => {
+            creds.save(store)?;
+            println!("Fastway login saved. Restart the server to use it.");
+            Ok(())
+        }
+        Err(e) => anyhow::bail!("login failed: {e}"),
+    }
+}
+
+fn fastway_logout_cli(store: &store::Store) -> anyhow::Result<()> {
+    fastway::delete_credentials(store)?;
+    println!("Fastway login deleted.");
+    Ok(())
+}
+
 fn login_reset(store: &store::Store) -> anyhow::Result<()> {
     println!("Deleting existing login file if exists");
     login::clear(store)?;
@@ -763,7 +1043,13 @@ fn login_reset(store: &store::Store) -> anyhow::Result<()> {
 
 fn admin_password(access: &access::Access, path_prefix: &str) -> anyhow::Result<()> {
     let password = rpassword_prompt("New admin password: ")?;
-    let init = std::path::Path::new("/etc/init.d/jiotv");
+    let new_init = std::path::Path::new("/etc/init.d/openstream");
+    let legacy_init = std::path::Path::new("/etc/init.d/jiotv");
+    let init = if new_init.exists() {
+        new_init
+    } else {
+        legacy_init
+    };
     if is_openwrt() && init.exists() {
         // The running service caches the store in memory and rewrites the whole
         // file on every update, so the password must be written while it is
@@ -774,7 +1060,7 @@ fn admin_password(access: &access::Access, path_prefix: &str) -> anyhow::Result<
             Ok(())
         })?;
         if restarted {
-            println!("Admin password set. JioTV service restarted.");
+            println!("Admin password set. OpenStream TV service restarted.");
         } else {
             println!("Admin password set.");
         }
@@ -802,14 +1088,16 @@ fn with_service_stopped(
     if was_running {
         let stop = std::process::Command::new(init).arg("stop").status()?;
         if !stop.success() {
-            anyhow::bail!("could not stop the JioTV service ({stop}); nothing was changed");
+            anyhow::bail!("could not stop the OpenStream TV service ({stop}); nothing was changed");
         }
         // procd only signals the process on `stop`; wait until it has exited so
         // its cached store cannot be written over the new one.
         let deadline = std::time::Instant::now() + stop_timeout;
         while is_running()? {
             if std::time::Instant::now() >= deadline {
-                anyhow::bail!("the JioTV service did not stop in time; nothing was changed");
+                anyhow::bail!(
+                    "the OpenStream TV service did not stop in time; nothing was changed"
+                );
             }
             std::thread::sleep(std::time::Duration::from_millis(200));
         }
@@ -818,7 +1106,9 @@ fn with_service_stopped(
     if was_running {
         let start = std::process::Command::new(init).arg("start").status()?;
         if !start.success() {
-            anyhow::bail!("the change was applied, but starting the JioTV service failed: {start}");
+            anyhow::bail!(
+                "the change was applied, but starting the OpenStream TV service failed: {start}"
+            );
         }
     }
     result.map(|()| was_running)
@@ -848,8 +1138,8 @@ fn rotate_key(access: &access::Access) -> anyhow::Result<()> {
 
 fn print_help() {
     println!(
-        "jiotv - Stream JioTV on any device\n\n\
-         USAGE:\n  jiotv [--config PATH] [--skip-update-check] <command>\n\n\
+        "ost - OpenStream TV multi-provider streaming server\n\n\
+         USAGE:\n  ost [--config PATH] [--skip-update-check] <command>\n\n\
          COMMANDS:\n  \
          serve [--host H] [--port P] [--public] [--tls [--tls-port P] [--tls-cert F --tls-key F]] [--tunnel] [--tunnel-quick|--tunnel-saved] [--tunnel-token T]\n  \
          \x20 --tls            also serve HTTPS (default port 5443) next to plain HTTP; browsers need\n  \
@@ -858,12 +1148,13 @@ fn print_help() {
          \x20 --tls-cert/--tls-key  PEM files to use (both or neither); without them a self-signed\n  \
          \x20                  certificate is created in <data dir>/tls/ on first start and reused\n  \
          login otp | login reset\n  \
-         tv+ login | tv+ logout   (off by default; needs tv_plus = true / JIOTV_TVPLUS=true)\n  \
-         epg generate | epg delete | epg on | epg off   (epg-on/epg-off aliases)\n  \
+         tv+ login | tv+ logout   (off by default; needs tv_plus = true / OPENSTREAM_TVPLUS=true)\n  \
+         fastway login | fastway logout (off by default; needs fastway = true / OPENSTREAM_FASTWAY=true)\n  \
+         epg generate | epg delete | epg on | epg off\n  \
          admin password\n  \
          key show | key rotate\n  \
          background start [--args \"...\"] | background stop\n  \
-         update [--version vX.Y.Z]      (needs JIOTV_UPDATE_TOKEN for a private repo)\n  \
+         update [--version vX.Y.Z]      (needs OPENSTREAM_UPDATE_TOKEN for a private repo)\n  \
          autostart [--args \"...\"] | autostart remove   (systemd service; Termux: shell rc)\n  \
          tunnel setup --domain example.com --subdomain tv [--port 5001]\n"
     );
@@ -887,7 +1178,7 @@ mod tests {
             if running {
                 std::fs::write(&marker, "").unwrap();
             }
-            let script = dir.join("jiotv.init");
+            let script = dir.join("openstream.init");
             std::fs::write(
                 &script,
                 format!(
@@ -958,7 +1249,7 @@ mod tests {
         #[test]
         fn private_dir_is_created_with_owner_only_access() {
             let dir = tempfile::tempdir().unwrap();
-            let target = dir.path().join("etc").join("jiotv");
+            let target = dir.path().join("etc").join("openstream");
             create_private_dir(target.to_str().unwrap()).unwrap();
             let mode = std::fs::metadata(&target).unwrap().permissions().mode();
             assert_eq!(mode & 0o077, 0, "group/other must have no access");
@@ -982,6 +1273,49 @@ mod tests {
             assert!(err.to_string().contains("disk full"));
             assert_eq!(actions(dir.path()), ["stop", "start"]);
         }
+
+        #[test]
+        fn running_managed_init_service_uses_restart() {
+            let dir = tempfile::tempdir().unwrap();
+            let init = fake_init(dir.path(), true);
+            let outcome = restart_init_service_if_running(&init).unwrap();
+            assert_eq!(outcome, autostart::RestartOutcome::Restarted);
+            assert_eq!(actions(dir.path()), ["restart"]);
+        }
+
+        #[test]
+        fn stopped_managed_init_service_stays_stopped() {
+            let dir = tempfile::tempdir().unwrap();
+            let init = fake_init(dir.path(), false);
+            let outcome = restart_init_service_if_running(&init).unwrap();
+            assert_eq!(outcome, autostart::RestartOutcome::Stopped);
+            assert!(actions(dir.path()).is_empty());
+        }
+    }
+
+    #[test]
+    fn epg_url_path_respects_access_mode() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(store::Store::open(dir.path().to_str().unwrap()).unwrap());
+        store.set("access_key", "abc123").unwrap();
+        let access = access::Access::new(store);
+
+        assert_eq!(
+            epg_url_path(&access, false).unwrap(),
+            "/k/abc123/epg.xml.gz"
+        );
+        assert_eq!(epg_url_path(&access, true).unwrap(), "/epg.xml.gz");
+    }
+
+    #[test]
+    fn uci_boolean_values_are_parsed() {
+        for value in ["1", "true", "yes", "on", "TRUE"] {
+            assert_eq!(parse_uci_bool(value), Some(true), "{value}");
+        }
+        for value in ["0", "false", "no", "off", "FALSE"] {
+            assert_eq!(parse_uci_bool(value), Some(false), "{value}");
+        }
+        assert_eq!(parse_uci_bool("maybe"), None);
     }
 
     #[test]
@@ -992,5 +1326,54 @@ mod tests {
         assert_eq!(reachable_host("localhost"), "localhost");
         assert_eq!(reachable_host(""), "localhost");
         assert_eq!(reachable_host("192.168.1.10"), "192.168.1.10");
+    }
+
+    #[test]
+    fn lan_candidates_are_private_ipv4_sorted_and_deduplicated() {
+        let addresses = private_ipv4_addresses([
+            Ipv4Addr::new(192, 168, 1, 20),
+            Ipv4Addr::new(10, 0, 0, 4),
+            Ipv4Addr::new(192, 168, 1, 20),
+            Ipv4Addr::new(8, 8, 8, 8),
+            Ipv4Addr::new(169, 254, 1, 2),
+        ]);
+        assert_eq!(
+            addresses,
+            [Ipv4Addr::new(10, 0, 0, 4), Ipv4Addr::new(192, 168, 1, 20)]
+        );
+    }
+
+    #[test]
+    fn only_wildcard_hosts_advertise_detected_lan_addresses() {
+        for wildcard in ["0.0.0.0", "[::]", "::", "[::0]", "0:0:0:0:0:0:0:0"] {
+            assert!(is_wildcard_host(wildcard));
+        }
+        for local in ["localhost", "127.0.0.1", "192.168.1.10"] {
+            assert!(!is_wildcard_host(local));
+        }
+    }
+
+    #[test]
+    fn explicit_tunnel_token_skips_saved_state_unless_requested() {
+        assert!(!should_load_saved_tunnel(false, false, true));
+        assert!(should_load_saved_tunnel(false, true, true));
+        assert!(should_load_saved_tunnel(false, false, false));
+        assert!(!should_load_saved_tunnel(true, false, false));
+    }
+
+    #[test]
+    fn saved_tunnel_requires_exact_supported_ipv4_bind_address() {
+        for address in ["127.0.0.1:5001", "0.0.0.0:5001"] {
+            validate_saved_tunnel_listener(address.parse().unwrap()).unwrap();
+        }
+        for address in [
+            "127.0.0.2:5001",
+            "192.168.1.10:5001",
+            "[::]:5001",
+            "[::1]:5001",
+        ] {
+            let error = validate_saved_tunnel_listener(address.parse().unwrap()).unwrap_err();
+            assert!(error.to_string().contains("--host 127.0.0.1"));
+        }
     }
 }

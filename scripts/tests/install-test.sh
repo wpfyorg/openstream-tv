@@ -9,8 +9,8 @@ mkdir "$tmp/bin"
 cat >"$tmp/bin/uname" <<'EOF'
 #!/bin/sh
 case "$1" in
-  -s) printf '%s\n' "${JIOTV_TEST_OS:-Linux}" ;;
-  -m) printf '%s\n' "${JIOTV_TEST_MACHINE:-x86_64}" ;;
+  -s) printf '%s\n' "${OPENSTREAM_TEST_OS:-Linux}" ;;
+  -m) printf '%s\n' "${OPENSTREAM_TEST_MACHINE:-x86_64}" ;;
 esac
 EOF
 cat >"$tmp/bin/curl" <<'EOF'
@@ -24,34 +24,34 @@ while [ "$#" -gt 0 ]; do
     *) url=$1; shift ;;
   esac
 done
-printf '%s\n' "$url" >>"$JIOTV_TEST_LOG"
+printf '%s\n' "$url" >>"$OPENSTREAM_TEST_LOG"
 case "$url" in
   https://api.github.com/*)
-    if [ "${JIOTV_TEST_COMPACT_JSON:-0}" = 1 ]; then
+    if [ "${OPENSTREAM_TEST_COMPACT_JSON:-0}" = 1 ]; then
       printf '{"tag_name":"v1.3.3","name":"v1.3.3","assets":[' >"$out"
-      if [ -n "${JIOTV_TEST_EXTRA_ASSET_NAME:-}" ]; then
-        printf '{"name":"%s"},' "$JIOTV_TEST_EXTRA_ASSET_NAME" >>"$out"
+      if [ -n "${OPENSTREAM_TEST_EXTRA_ASSET_NAME:-}" ]; then
+        printf '{"name":"%s"},' "$OPENSTREAM_TEST_EXTRA_ASSET_NAME" >>"$out"
       fi
-      printf '{"name":"%s"},{"name":"SHA256SUMS"}]}\n' "$JIOTV_TEST_ASSET_NAME" >>"$out"
+      printf '{"name":"%s"},{"name":"SHA256SUMS"}]}\n' "$OPENSTREAM_TEST_ASSET_NAME" >>"$out"
       exit 0
     fi
     {
       echo '{'
       echo '  "tag_name": "v1.3.3",'
       echo '  "assets": ['
-      if [ -n "${JIOTV_TEST_EXTRA_ASSET_NAME:-}" ]; then
-        printf '    {"name": "%s"},\n' "$JIOTV_TEST_EXTRA_ASSET_NAME"
+      if [ -n "${OPENSTREAM_TEST_EXTRA_ASSET_NAME:-}" ]; then
+        printf '    {"name": "%s"},\n' "$OPENSTREAM_TEST_EXTRA_ASSET_NAME"
       fi
-      printf '    {"name": "%s"}\n' "$JIOTV_TEST_ASSET_NAME"
+      printf '    {"name": "%s"}\n' "$OPENSTREAM_TEST_ASSET_NAME"
       echo '  ]'
       echo '}'
     } >"$out"
     ;;
   */SHA256SUMS)
-    if [ "${JIOTV_TEST_BAD_SUM:-0}" = 1 ]; then hash=$(printf bad | sha256sum | awk '{print $1}')
+    if [ "${OPENSTREAM_TEST_BAD_SUM:-0}" = 1 ]; then hash=$(printf bad | sha256sum | awk '{print $1}')
     else hash=$(printf 'test binary' | sha256sum | awk '{print $1}')
     fi
-    printf '%s  %s\n' "$hash" "$JIOTV_TEST_ASSET_NAME" >"$out"
+    printf '%s  %s\n' "$hash" "$OPENSTREAM_TEST_ASSET_NAME" >"$out"
     ;;
   *) printf 'test binary' >"$out" ;;
 esac
@@ -65,40 +65,40 @@ exec /usr/bin/id "$@"
 EOF
 chmod +x "$tmp/bin/id"
 
-cat >"$tmp/bin/jiotv-init" <<'EOF'
+cat >"$tmp/bin/openstream-init" <<'EOF'
 #!/bin/sh
-# Stateful stand-in for the procd init script: JIOTV_TEST_INIT_STATE exists while "running".
-state=${JIOTV_TEST_INIT_STATE:?}
-[ -z "${JIOTV_TEST_INIT_LOG:-}" ] || printf '%s\n' "${1:-}" >>"$JIOTV_TEST_INIT_LOG"
+# Stateful stand-in for the procd init script: OPENSTREAM_TEST_INIT_STATE exists while "running".
+state=${OPENSTREAM_TEST_INIT_STATE:?}
+[ -z "${OPENSTREAM_TEST_INIT_LOG:-}" ] || printf '%s\n' "${1:-}" >>"$OPENSTREAM_TEST_INIT_LOG"
 case "${1:-}" in
   enable) ;;
   running) [ -f "$state" ] ;;
   start|restart) : >"$state" ;;
-  stop) [ -z "${JIOTV_TEST_STOP_FAILS:-}" ] || exit 1; rm -f "$state" ;;
+  stop) [ -z "${OPENSTREAM_TEST_STOP_FAILS:-}" ] || exit 1; rm -f "$state" ;;
   *) exit 1 ;;
 esac
 EOF
-chmod +x "$tmp/bin/jiotv-init"
+chmod +x "$tmp/bin/openstream-init"
 
 # The readiness check looks for a listening socket and the uci options.
 cat >"$tmp/bin/netstat" <<'EOF'
 #!/bin/sh
 echo 'Active Internet connections (only servers)'
-echo "tcp        0      0 0.0.0.0:5001            0.0.0.0:*               LISTEN      123/${JIOTV_TEST_PORT_OWNER:-jiotv}"
+echo "tcp        0      0 0.0.0.0:5001            0.0.0.0:*               LISTEN      123/${OPENSTREAM_TEST_PORT_OWNER:-ost}"
 EOF
 cat >"$tmp/bin/uci" <<'EOF'
 #!/bin/sh
 case "$*" in
-  *jiotv.main.enabled) [ -z "${JIOTV_TEST_UCI_ENABLED:-}" ] || echo "$JIOTV_TEST_UCI_ENABLED" ;;
-  *jiotv.main.tls) [ -z "${JIOTV_TEST_UCI_TLS:-}" ] || echo "$JIOTV_TEST_UCI_TLS" ;;
-  *jiotv.main.host) [ -z "${JIOTV_TEST_UCI_HOST:-}" ] || echo "$JIOTV_TEST_UCI_HOST" ;;
-  *network.lan.ipaddr) echo "${JIOTV_TEST_LAN_IP:-192.168.8.1/24}" ;;
+  *openstream.main.enabled) [ -z "${OPENSTREAM_TEST_UCI_ENABLED:-}" ] || echo "$OPENSTREAM_TEST_UCI_ENABLED" ;;
+  *openstream.main.tls) [ -z "${OPENSTREAM_TEST_UCI_TLS:-}" ] || echo "$OPENSTREAM_TEST_UCI_TLS" ;;
+  *openstream.main.host) [ -z "${OPENSTREAM_TEST_UCI_HOST:-}" ] || echo "$OPENSTREAM_TEST_UCI_HOST" ;;
+  *network.lan.ipaddr) echo "${OPENSTREAM_TEST_LAN_IP:-192.168.8.1/24}" ;;
 esac
 exit 0
 EOF
 chmod +x "$tmp/bin/netstat" "$tmp/bin/uci"
 
-export JIOTV_TEST_INIT_STATE="$tmp/init-state"
+export OPENSTREAM_TEST_INIT_STATE="$tmp/init-state"
 
 run_case() {
   expected=$1
@@ -108,27 +108,39 @@ run_case() {
   shift 4
   install_dir="$tmp/install-$expected"
   log="$tmp/log-$expected"
-  JIOTV_TEST_OS=$os JIOTV_TEST_MACHINE=$machine PREFIX=$prefix \
-    JIOTV_TEST_ASSET_NAME=$expected JIOTV_TEST_LOG=$log \
-    JIOTV_INSTALL_DIR="$install_dir" PATH="$tmp/bin:$PATH" \
+  OPENSTREAM_TEST_OS=$os OPENSTREAM_TEST_MACHINE=$machine PREFIX=$prefix \
+    OPENSTREAM_TEST_ASSET_NAME=$expected OPENSTREAM_TEST_LOG=$log \
+    OPENSTREAM_INSTALL_DIR="$install_dir" PATH="$tmp/bin:$PATH" \
     "$@" sh "$root/scripts/install.sh" >/dev/null
-  test -x "$install_dir/jiotv"
+  test -x "$install_dir/ost"
   grep -F "/$expected" "$log" >/dev/null
   printf 'installer target OK: %s\n' "$expected"
 }
 
-run_case jiotv-full-x86_64-unknown-linux-musl Linux x86_64 '' env
-run_case jiotv-slim-x86_64-apple-darwin Darwin x86_64 '' env JIOTV_VARIANT=slim
-run_case jiotv-full-aarch64-linux-android Linux aarch64 /data/data/com.termux/files/usr env PREFIX=/data/data/com.termux/files/usr
-run_case jiotv-full-armv7-linux-androideabi Linux armv7l /data/data/com.termux/files/usr env PREFIX=/data/data/com.termux/files/usr
-run_case jiotv-full-x86_64-linux-android Linux x86_64 /data/data/com.termux/files/usr env PREFIX=/data/data/com.termux/files/usr
-run_case jiotv-full-x86_64-unknown-linux-musl Linux x86_64 '' env JIOTV_REPO=owner/project JIOTV_VERSION=1.2.3
-grep -F 'https://github.com/owner/project/releases/download/v1.2.3/' "$tmp/log-jiotv-full-x86_64-unknown-linux-musl" >/dev/null
+run_case openstream-full-x86_64-unknown-linux-musl Linux x86_64 '' env
+run_case openstream-slim-x86_64-apple-darwin Darwin x86_64 '' env OPENSTREAM_VARIANT=slim
+run_case openstream-full-aarch64-linux-android Linux aarch64 /data/data/com.termux/files/usr env PREFIX=/data/data/com.termux/files/usr
+run_case openstream-full-armv7-linux-androideabi Linux armv7l /data/data/com.termux/files/usr env PREFIX=/data/data/com.termux/files/usr
+run_case openstream-full-x86_64-linux-android Linux x86_64 /data/data/com.termux/files/usr env PREFIX=/data/data/com.termux/files/usr
+run_case openstream-full-x86_64-unknown-linux-musl Linux x86_64 '' env OPENSTREAM_REPO=owner/project OPENSTREAM_VERSION=1.2.3
+grep -F 'https://github.com/owner/project/releases/download/v1.2.3/' "$tmp/log-openstream-full-x86_64-unknown-linux-musl" >/dev/null
+
+# Releases published before the OpenStream TV rename use jiotv-* binary asset
+# names. The installer prefers openstream-* but can still install those
+# historical releases while the transition completes.
+legacy_asset=jiotv-full-x86_64-unknown-linux-musl
+legacy_log="$tmp/log-legacy-release"
+OPENSTREAM_TEST_OS=Linux OPENSTREAM_TEST_MACHINE=x86_64 OPENSTREAM_TEST_ASSET_NAME=$legacy_asset \
+  OPENSTREAM_TEST_LOG="$legacy_log" OPENSTREAM_INSTALL_DIR="$tmp/install-legacy-release" PATH="$tmp/bin:$PATH" \
+  sh "$root/scripts/install.sh" >/dev/null
+test -x "$tmp/install-legacy-release/ost"
+grep -F "/$legacy_asset" "$legacy_log" >/dev/null
+echo "legacy release asset fallback OK"
 
 # A desktop install tells the user to browse to localhost on this machine, and to
 # use its own address from other devices (never a guessed one); slim has no UI.
-JIOTV_TEST_OS=Darwin JIOTV_TEST_MACHINE=arm64 JIOTV_TEST_ASSET_NAME=jiotv-full-aarch64-apple-darwin \
-  JIOTV_TEST_LOG="$tmp/log-desktop" JIOTV_INSTALL_DIR="$tmp/install-desktop" PATH="$tmp/bin:$PATH" \
+OPENSTREAM_TEST_OS=Darwin OPENSTREAM_TEST_MACHINE=arm64 OPENSTREAM_TEST_ASSET_NAME=openstream-full-aarch64-apple-darwin \
+  OPENSTREAM_TEST_LOG="$tmp/log-desktop" OPENSTREAM_INSTALL_DIR="$tmp/install-desktop" PATH="$tmp/bin:$PATH" \
   sh "$root/scripts/install.sh" >"$tmp/desktop-output"
 grep -F "https://localhost:5443/" "$tmp/desktop-output" >/dev/null
 grep -F "use this machine's address instead of localhost: https://<this-machine-ip>:5443/" "$tmp/desktop-output" >/dev/null
@@ -136,43 +148,43 @@ if grep -F "<host>" "$tmp/desktop-output" >/dev/null; then
   echo "the installer still prints the <host> placeholder" >&2
   exit 1
 fi
-JIOTV_TEST_OS=Darwin JIOTV_TEST_MACHINE=arm64 JIOTV_VARIANT=slim JIOTV_TEST_ASSET_NAME=jiotv-slim-aarch64-apple-darwin \
-  JIOTV_TEST_LOG="$tmp/log-desktop-slim" JIOTV_INSTALL_DIR="$tmp/install-desktop-slim" PATH="$tmp/bin:$PATH" \
+OPENSTREAM_TEST_OS=Darwin OPENSTREAM_TEST_MACHINE=arm64 OPENSTREAM_VARIANT=slim OPENSTREAM_TEST_ASSET_NAME=openstream-slim-aarch64-apple-darwin \
+  OPENSTREAM_TEST_LOG="$tmp/log-desktop-slim" OPENSTREAM_INSTALL_DIR="$tmp/install-desktop-slim" PATH="$tmp/bin:$PATH" \
   sh "$root/scripts/install.sh" >"$tmp/desktop-slim-output"
 grep -F "has no browser UI" "$tmp/desktop-slim-output" >/dev/null
 if grep -F "Browser UI" "$tmp/desktop-slim-output" >/dev/null; then
   echo "a slim desktop install printed a browser UI address" >&2
   exit 1
 fi
-JIOTV_TEST_OS=Darwin JIOTV_TEST_MACHINE=arm64 JIOTV_INSTALL_TLS=0 JIOTV_TEST_ASSET_NAME=jiotv-full-aarch64-apple-darwin \
-  JIOTV_TEST_LOG="$tmp/log-desktop-plain" JIOTV_INSTALL_DIR="$tmp/install-desktop-plain" PATH="$tmp/bin:$PATH" \
+OPENSTREAM_TEST_OS=Darwin OPENSTREAM_TEST_MACHINE=arm64 OPENSTREAM_INSTALL_TLS=0 OPENSTREAM_TEST_ASSET_NAME=openstream-full-aarch64-apple-darwin \
+  OPENSTREAM_TEST_LOG="$tmp/log-desktop-plain" OPENSTREAM_INSTALL_DIR="$tmp/install-desktop-plain" PATH="$tmp/bin:$PATH" \
   sh "$root/scripts/install.sh" >"$tmp/desktop-plain-output"
 grep -F "http://localhost:5001/" "$tmp/desktop-plain-output" >/dev/null
 
-if JIOTV_TEST_OS=Linux JIOTV_TEST_MACHINE=mips PATH="$tmp/bin:$PATH" sh "$root/scripts/install.sh" >/dev/null 2>&1; then
+if OPENSTREAM_TEST_OS=Linux OPENSTREAM_TEST_MACHINE=mips PATH="$tmp/bin:$PATH" sh "$root/scripts/install.sh" >/dev/null 2>&1; then
   echo "unsupported architecture unexpectedly installed" >&2
   exit 1
 fi
 
-if JIOTV_TEST_OS=Linux JIOTV_TEST_MACHINE=x86_64 JIOTV_TEST_ASSET_NAME=jiotv-full-x86_64-unknown-linux-musl \
-  JIOTV_TEST_BAD_SUM=1 JIOTV_TEST_LOG="$tmp/bad-log" JIOTV_INSTALL_DIR="$tmp/bad-install" \
+if OPENSTREAM_TEST_OS=Linux OPENSTREAM_TEST_MACHINE=x86_64 OPENSTREAM_TEST_ASSET_NAME=openstream-full-x86_64-unknown-linux-musl \
+  OPENSTREAM_TEST_BAD_SUM=1 OPENSTREAM_TEST_LOG="$tmp/bad-log" OPENSTREAM_INSTALL_DIR="$tmp/bad-install" \
   PATH="$tmp/bin:$PATH" sh "$root/scripts/install.sh" >/dev/null 2>&1; then
   echo "checksum mismatch unexpectedly installed" >&2
   exit 1
 fi
-test ! -e "$tmp/bad-install/jiotv"
+test ! -e "$tmp/bad-install/ost"
 echo "unsupported architecture and checksum rejection OK"
 
 cat >"$tmp/bin/apk" <<'EOF'
 #!/bin/sh
 if [ "${1:-}" = --print-arch ]; then
-  echo "${JIOTV_TEST_PACKAGE_ARCH:-x86_64}"
+  echo "${OPENSTREAM_TEST_PACKAGE_ARCH:-x86_64}"
   exit 0
 fi
-printf '%s\n' "$*" >>"$JIOTV_TEST_PACKAGE_LOG"
-[ "${1:-}" != add ] || [ -z "${JIOTV_TEST_POSTINST_STARTS:-}" ] || : >"$JIOTV_TEST_INIT_STATE"
+printf '%s\n' "$*" >>"$OPENSTREAM_TEST_PACKAGE_LOG"
+[ "${1:-}" != add ] || [ -z "${OPENSTREAM_TEST_POSTINST_STARTS:-}" ] || : >"$OPENSTREAM_TEST_INIT_STATE"
 if [ "${1:-}" = info ] && [ "${2:-}" = -e ]; then
-  [ "${3:-}" = "${JIOTV_TEST_INSTALLED_PACKAGE:-}" ]
+  [ "${3:-}" = "${OPENSTREAM_TEST_INSTALLED_PACKAGE:-}" ]
   exit
 fi
 [ "${1:-}" = del ] && exit 0
@@ -187,11 +199,11 @@ run_compact_openwrt_case() {
   compact_asset=$2
   compact_other_asset=$3
   compact_log="$tmp/compact-$compact_asset"
-  JIOTV_PLATFORM=openwrt JIOTV_VARIANT=$compact_variant JIOTV_START_SERVICE=0 \
-    JIOTV_TEST_OS=Linux JIOTV_TEST_MACHINE=aarch64 JIOTV_TEST_PACKAGE_ARCH=aarch64 \
-    JIOTV_TEST_COMPACT_JSON=1 JIOTV_TEST_ASSET_NAME=$compact_asset \
-    JIOTV_TEST_EXTRA_ASSET_NAME=$compact_other_asset JIOTV_TEST_LOG="$compact_log-downloads" \
-    JIOTV_TEST_PACKAGE_LOG="$compact_log-package" JIOTV_INIT_SCRIPT="$tmp/bin/jiotv-init" \
+  OPENSTREAM_PLATFORM=openwrt OPENSTREAM_VARIANT=$compact_variant OPENSTREAM_START_SERVICE=0 \
+    OPENSTREAM_TEST_OS=Linux OPENSTREAM_TEST_MACHINE=aarch64 OPENSTREAM_TEST_PACKAGE_ARCH=aarch64 \
+    OPENSTREAM_TEST_COMPACT_JSON=1 OPENSTREAM_TEST_ASSET_NAME=$compact_asset \
+    OPENSTREAM_TEST_EXTRA_ASSET_NAME=$compact_other_asset OPENSTREAM_TEST_LOG="$compact_log-downloads" \
+    OPENSTREAM_TEST_PACKAGE_LOG="$compact_log-package" OPENSTREAM_INIT_SCRIPT="$tmp/bin/openstream-init" \
     PATH="$tmp/bin:$PATH" sh "$root/scripts/install.sh" >"$compact_log-output"
   grep -F "/$compact_asset" "$compact_log-downloads" >/dev/null
   grep -F "$compact_asset" "$compact_log-package" >/dev/null
@@ -202,12 +214,12 @@ run_compact_openwrt_case() {
   fi
   printf 'compact OpenWrt release OK: %s\n' "$compact_asset"
 }
-run_compact_openwrt_case full jiotv-1.3.3-r1_aarch64_cortex-a53.apk jiotv-slim-1.3.3-r1_aarch64_cortex-a53.apk
-run_compact_openwrt_case slim jiotv-slim-1.3.3-r1_aarch64_cortex-a53.apk jiotv-1.3.3-r1_aarch64_cortex-a53.apk
+run_compact_openwrt_case full openstream-1.3.3-r1_aarch64_cortex-a53.apk openstream-slim-1.3.3-r1_aarch64_cortex-a53.apk
+run_compact_openwrt_case slim openstream-slim-1.3.3-r1_aarch64_cortex-a53.apk openstream-1.3.3-r1_aarch64_cortex-a53.apk
 # A compact response without this architecture still fails before installation.
-if JIOTV_PLATFORM=openwrt JIOTV_TEST_OS=Linux JIOTV_TEST_MACHINE=aarch64 JIOTV_TEST_PACKAGE_ARCH=aarch64 \
-  JIOTV_TEST_COMPACT_JSON=1 JIOTV_TEST_ASSET_NAME=jiotv-1.3.3-r1_x86_64.apk \
-  JIOTV_TEST_LOG="$tmp/compact-missing-downloads" JIOTV_TEST_PACKAGE_LOG="$tmp/compact-missing-package" \
+if OPENSTREAM_PLATFORM=openwrt OPENSTREAM_TEST_OS=Linux OPENSTREAM_TEST_MACHINE=aarch64 OPENSTREAM_TEST_PACKAGE_ARCH=aarch64 \
+  OPENSTREAM_TEST_COMPACT_JSON=1 OPENSTREAM_TEST_ASSET_NAME=openstream-1.3.3-r1_x86_64.apk \
+  OPENSTREAM_TEST_LOG="$tmp/compact-missing-downloads" OPENSTREAM_TEST_PACKAGE_LOG="$tmp/compact-missing-package" \
   PATH="$tmp/bin:$PATH" sh "$root/scripts/install.sh" >"$tmp/compact-missing-output" 2>&1; then
   echo "compact release without a matching package unexpectedly installed" >&2
   exit 1
@@ -215,15 +227,15 @@ fi
 grep -F 'no full OpenWrt package found' "$tmp/compact-missing-output" >/dev/null
 test ! -e "$tmp/compact-missing-package"
 
-openwrt_apk=jiotv-1.3.3-r1_x86_64.apk
-openwrt_slim_apk=jiotv-slim-1.3.3-r1_x86_64.apk
-JIOTV_PLATFORM=openwrt JIOTV_TEST_OS=Linux JIOTV_TEST_MACHINE=x86_64 \
-  JIOTV_TEST_ASSET_NAME=$openwrt_apk JIOTV_TEST_EXTRA_ASSET_NAME=$openwrt_slim_apk \
-  JIOTV_TEST_INSTALLED_PACKAGE=jiotv-slim JIOTV_TEST_LOG="$tmp/openwrt-apk-downloads" \
-  JIOTV_TEST_PACKAGE_LOG="$tmp/openwrt-apk-package" JIOTV_INIT_SCRIPT="$tmp/bin/jiotv-init" \
-  JIOTV_TEST_INIT_LOG="$tmp/openwrt-apk-init" PATH="$tmp/bin:$PATH" \
+openwrt_apk=openstream-1.3.3-r1_x86_64.apk
+openwrt_slim_apk=openstream-slim-1.3.3-r1_x86_64.apk
+OPENSTREAM_PLATFORM=openwrt OPENSTREAM_TEST_OS=Linux OPENSTREAM_TEST_MACHINE=x86_64 \
+  OPENSTREAM_TEST_ASSET_NAME=$openwrt_apk OPENSTREAM_TEST_EXTRA_ASSET_NAME=$openwrt_slim_apk \
+  OPENSTREAM_TEST_INSTALLED_PACKAGE=openstream-slim OPENSTREAM_TEST_LOG="$tmp/openwrt-apk-downloads" \
+  OPENSTREAM_TEST_PACKAGE_LOG="$tmp/openwrt-apk-package" OPENSTREAM_INIT_SCRIPT="$tmp/bin/openstream-init" \
+  OPENSTREAM_TEST_INIT_LOG="$tmp/openwrt-apk-init" PATH="$tmp/bin:$PATH" \
   sh "$root/scripts/install.sh" >"$tmp/openwrt-apk-output"
-grep -F "del jiotv-slim" "$tmp/openwrt-apk-package" >/dev/null
+grep -F "del openstream-slim" "$tmp/openwrt-apk-package" >/dev/null
 grep -x "enable" "$tmp/openwrt-apk-init" >/dev/null
 grep -x "start" "$tmp/openwrt-apk-init" >/dev/null
 grep -F "is installed and running" "$tmp/openwrt-apk-output" >/dev/null
@@ -235,98 +247,121 @@ if grep -F "/$openwrt_slim_apk" "$tmp/openwrt-apk-downloads" >/dev/null; then
   echo "full OpenWrt install selected the slim package" >&2
   exit 1
 fi
-openwrt_aarch64_apk=jiotv-1.3.3-r1_aarch64_cortex-a53.apk
-JIOTV_PLATFORM=openwrt JIOTV_TEST_OS=Linux JIOTV_TEST_MACHINE=aarch64 JIOTV_TEST_PACKAGE_ARCH=aarch64 \
-  JIOTV_TEST_ASSET_NAME=$openwrt_aarch64_apk JIOTV_TEST_LOG="$tmp/openwrt-aarch64-apk-downloads" \
-  JIOTV_TEST_PACKAGE_LOG="$tmp/openwrt-aarch64-apk-package" JIOTV_INIT_SCRIPT="$tmp/bin/jiotv-init" PATH="$tmp/bin:$PATH" \
+openwrt_aarch64_apk=openstream-1.3.3-r1_aarch64_cortex-a53.apk
+OPENSTREAM_PLATFORM=openwrt OPENSTREAM_TEST_OS=Linux OPENSTREAM_TEST_MACHINE=aarch64 OPENSTREAM_TEST_PACKAGE_ARCH=aarch64 \
+  OPENSTREAM_TEST_ASSET_NAME=$openwrt_aarch64_apk OPENSTREAM_TEST_LOG="$tmp/openwrt-aarch64-apk-downloads" \
+  OPENSTREAM_TEST_PACKAGE_LOG="$tmp/openwrt-aarch64-apk-package" OPENSTREAM_INIT_SCRIPT="$tmp/bin/openstream-init" PATH="$tmp/bin:$PATH" \
   sh "$root/scripts/install.sh" >/dev/null
 grep -F "/$openwrt_aarch64_apk" "$tmp/openwrt-aarch64-apk-downloads" >/dev/null
-# The package hook starts the service on install; JIOTV_START_SERVICE=0 must not leave it running.
-rm -f "$JIOTV_TEST_INIT_STATE"
-JIOTV_PLATFORM=openwrt JIOTV_START_SERVICE=0 JIOTV_TEST_POSTINST_STARTS=1 JIOTV_TEST_OS=Linux JIOTV_TEST_MACHINE=aarch64 JIOTV_TEST_PACKAGE_ARCH=aarch64 \
-  JIOTV_TEST_ASSET_NAME=$openwrt_aarch64_apk JIOTV_TEST_LOG="$tmp/openwrt-nostart-downloads" \
-  JIOTV_TEST_PACKAGE_LOG="$tmp/openwrt-nostart-package" JIOTV_INIT_SCRIPT="$tmp/bin/jiotv-init" \
-  JIOTV_TEST_INIT_LOG="$tmp/openwrt-nostart-init" PATH="$tmp/bin:$PATH" \
+# The package hook starts the service on install; OPENSTREAM_START_SERVICE=0 must not leave it running.
+rm -f "$OPENSTREAM_TEST_INIT_STATE"
+OPENSTREAM_PLATFORM=openwrt OPENSTREAM_START_SERVICE=0 OPENSTREAM_TEST_POSTINST_STARTS=1 OPENSTREAM_TEST_OS=Linux OPENSTREAM_TEST_MACHINE=aarch64 OPENSTREAM_TEST_PACKAGE_ARCH=aarch64 \
+  OPENSTREAM_TEST_ASSET_NAME=$openwrt_aarch64_apk OPENSTREAM_TEST_LOG="$tmp/openwrt-nostart-downloads" \
+  OPENSTREAM_TEST_PACKAGE_LOG="$tmp/openwrt-nostart-package" OPENSTREAM_INIT_SCRIPT="$tmp/bin/openstream-init" \
+  OPENSTREAM_TEST_INIT_LOG="$tmp/openwrt-nostart-init" PATH="$tmp/bin:$PATH" \
   sh "$root/scripts/install.sh" >"$tmp/openwrt-nostart-output"
 grep -x "enable" "$tmp/openwrt-nostart-init" >/dev/null
 grep -x "stop" "$tmp/openwrt-nostart-init" >/dev/null
-if grep -x "start" "$tmp/openwrt-nostart-init" >/dev/null || [ -e "$JIOTV_TEST_INIT_STATE" ]; then
-  echo "JIOTV_START_SERVICE=0 still started the service" >&2
+if grep -x "start" "$tmp/openwrt-nostart-init" >/dev/null || [ -e "$OPENSTREAM_TEST_INIT_STATE" ]; then
+  echo "OPENSTREAM_START_SERVICE=0 still started the service" >&2
   exit 1
 fi
 # A package that registered a respawning service which is momentarily "not running" is stopped too.
-rm -f "$JIOTV_TEST_INIT_STATE"
-JIOTV_PLATFORM=openwrt JIOTV_START_SERVICE=0 JIOTV_TEST_OS=Linux JIOTV_TEST_MACHINE=aarch64 JIOTV_TEST_PACKAGE_ARCH=aarch64 \
-  JIOTV_TEST_ASSET_NAME=$openwrt_aarch64_apk JIOTV_TEST_LOG="$tmp/openwrt-respawn-downloads" \
-  JIOTV_TEST_PACKAGE_LOG="$tmp/openwrt-respawn-package" JIOTV_INIT_SCRIPT="$tmp/bin/jiotv-init" \
-  JIOTV_TEST_INIT_LOG="$tmp/openwrt-respawn-init" PATH="$tmp/bin:$PATH" \
+rm -f "$OPENSTREAM_TEST_INIT_STATE"
+OPENSTREAM_PLATFORM=openwrt OPENSTREAM_START_SERVICE=0 OPENSTREAM_TEST_OS=Linux OPENSTREAM_TEST_MACHINE=aarch64 OPENSTREAM_TEST_PACKAGE_ARCH=aarch64 \
+  OPENSTREAM_TEST_ASSET_NAME=$openwrt_aarch64_apk OPENSTREAM_TEST_LOG="$tmp/openwrt-respawn-downloads" \
+  OPENSTREAM_TEST_PACKAGE_LOG="$tmp/openwrt-respawn-package" OPENSTREAM_INIT_SCRIPT="$tmp/bin/openstream-init" \
+  OPENSTREAM_TEST_INIT_LOG="$tmp/openwrt-respawn-init" PATH="$tmp/bin:$PATH" \
   sh "$root/scripts/install.sh" >/dev/null
 grep -x "stop" "$tmp/openwrt-respawn-init" >/dev/null
 # If the package-started service cannot be stopped the install must fail, not claim success.
-rm -f "$JIOTV_TEST_INIT_STATE"
-if JIOTV_PLATFORM=openwrt JIOTV_START_SERVICE=0 JIOTV_TEST_POSTINST_STARTS=1 JIOTV_TEST_STOP_FAILS=1 JIOTV_READY_TIMEOUT=1 JIOTV_TEST_OS=Linux JIOTV_TEST_MACHINE=aarch64 JIOTV_TEST_PACKAGE_ARCH=aarch64 \
-  JIOTV_TEST_ASSET_NAME=$openwrt_aarch64_apk JIOTV_TEST_LOG="$tmp/openwrt-stopfail-downloads" \
-  JIOTV_TEST_PACKAGE_LOG="$tmp/openwrt-stopfail-package" JIOTV_INIT_SCRIPT="$tmp/bin/jiotv-init" \
+rm -f "$OPENSTREAM_TEST_INIT_STATE"
+if OPENSTREAM_PLATFORM=openwrt OPENSTREAM_START_SERVICE=0 OPENSTREAM_TEST_POSTINST_STARTS=1 OPENSTREAM_TEST_STOP_FAILS=1 OPENSTREAM_READY_TIMEOUT=1 OPENSTREAM_TEST_OS=Linux OPENSTREAM_TEST_MACHINE=aarch64 OPENSTREAM_TEST_PACKAGE_ARCH=aarch64 \
+  OPENSTREAM_TEST_ASSET_NAME=$openwrt_aarch64_apk OPENSTREAM_TEST_LOG="$tmp/openwrt-stopfail-downloads" \
+  OPENSTREAM_TEST_PACKAGE_LOG="$tmp/openwrt-stopfail-package" OPENSTREAM_INIT_SCRIPT="$tmp/bin/openstream-init" \
   PATH="$tmp/bin:$PATH" sh "$root/scripts/install.sh" >"$tmp/openwrt-stopfail-output" 2>/dev/null; then
   echo "a service that could not be stopped was reported as installed successfully" >&2
   exit 1
 fi
 grep -F "could not be stopped" "$tmp/openwrt-stopfail-output" >/dev/null
 # A service that was already running is left as it was.
-: >"$JIOTV_TEST_INIT_STATE"
-JIOTV_PLATFORM=openwrt JIOTV_START_SERVICE=0 JIOTV_TEST_OS=Linux JIOTV_TEST_MACHINE=aarch64 JIOTV_TEST_PACKAGE_ARCH=aarch64 \
-  JIOTV_TEST_ASSET_NAME=$openwrt_aarch64_apk JIOTV_TEST_LOG="$tmp/openwrt-keep-downloads" \
-  JIOTV_TEST_PACKAGE_LOG="$tmp/openwrt-keep-package" JIOTV_INIT_SCRIPT="$tmp/bin/jiotv-init" \
-  JIOTV_TEST_INIT_LOG="$tmp/openwrt-keep-init" PATH="$tmp/bin:$PATH" \
+: >"$OPENSTREAM_TEST_INIT_STATE"
+OPENSTREAM_PLATFORM=openwrt OPENSTREAM_START_SERVICE=0 OPENSTREAM_TEST_OS=Linux OPENSTREAM_TEST_MACHINE=aarch64 OPENSTREAM_TEST_PACKAGE_ARCH=aarch64 \
+  OPENSTREAM_TEST_ASSET_NAME=$openwrt_aarch64_apk OPENSTREAM_TEST_LOG="$tmp/openwrt-keep-downloads" \
+  OPENSTREAM_TEST_PACKAGE_LOG="$tmp/openwrt-keep-package" OPENSTREAM_INIT_SCRIPT="$tmp/bin/openstream-init" \
+  OPENSTREAM_TEST_INIT_LOG="$tmp/openwrt-keep-init" PATH="$tmp/bin:$PATH" \
   sh "$root/scripts/install.sh" >"$tmp/openwrt-keep-output"
-[ -e "$JIOTV_TEST_INIT_STATE" ]
+[ -e "$OPENSTREAM_TEST_INIT_STATE" ]
 grep -F "was already running was left as it was" "$tmp/openwrt-keep-output" >/dev/null
 if grep -F "Start the service" "$tmp/openwrt-keep-output" >/dev/null; then
   echo "a preserved running service was reported as stopped" >&2
   exit 1
 fi
 if grep -x "stop" "$tmp/openwrt-keep-init" >/dev/null; then
-  echo "an already running service was stopped by JIOTV_START_SERVICE=0" >&2
+  echo "an already running service was stopped by OPENSTREAM_START_SERVICE=0" >&2
   exit 1
 fi
 grep -F "not started" "$tmp/openwrt-nostart-output" >/dev/null
 # An upgrade stops the running service, waits for it, and only then starts it again.
-: >"$JIOTV_TEST_INIT_STATE"
-JIOTV_PLATFORM=openwrt JIOTV_TEST_OS=Linux JIOTV_TEST_MACHINE=aarch64 JIOTV_TEST_PACKAGE_ARCH=aarch64 \
-  JIOTV_TEST_ASSET_NAME=$openwrt_aarch64_apk JIOTV_TEST_LOG="$tmp/openwrt-upgrade-downloads" \
-  JIOTV_TEST_PACKAGE_LOG="$tmp/openwrt-upgrade-package" JIOTV_INIT_SCRIPT="$tmp/bin/jiotv-init" \
-  JIOTV_TEST_INIT_LOG="$tmp/openwrt-upgrade-init" PATH="$tmp/bin:$PATH" \
+: >"$OPENSTREAM_TEST_INIT_STATE"
+OPENSTREAM_PLATFORM=openwrt OPENSTREAM_TEST_OS=Linux OPENSTREAM_TEST_MACHINE=aarch64 OPENSTREAM_TEST_PACKAGE_ARCH=aarch64 \
+  OPENSTREAM_TEST_ASSET_NAME=$openwrt_aarch64_apk OPENSTREAM_TEST_LOG="$tmp/openwrt-upgrade-downloads" \
+  OPENSTREAM_TEST_PACKAGE_LOG="$tmp/openwrt-upgrade-package" OPENSTREAM_INIT_SCRIPT="$tmp/bin/openstream-init" \
+  OPENSTREAM_TEST_INIT_LOG="$tmp/openwrt-upgrade-init" PATH="$tmp/bin:$PATH" \
   sh "$root/scripts/install.sh" >/dev/null
 awk '$1 == "stop" && !s { s = NR } $1 == "start" && !g { g = NR } END { exit !(s && g && s < g) }' "$tmp/openwrt-upgrade-init"
-# A service disabled in /etc/config/jiotv stays stopped (a live one is stopped) and is not an install failure.
-: >"$JIOTV_TEST_INIT_STATE"
-JIOTV_PLATFORM=openwrt JIOTV_TEST_UCI_ENABLED=off JIOTV_TEST_OS=Linux JIOTV_TEST_MACHINE=aarch64 JIOTV_TEST_PACKAGE_ARCH=aarch64 \
-  JIOTV_TEST_ASSET_NAME=$openwrt_aarch64_apk JIOTV_TEST_LOG="$tmp/openwrt-disabled-downloads" \
-  JIOTV_TEST_PACKAGE_LOG="$tmp/openwrt-disabled-package" JIOTV_INIT_SCRIPT="$tmp/bin/jiotv-init" \
-  JIOTV_TEST_INIT_LOG="$tmp/openwrt-disabled-init" PATH="$tmp/bin:$PATH" \
+# A service disabled in /etc/config/openstream stays stopped (a live one is stopped) and is not an install failure.
+: >"$OPENSTREAM_TEST_INIT_STATE"
+OPENSTREAM_PLATFORM=openwrt OPENSTREAM_TEST_UCI_ENABLED=off OPENSTREAM_TEST_OS=Linux OPENSTREAM_TEST_MACHINE=aarch64 OPENSTREAM_TEST_PACKAGE_ARCH=aarch64 \
+  OPENSTREAM_TEST_ASSET_NAME=$openwrt_aarch64_apk OPENSTREAM_TEST_LOG="$tmp/openwrt-disabled-downloads" \
+  OPENSTREAM_TEST_PACKAGE_LOG="$tmp/openwrt-disabled-package" OPENSTREAM_INIT_SCRIPT="$tmp/bin/openstream-init" \
+  OPENSTREAM_TEST_INIT_LOG="$tmp/openwrt-disabled-init" PATH="$tmp/bin:$PATH" \
   sh "$root/scripts/install.sh" >"$tmp/openwrt-disabled-output"
 if grep -x "start" "$tmp/openwrt-disabled-init" >/dev/null; then
   echo "a disabled service was started" >&2
   exit 1
 fi
-grep -F "disabled in /etc/config/jiotv" "$tmp/openwrt-disabled-output" >/dev/null
+grep -F "disabled in /etc/config/openstream" "$tmp/openwrt-disabled-output" >/dev/null
 grep -x "stop" "$tmp/openwrt-disabled-init" >/dev/null
-[ ! -e "$JIOTV_TEST_INIT_STATE" ]
-# Another daemon holding the port is not JioTV being ready.
-if JIOTV_PLATFORM=openwrt JIOTV_TEST_PORT_OWNER=uhttpd JIOTV_READY_TIMEOUT=1 JIOTV_TEST_OS=Linux JIOTV_TEST_MACHINE=aarch64 JIOTV_TEST_PACKAGE_ARCH=aarch64 \
-  JIOTV_TEST_ASSET_NAME=$openwrt_aarch64_apk JIOTV_TEST_LOG="$tmp/openwrt-owner-downloads" \
-  JIOTV_TEST_PACKAGE_LOG="$tmp/openwrt-owner-package" JIOTV_INIT_SCRIPT="$tmp/bin/jiotv-init" \
+[ ! -e "$OPENSTREAM_TEST_INIT_STATE" ]
+# Another daemon holding the port is not OpenStream TV being ready.
+if OPENSTREAM_PLATFORM=openwrt OPENSTREAM_TEST_PORT_OWNER=uhttpd OPENSTREAM_READY_TIMEOUT=1 OPENSTREAM_TEST_OS=Linux OPENSTREAM_TEST_MACHINE=aarch64 OPENSTREAM_TEST_PACKAGE_ARCH=aarch64 \
+  OPENSTREAM_TEST_ASSET_NAME=$openwrt_aarch64_apk OPENSTREAM_TEST_LOG="$tmp/openwrt-owner-downloads" \
+  OPENSTREAM_TEST_PACKAGE_LOG="$tmp/openwrt-owner-package" OPENSTREAM_INIT_SCRIPT="$tmp/bin/openstream-init" \
   PATH="$tmp/bin:$PATH" sh "$root/scripts/install.sh" >"$tmp/openwrt-owner-output" 2>/dev/null; then
-  echo "a port held by another daemon was reported as JioTV running" >&2
+  echo "a port held by another daemon was reported as OpenStream TV running" >&2
   exit 1
 fi
 grep -F "not listening yet" "$tmp/openwrt-owner-output" >/dev/null
+# A process name that merely contains "ost" is not accepted as the owner.
+if OPENSTREAM_PLATFORM=openwrt OPENSTREAM_TEST_PORT_OWNER=postfix OPENSTREAM_READY_TIMEOUT=1 OPENSTREAM_TEST_OS=Linux OPENSTREAM_TEST_MACHINE=aarch64 OPENSTREAM_TEST_PACKAGE_ARCH=aarch64 \
+  OPENSTREAM_TEST_ASSET_NAME=$openwrt_aarch64_apk OPENSTREAM_TEST_LOG="$tmp/openwrt-owner-substring-downloads" \
+  OPENSTREAM_TEST_PACKAGE_LOG="$tmp/openwrt-owner-substring-package" OPENSTREAM_INIT_SCRIPT="$tmp/bin/openstream-init" \
+  PATH="$tmp/bin:$PATH" sh "$root/scripts/install.sh" >"$tmp/openwrt-owner-substring-output" 2>/dev/null; then
+  echo "a substring process-name match was reported as OpenStream TV running" >&2
+  exit 1
+fi
+grep -F "not listening yet" "$tmp/openwrt-owner-substring-output" >/dev/null
+# ss reports process owners as quoted names inside users:((...)); feed that
+# format through the mocked socket listing without exposing host networking tools.
+cp "$tmp/bin/netstat" "$tmp/bin/netstat.saved"
+cat >"$tmp/bin/netstat" <<'EOF'
+#!/bin/sh
+echo 'LISTEN 0 128 0.0.0.0:5001 0.0.0.0:* users:(("ost",pid=123,fd=7))'
+EOF
+chmod +x "$tmp/bin/netstat"
+OPENSTREAM_PLATFORM=openwrt OPENSTREAM_TEST_OS=Linux OPENSTREAM_TEST_MACHINE=aarch64 OPENSTREAM_TEST_PACKAGE_ARCH=aarch64 \
+  OPENSTREAM_TEST_ASSET_NAME=$openwrt_aarch64_apk OPENSTREAM_TEST_LOG="$tmp/openwrt-ss-owner-downloads" \
+  OPENSTREAM_TEST_PACKAGE_LOG="$tmp/openwrt-ss-owner-package" OPENSTREAM_INIT_SCRIPT="$tmp/bin/openstream-init" \
+  PATH="$tmp/bin:$PATH" sh "$root/scripts/install.sh" >"$tmp/openwrt-ss-owner-output"
+grep -F "is installed and running" "$tmp/openwrt-ss-owner-output" >/dev/null
+mv "$tmp/bin/netstat.saved" "$tmp/bin/netstat"
 # The enable hint must also start the service.
-grep -F "uci commit jiotv && " "$tmp/openwrt-disabled-output" | grep -F "start" >/dev/null
+grep -F "uci commit openstream && " "$tmp/openwrt-disabled-output" | grep -F "start" >/dev/null
 # Every uci spelling of false turns the HTTPS address off, as the init script does.
-JIOTV_PLATFORM=openwrt JIOTV_TEST_UCI_TLS=off JIOTV_TEST_OS=Linux JIOTV_TEST_MACHINE=aarch64 JIOTV_TEST_PACKAGE_ARCH=aarch64 \
-  JIOTV_TEST_ASSET_NAME=$openwrt_aarch64_apk JIOTV_TEST_LOG="$tmp/openwrt-notls-downloads" \
-  JIOTV_TEST_PACKAGE_LOG="$tmp/openwrt-notls-package" JIOTV_INIT_SCRIPT="$tmp/bin/jiotv-init" \
+OPENSTREAM_PLATFORM=openwrt OPENSTREAM_TEST_UCI_TLS=off OPENSTREAM_TEST_OS=Linux OPENSTREAM_TEST_MACHINE=aarch64 OPENSTREAM_TEST_PACKAGE_ARCH=aarch64 \
+  OPENSTREAM_TEST_ASSET_NAME=$openwrt_aarch64_apk OPENSTREAM_TEST_LOG="$tmp/openwrt-notls-downloads" \
+  OPENSTREAM_TEST_PACKAGE_LOG="$tmp/openwrt-notls-package" OPENSTREAM_INIT_SCRIPT="$tmp/bin/openstream-init" \
   PATH="$tmp/bin:$PATH" sh "$root/scripts/install.sh" >"$tmp/openwrt-notls-output"
 if grep -F "https://" "$tmp/openwrt-notls-output" >/dev/null; then
   echo "HTTPS address printed although tls is off" >&2
@@ -334,16 +369,16 @@ if grep -F "https://" "$tmp/openwrt-notls-output" >/dev/null; then
 fi
 grep -F "Browser UI : http://" "$tmp/openwrt-notls-output" >/dev/null
 # Every IPv6 wildcard spelling advertises the router address, and a one-second timeout still succeeds.
-JIOTV_PLATFORM=openwrt JIOTV_TEST_UCI_HOST='[::0]' JIOTV_READY_TIMEOUT=1 JIOTV_TEST_OS=Linux JIOTV_TEST_MACHINE=aarch64 JIOTV_TEST_PACKAGE_ARCH=aarch64 \
-  JIOTV_TEST_ASSET_NAME=$openwrt_aarch64_apk JIOTV_TEST_LOG="$tmp/openwrt-wild-downloads" \
-  JIOTV_TEST_PACKAGE_LOG="$tmp/openwrt-wild-package" JIOTV_INIT_SCRIPT="$tmp/bin/jiotv-init" \
+OPENSTREAM_PLATFORM=openwrt OPENSTREAM_TEST_UCI_HOST='[::0]' OPENSTREAM_READY_TIMEOUT=1 OPENSTREAM_TEST_OS=Linux OPENSTREAM_TEST_MACHINE=aarch64 OPENSTREAM_TEST_PACKAGE_ARCH=aarch64 \
+  OPENSTREAM_TEST_ASSET_NAME=$openwrt_aarch64_apk OPENSTREAM_TEST_LOG="$tmp/openwrt-wild-downloads" \
+  OPENSTREAM_TEST_PACKAGE_LOG="$tmp/openwrt-wild-package" OPENSTREAM_INIT_SCRIPT="$tmp/bin/openstream-init" \
   PATH="$tmp/bin:$PATH" sh "$root/scripts/install.sh" >"$tmp/openwrt-wild-output"
 grep -F "https://192.168.8.1:5443/" "$tmp/openwrt-wild-output" >/dev/null
 grep -F "is installed and running" "$tmp/openwrt-wild-output" >/dev/null
 # A service bound to one address advertises that address, a wildcard bind the LAN address.
-JIOTV_PLATFORM=openwrt JIOTV_TEST_UCI_HOST=127.0.0.1 JIOTV_TEST_OS=Linux JIOTV_TEST_MACHINE=aarch64 JIOTV_TEST_PACKAGE_ARCH=aarch64 \
-  JIOTV_TEST_ASSET_NAME=$openwrt_aarch64_apk JIOTV_TEST_LOG="$tmp/openwrt-host-downloads" \
-  JIOTV_TEST_PACKAGE_LOG="$tmp/openwrt-host-package" JIOTV_INIT_SCRIPT="$tmp/bin/jiotv-init" \
+OPENSTREAM_PLATFORM=openwrt OPENSTREAM_TEST_UCI_HOST=127.0.0.1 OPENSTREAM_TEST_OS=Linux OPENSTREAM_TEST_MACHINE=aarch64 OPENSTREAM_TEST_PACKAGE_ARCH=aarch64 \
+  OPENSTREAM_TEST_ASSET_NAME=$openwrt_aarch64_apk OPENSTREAM_TEST_LOG="$tmp/openwrt-host-downloads" \
+  OPENSTREAM_TEST_PACKAGE_LOG="$tmp/openwrt-host-package" OPENSTREAM_INIT_SCRIPT="$tmp/bin/openstream-init" \
   PATH="$tmp/bin:$PATH" sh "$root/scripts/install.sh" >"$tmp/openwrt-host-output"
 grep -F "https://127.0.0.1:5443/" "$tmp/openwrt-host-output" >/dev/null
 if grep -F "192.168.8.1" "$tmp/openwrt-host-output" >/dev/null; then
@@ -351,21 +386,28 @@ if grep -F "192.168.8.1" "$tmp/openwrt-host-output" >/dev/null; then
   exit 1
 fi
 # A slim install has no browser UI, so its steps are terminal-only.
-openwrt_slim_aarch64_apk=jiotv-slim-1.3.3-r1_aarch64_cortex-a53.apk
-JIOTV_PLATFORM=openwrt JIOTV_VARIANT=slim JIOTV_TEST_OS=Linux JIOTV_TEST_MACHINE=aarch64 JIOTV_TEST_PACKAGE_ARCH=aarch64 \
-  JIOTV_TEST_ASSET_NAME=$openwrt_slim_aarch64_apk JIOTV_TEST_LOG="$tmp/openwrt-slim-downloads" \
-  JIOTV_TEST_PACKAGE_LOG="$tmp/openwrt-slim-package" JIOTV_INIT_SCRIPT="$tmp/bin/jiotv-init" \
+openwrt_slim_aarch64_apk=openstream-slim-1.3.3-r1_aarch64_cortex-a53.apk
+OPENSTREAM_PLATFORM=openwrt OPENSTREAM_VARIANT=slim OPENSTREAM_TEST_OS=Linux OPENSTREAM_TEST_MACHINE=aarch64 OPENSTREAM_TEST_PACKAGE_ARCH=aarch64 \
+  OPENSTREAM_TEST_ASSET_NAME=$openwrt_slim_aarch64_apk OPENSTREAM_TEST_LOG="$tmp/openwrt-slim-downloads" \
+  OPENSTREAM_TEST_PACKAGE_LOG="$tmp/openwrt-slim-package" OPENSTREAM_INIT_SCRIPT="$tmp/bin/openstream-init" \
   PATH="$tmp/bin:$PATH" sh "$root/scripts/install.sh" >"$tmp/openwrt-slim-output"
 if grep -E "Browser UI|browser UI|admin password" "$tmp/openwrt-slim-output" | grep -v "no browser UI" >/dev/null; then
   echo "slim install printed browser steps" >&2
   exit 1
 fi
-grep -F "stop; while pidof jiotv >/dev/null; do sleep 1; done; jiotv login otp" "$tmp/openwrt-slim-output" >/dev/null
+grep -F "stop; while pidof ost >/dev/null; do sleep 1; done; /usr/bin/ost login otp" "$tmp/openwrt-slim-output" >/dev/null
 # The admin password comes before signing in, and terminal login stops the service.
 grep -n "Set the admin password" "$tmp/openwrt-apk-output" | grep -F "1." >/dev/null
-grep -F "stop; while pidof jiotv >/dev/null; do sleep 1; done; jiotv login otp" "$tmp/openwrt-apk-output" >/dev/null
-if JIOTV_PLATFORM=openwrt JIOTV_TEST_PACKAGE_ARCH=aarch64_cortex-a72 \
-  JIOTV_TEST_PACKAGE_LOG="$tmp/openwrt-unsupported-package" PATH="$tmp/bin:$PATH" \
+grep -F "stop; while pidof ost >/dev/null; do sleep 1; done; /usr/bin/ost login otp" "$tmp/openwrt-apk-output" >/dev/null
+OPENSTREAM_PLATFORM=openwrt OPENSTREAM_TEST_OPENWRT_BIN=/usr/bin/openstream OPENSTREAM_TEST_PORT_OWNER=openstream OPENSTREAM_TEST_OS=Linux OPENSTREAM_TEST_MACHINE=aarch64 OPENSTREAM_TEST_PACKAGE_ARCH=aarch64 \
+  OPENSTREAM_TEST_ASSET_NAME=$openwrt_aarch64_apk OPENSTREAM_TEST_LOG="$tmp/openwrt-pinned-downloads" \
+  OPENSTREAM_TEST_PACKAGE_LOG="$tmp/openwrt-pinned-package" OPENSTREAM_INIT_SCRIPT="$tmp/bin/openstream-init" \
+  PATH="$tmp/bin:$PATH" sh "$root/scripts/install.sh" >"$tmp/openwrt-pinned-output"
+grep -F "while pidof openstream >/dev/null; do sleep 1; done; /usr/bin/openstream login otp" "$tmp/openwrt-pinned-output" >/dev/null
+grep -F "Set the admin password: /usr/bin/openstream admin password" "$tmp/openwrt-pinned-output" >/dev/null
+grep -F "is installed and running" "$tmp/openwrt-pinned-output" >/dev/null
+if OPENSTREAM_PLATFORM=openwrt OPENSTREAM_TEST_PACKAGE_ARCH=aarch64_cortex-a72 \
+  OPENSTREAM_TEST_PACKAGE_LOG="$tmp/openwrt-unsupported-package" PATH="$tmp/bin:$PATH" \
   sh "$root/scripts/install.sh" >/dev/null 2>&1; then
   echo "unsupported OpenWrt package ABI unexpectedly installed" >&2
   exit 1
@@ -376,12 +418,12 @@ cat >"$tmp/bin/opkg" <<'EOF'
 #!/bin/sh
 if [ "${1:-}" = print-architecture ]; then
   echo 'arch all 1'
-  echo "arch ${JIOTV_TEST_PACKAGE_ARCH:-aarch64_cortex-a53} 10"
+  echo "arch ${OPENSTREAM_TEST_PACKAGE_ARCH:-aarch64_cortex-a53} 10"
   exit 0
 fi
-printf '%s\n' "$*" >>"$JIOTV_TEST_PACKAGE_LOG"
+printf '%s\n' "$*" >>"$OPENSTREAM_TEST_PACKAGE_LOG"
 if [ "${1:-}" = status ]; then
-  [ "${2:-}" = "${JIOTV_TEST_INSTALLED_PACKAGE:-}" ] || exit 1
+  [ "${2:-}" = "${OPENSTREAM_TEST_INSTALLED_PACKAGE:-}" ] || exit 1
   echo 'Status: install user installed'
   exit 0
 fi
@@ -389,12 +431,12 @@ fi
 test -f "${2:-}"
 EOF
 chmod +x "$tmp/bin/opkg"
-run_compact_openwrt_case full jiotv_1.3.3-r1_aarch64_cortex-a53.ipk jiotv-slim_1.3.3-r1_aarch64_cortex-a53.ipk
-run_compact_openwrt_case slim jiotv-slim_1.3.3-r1_aarch64_cortex-a53.ipk jiotv_1.3.3-r1_aarch64_cortex-a53.ipk
-openwrt_ipk=jiotv-slim_1.3.3-r1_aarch64_cortex-a53.ipk
-JIOTV_PLATFORM=openwrt JIOTV_VARIANT=slim JIOTV_TEST_OS=Linux JIOTV_TEST_MACHINE=aarch64 \
-  JIOTV_TEST_ASSET_NAME=$openwrt_ipk JIOTV_TEST_LOG="$tmp/openwrt-ipk-downloads" \
-  JIOTV_TEST_PACKAGE_LOG="$tmp/openwrt-ipk-package" JIOTV_INIT_SCRIPT="$tmp/bin/jiotv-init" PATH="$tmp/bin:$PATH" \
+run_compact_openwrt_case full openstream_1.3.3-r1_aarch64_cortex-a53.ipk openstream-slim_1.3.3-r1_aarch64_cortex-a53.ipk
+run_compact_openwrt_case slim openstream-slim_1.3.3-r1_aarch64_cortex-a53.ipk openstream_1.3.3-r1_aarch64_cortex-a53.ipk
+openwrt_ipk=openstream-slim_1.3.3-r1_aarch64_cortex-a53.ipk
+OPENSTREAM_PLATFORM=openwrt OPENSTREAM_VARIANT=slim OPENSTREAM_TEST_OS=Linux OPENSTREAM_TEST_MACHINE=aarch64 \
+  OPENSTREAM_TEST_ASSET_NAME=$openwrt_ipk OPENSTREAM_TEST_LOG="$tmp/openwrt-ipk-downloads" \
+  OPENSTREAM_TEST_PACKAGE_LOG="$tmp/openwrt-ipk-package" OPENSTREAM_INIT_SCRIPT="$tmp/bin/openstream-init" PATH="$tmp/bin:$PATH" \
   sh "$root/scripts/install.sh" >/dev/null
 grep -F "install" "$tmp/openwrt-ipk-package" >/dev/null
 grep -F "/$openwrt_ipk" "$tmp/openwrt-ipk-downloads" >/dev/null

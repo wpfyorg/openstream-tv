@@ -1,37 +1,35 @@
 #!/bin/sh
 set -eu
 
-repo=${JIOTV_REPO:-wpfyorg/better-jiotv-go}
-variant=${JIOTV_VARIANT:-full}
+repo=${OPENSTREAM_REPO:-${JIOTV_REPO:-wpfyorg/openstream-tv}}
+variant=${OPENSTREAM_VARIANT:-${JIOTV_VARIANT:-full}}
 variant_explicit=0
-[ -n "${JIOTV_VARIANT:-}" ] && variant_explicit=1
-version=${JIOTV_VERSION:-latest}
-install_tls=${JIOTV_INSTALL_TLS:-1}
-start_service=${JIOTV_START_SERVICE:-1}
-ready_timeout=${JIOTV_READY_TIMEOUT:-15}
+[ -n "${OPENSTREAM_VARIANT:-${JIOTV_VARIANT:-}}" ] && variant_explicit=1
+version=${OPENSTREAM_VERSION:-${JIOTV_VERSION:-latest}}
+install_tls=${OPENSTREAM_INSTALL_TLS:-${JIOTV_INSTALL_TLS:-1}}
+start_service=${OPENSTREAM_START_SERVICE:-${JIOTV_START_SERVICE:-1}}
+ready_timeout=${OPENSTREAM_READY_TIMEOUT:-${JIOTV_READY_TIMEOUT:-15}}
 # Onboarding: auto asks when a terminal is available, always forces it, never
 # keeps the plain non-interactive install. Piped, redirected and CI runs get
 # the old behaviour because they have no usable terminal.
-onboard=${JIOTV_ONBOARD:-auto}
-provider=${JIOTV_PROVIDER:-}
-public_host=${JIOTV_PUBLIC_HOST:-}
-tunnel=${JIOTV_TUNNEL:-}
-tunnel_token=${JIOTV_TUNNEL_TOKEN:-}
-cloudflare_domain=${JIOTV_CF_DOMAIN:-}
-cloudflare_subdomain=${JIOTV_CF_SUBDOMAIN:-tv}
-case "$ready_timeout" in ''|*[!0-9]*) echo "JIOTV_READY_TIMEOUT must be a number of seconds" >&2; exit 2 ;; esac
+onboard=${OPENSTREAM_ONBOARD:-${JIOTV_ONBOARD:-auto}}
+provider=${OPENSTREAM_PROVIDER:-${JIOTV_PROVIDER:-}}
+public_host=${OPENSTREAM_PUBLIC_HOST:-${JIOTV_PUBLIC_HOST:-}}
+tunnel=${OPENSTREAM_TUNNEL:-${JIOTV_TUNNEL:-}}
+tunnel_token=${OPENSTREAM_TUNNEL_TOKEN:-${JIOTV_TUNNEL_TOKEN:-}}
+case "$ready_timeout" in ''|*[!0-9]*) echo "OPENSTREAM_READY_TIMEOUT must be a number of seconds" >&2; exit 2 ;; esac
 # Readiness needs two consecutive good checks, so fewer than two seconds can never succeed.
 [ "$ready_timeout" -ge 2 ] || ready_timeout=2
 
-case "$install_tls" in 0|1) ;; *) echo "JIOTV_INSTALL_TLS must be 0 or 1" >&2; exit 2 ;; esac
-case "$start_service" in 0|1) ;; *) echo "JIOTV_START_SERVICE must be 0 or 1" >&2; exit 2 ;; esac
+case "$install_tls" in 0|1) ;; *) echo "OPENSTREAM_INSTALL_TLS must be 0 or 1" >&2; exit 2 ;; esac
+case "$start_service" in 0|1) ;; *) echo "OPENSTREAM_START_SERVICE must be 0 or 1" >&2; exit 2 ;; esac
 
-case "$variant" in full|slim) ;; *) echo "JIOTV_VARIANT must be full or slim" >&2; exit 2 ;; esac
-case "$repo" in */*) ;; *) echo "JIOTV_REPO must be owner/repository" >&2; exit 2 ;; esac
-case "$onboard" in auto|always|never) ;; *) echo "JIOTV_ONBOARD must be auto, always or never" >&2; exit 2 ;; esac
+case "$variant" in full|slim) ;; *) echo "OPENSTREAM_VARIANT must be full or slim" >&2; exit 2 ;; esac
+case "$repo" in */*) ;; *) echo "OPENSTREAM_REPO must be owner/repository" >&2; exit 2 ;; esac
+case "$onboard" in auto|always|never) ;; *) echo "OPENSTREAM_ONBOARD must be auto, always or never" >&2; exit 2 ;; esac
 case "$provider" in tv+|tvplus) provider=extras ;; esac
-case "$provider" in ''|jiotv|extras|fastway) ;; *) echo "JIOTV_PROVIDER must be jiotv, tv+ or fastway" >&2; exit 2 ;; esac
-case "$tunnel" in ''|none|temp|named|api) ;; *) echo "JIOTV_TUNNEL must be none, temp, named or api" >&2; exit 2 ;; esac
+case "$provider" in ''|jiotv|extras|fastway) ;; *) echo "OPENSTREAM_PROVIDER must be jiotv, tv+ or fastway" >&2; exit 2 ;; esac
+case "$tunnel" in ''|none|temp|named) ;; *) echo "OPENSTREAM_TUNNEL must be none, temp or named" >&2; exit 2 ;; esac
 
 sys=$(uname -s 2>/dev/null || echo unknown)
 machine=$(uname -m 2>/dev/null || echo unknown)
@@ -39,7 +37,7 @@ termux=false
 case "${PREFIX:-}" in *com.termux*) termux=true ;; esac
 case "$sys" in Android) termux=true ;; esac
 
-tmp=${TMPDIR:-/tmp}/jiotv-install-$$
+tmp=${TMPDIR:-/tmp}/openstream-install-$$
 mkdir -m 700 "$tmp"
 
 # Restores the terminal and removes the working directory on every exit path,
@@ -78,10 +76,16 @@ verify_asset() {
   [ "$(printf '%s' "$expected" | tr 'A-F' 'a-f')" = "$(printf '%s' "$actual" | tr 'A-F' 'a-f')" ] || { echo "checksum mismatch for $asset_name" >&2; exit 1; }
 }
 
+checksum_has_asset() {
+  checksum_asset=$1
+  checksum_file=$2
+  awk -v name="$checksum_asset" '$2 == name || $2 == "*" name { found=1 } END { exit(found ? 0 : 1) }' "$checksum_file"
+}
+
 size_kib() { echo $(( $(wc -c <"$1") / 1024 )); }
 
-# True when JioTV listens on the TCP port. When the socket listing names the
-# owner it must be jiotv, so another daemon holding the port does not count;
+# True when OpenStream TV listens on the TCP port. When the socket listing names the
+# owner it must match the executable installed by this package, so another daemon holding the port does not count;
 # without owner information, or without a listing tool, the port alone decides.
 port_listening() {
   if command -v netstat >/dev/null 2>&1; then listing=$(netstat -ltnp 2>/dev/null || true)
@@ -92,12 +96,24 @@ port_listening() {
   owners=$(printf '%s\n' "$listing" | grep -E "[:.]$1[[:space:]]" || true)
   [ -n "$owners" ] || return 1
   if printf '%s\n' "$owners" | grep -Eq '[0-9]+/[^ ]+|pid='; then
-    printf '%s\n' "$owners" | grep -q jiotv
+    printf '%s\n' "$owners" | awk -v process="${openwrt_process:-ost}" '
+      {
+        for (i = 1; i <= NF; i++) {
+          if ($i ~ /^[0-9]+\//) {
+            owner = $i
+            sub(/^[0-9]+\//, "", owner)
+            if (owner == process) found = 1
+          }
+        }
+        if (index($0, "\"" process "\"") > 0) found = 1
+      }
+      END { exit(found ? 0 : 1) }
+    '
   fi
 }
 
-# Process IDs of running jiotv servers (empty when pidof is unavailable).
-jiotv_pids() { pidof jiotv 2>/dev/null || true; }
+# Process IDs of running OpenStream TV servers (empty when pidof is unavailable).
+openstream_pids() { pidof "${openwrt_process:-ost}" 2>/dev/null || true; }
 
 # Stop the service and wait until the process has really exited: procd only
 # signals it on stop, so a lingering old process could otherwise be mistaken for
@@ -106,16 +122,16 @@ stop_service() {
   "$init_script" stop || return 1
   waited=0
   while [ "$waited" -lt "$ready_timeout" ]; do
-    if [ -z "$(jiotv_pids)" ] && ! "$init_script" running >/dev/null 2>&1; then return 0; fi
+    if [ -z "$(openstream_pids)" ] && ! "$init_script" running >/dev/null 2>&1; then return 0; fi
     waited=$((waited + 1))
     sleep 1
   done
   return 1
 }
 
-# Print one uci option of the jiotv service, or the default when unavailable.
+# Print one UCI option of the OpenStream TV service, or the default when unavailable.
 uci_opt() {
-  value=$(uci -q get "jiotv.main.$1" 2>/dev/null || true)
+  value=$(uci -q get "openstream.main.$1" 2>/dev/null || true)
   if [ -n "$value" ]; then echo "$value"; else echo "$2"; fi
 }
 
@@ -193,7 +209,7 @@ ui_fail() { printf '  %s✘%s %s\n' "$ui_red" "$ui_reset" "$*"; }
 ui_step() { printf '\n  %s%s◆%s %s\n\n' "$ui_bold" "$ui_cyan" "$ui_reset" "$*"; }
 
 ui_banner() {
-  printf '\n  %s%sJioTV%s %s%s installer%s\n' "$ui_bold" "$ui_cyan" "$ui_reset" "$ui_grey" "$1" "$ui_reset"
+  printf '\n  %s%sOpenStream TV%s %s%s installer%s\n' "$ui_bold" "$ui_cyan" "$ui_reset" "$ui_grey" "$1" "$ui_reset"
   ui_rule
 }
 
@@ -373,11 +389,11 @@ ob_choose_provider() {
   elif ob_binary_supports "$ob_bin" 'extras login'; then
     ob_tvplus_args='extras login'
   fi
-  ob_add jiotv "JioTV       live channels and programme guide - any network"
+  ob_add jiotv "JioTV       live channels and programme guide - mobile-number OTP"
   [ -n "$ob_tvplus_args" ] &&
-    ob_add extras "JioTV+      extra channels, movies and shows - JioFiber/AirFiber"
+    ob_add extras "JioTV+      extra channels, movies and shows - eligible JioFiber/AirFiber login"
   ob_binary_supports "$ob_bin" 'fastway login' &&
-    ob_add fastway "Fastway     live TV from a Fastway subscription - Fastway/ACT"
+    ob_add fastway "Fastway     live TV - Fastway-accepted credentials"
   if [ -n "$provider" ]; then
     case "|$ob_vals|" in
       *"|$provider|"*) return 0 ;;
@@ -388,8 +404,9 @@ ob_choose_provider() {
     *'|'*) ;;
     *) provider=$ob_vals; ob_name=$ob_vals; [ "$provider" = extras ] && ob_name='JioTV+'; ui_step "Using $ob_name (the only provider this build supports)"; return 0 ;;
   esac
-  ui_note "Which login you have depends on your network: JioTV works anywhere,"
-  ui_note "JioTV+ needs a JioFiber or AirFiber login, Fastway needs Fastway or ACT."
+  ui_note "JioTV signs in with a mobile-number OTP. JioTV+ needs an eligible"
+  ui_note "JioFiber or AirFiber login. Fastway needs credentials its provider accepts."
+  ui_note "ACT eligibility, where offered, depends on the provider."
   printf '\n'
   ui_select "Which account are you setting up?" "$ob_vals" "$ob_lbls"
   provider=$ui_sel_value
@@ -433,9 +450,9 @@ ob_choose_host() {
 ob_choose_tunnel() {
   [ -z "$tunnel" ] || return 0
   ui_step "Access from outside your network"
-  ui_select "Open JioTV up beyond your LAN?" \
-    "none|temp|named|api" \
-    "No, LAN only|Temporary Cloudflare URL, no account, new address every start|Permanent Cloudflare tunnel, use existing token|Set up permanent Cloudflare tunnel with an API token"
+  ui_select "Open OpenStream TV beyond your LAN?" \
+    "none|temp|named" \
+    "No, LAN only|Temporary Cloudflare URL, no account, new address every start|Permanent Cloudflare tunnel, needs a tunnel token"
   tunnel=$ui_sel_value
   case "$tunnel" in
     none) return 0 ;;
@@ -455,37 +472,7 @@ ob_choose_tunnel() {
         *) ui_warn "That does not look like a Cloudflare tunnel token"; tunnel=temp; tunnel_token= ;;
       esac
       ;;
-    api)
-      ui_warn "A public hostname will expose the JioTV sign-in page. Use a strong admin password."
-      ;;
   esac
-}
-
-ob_setup_api() {
-  ob_bin=$1
-  [ "$tunnel" = api ] || return 0
-  ui_step "Create a Cloudflare tunnel"
-  printf '  Get a scoped API token with Zone Read, DNS Edit and Account Cloudflare Tunnel Edit permissions.\n'
-  if [ -z "$cloudflare_domain" ]; then
-    ui_input "Domain already on Cloudflare (example.com)" ""
-    cloudflare_domain=$ui_result
-  fi
-  ui_input "Subdomain (tv.example.com -> tv)" "$cloudflare_subdomain"
-  cloudflare_subdomain=$ui_result
-  ui_password "Cloudflare API token (used once, never saved)"
-  ob_cf_token=$ui_result
-  ob_port=5001
-  [ "$openwrt" != true ] || ob_port=$(uci_opt port 5001)
-  if [ -n "$ob_cf_token" ] && CLOUDFLARE_API_TOKEN="$ob_cf_token" "$ob_bin" tunnel setup \
-      --domain "$cloudflare_domain" --subdomain "$cloudflare_subdomain" --port "$ob_port" \
-      >"$tmp/cloudflare-setup.log" 2>&1; then
-    ui_ok "Permanent Cloudflare hostname configured: https://$cloudflare_subdomain.$cloudflare_domain"
-  else
-    ui_fail "Cloudflare setup failed; remote access stays off"
-    if [ -s "$tmp/cloudflare-setup.log" ]; then cat "$tmp/cloudflare-setup.log"; fi
-    tunnel=none
-  fi
-  ob_cf_token=
 }
 
 # ---------------------------------------------------------------------------
@@ -634,10 +621,10 @@ ob_admin_password() {
     if printf '%s\n' "$ob_pass" | "$ob_bin" admin password >/dev/null 2>&1; then
       ui_ok "Admin password saved"
     else
-      ui_fail "Could not save the admin password; run: jiotv admin password"
+      ui_fail "Could not save the admin password; run: ost admin password"
     fi
   else
-    ui_warn "No password set; run: jiotv admin password"
+    ui_warn "No password set; run: ost admin password"
   fi
 }
 
@@ -664,25 +651,20 @@ ob_credentials() {
 # ---------------------------------------------------------------------------
 # Persisting the answers
 ob_write_uci() {
-  uci set jiotv.main.tv_plus="$( [ "$provider" = extras ] && echo 1 || echo 0 )"
-  uci set jiotv.main.fastway="$( [ "$provider" = fastway ] && echo 1 || echo 0 )"
+  uci set openstream.main.tv_plus="$( [ "$provider" = extras ] && echo 1 || echo 0 )"
+  uci set openstream.main.fastway="$( [ "$provider" = fastway ] && echo 1 || echo 0 )"
   case "$tunnel" in
-    none) uci set jiotv.main.tunnel=0; uci delete jiotv.main.tunnel_token 2>/dev/null || true ;;
-    temp) uci set jiotv.main.tunnel=1; uci delete jiotv.main.tunnel_token 2>/dev/null || true ;;
-    named) uci set jiotv.main.tunnel=1; uci set jiotv.main.tunnel_token="$tunnel_token" ;;
-    api) uci set jiotv.main.tunnel=1; uci delete jiotv.main.tunnel_token 2>/dev/null || true ;;
+    none) uci set openstream.main.tunnel=0; uci delete openstream.main.tunnel_token 2>/dev/null || true ;;
+    temp) uci set openstream.main.tunnel=1; uci delete openstream.main.tunnel_token 2>/dev/null || true ;;
+    named) uci set openstream.main.tunnel=1; uci set openstream.main.tunnel_token="$tunnel_token" ;;
   esac
-  uci set jiotv.main.tunnel_saved="$( [ "$tunnel" = api ] && echo 1 || echo 0 )"
-  uci set jiotv.main.tunnel_quick="$( [ "$tunnel" = temp ] && echo 1 || echo 0 )"
-  uci commit jiotv
+  uci commit openstream
 }
 
 ob_serve_args() {
   ob_args="--host 0.0.0.0"
   [ "$install_tls" = 1 ] && ob_args="$ob_args --tls"
   [ "$tunnel" = none ] || ob_args="$ob_args --tunnel"
-  [ "$tunnel" != temp ] || ob_args="$ob_args --tunnel-quick"
-  [ "$tunnel" != api ] || ob_args="$ob_args --tunnel-saved"
   printf '%s\n' "$ob_args"
 }
 
@@ -693,7 +675,7 @@ ob_shell_quote() {
 ob_write_shell_env() {
   [ "$openwrt" = true ] && return 0
   ob_env_home=${HOME:-$install_dir}
-  ob_env_dir=${XDG_CONFIG_HOME:-$ob_env_home/.config}/jiotv
+  ob_env_dir=${XDG_CONFIG_HOME:-$ob_env_home/.config}/openstream
   mkdir -p "$ob_env_dir"
   chmod 700 "$ob_env_dir" 2>/dev/null || true
   ob_env_file=$ob_env_dir/installer.env
@@ -704,9 +686,9 @@ ob_write_shell_env() {
   (
     umask 077
     {
-      printf 'export JIOTV_TVPLUS=%s\n' "$(ob_shell_quote "$ob_tvplus_enabled")"
-      printf 'export JIOTV_FASTWAY=%s\n' "$(ob_shell_quote "$ob_fastway_enabled")"
-      [ -z "$tunnel_token" ] || printf 'export JIOTV_TUNNEL_TOKEN=%s\n' "$(ob_shell_quote "$tunnel_token")"
+      printf 'export OPENSTREAM_TVPLUS=%s\n' "$(ob_shell_quote "$ob_tvplus_enabled")"
+      printf 'export OPENSTREAM_FASTWAY=%s\n' "$(ob_shell_quote "$ob_fastway_enabled")"
+      [ -z "$tunnel_token" ] || printf 'export OPENSTREAM_TUNNEL_TOKEN=%s\n' "$(ob_shell_quote "$tunnel_token")"
     } >"$ob_env_file"
   )
   chmod 600 "$ob_env_file"
@@ -715,10 +697,10 @@ ob_write_shell_env() {
 ob_install_service() {
   ob_bin=$1
   ob_service=0
-  JIOTV_TVPLUS=$( [ "$provider" = extras ] && echo true || echo false )
-  JIOTV_FASTWAY=$( [ "$provider" = fastway ] && echo true || echo false )
-  export JIOTV_TVPLUS JIOTV_FASTWAY
-  if [ -n "$tunnel_token" ]; then export JIOTV_TUNNEL_TOKEN="$tunnel_token"; fi
+  OPENSTREAM_TVPLUS=$( [ "$provider" = extras ] && echo true || echo false )
+  OPENSTREAM_FASTWAY=$( [ "$provider" = fastway ] && echo true || echo false )
+  export OPENSTREAM_TVPLUS OPENSTREAM_FASTWAY
+  if [ -n "$tunnel_token" ]; then export OPENSTREAM_TUNNEL_TOKEN="$tunnel_token"; fi
   ob_write_shell_env
   [ "$start_service" = 1 ] || return 0
   if "$ob_bin" autostart --args "$(ob_serve_args)" >"$tmp/autostart.log" 2>&1; then
@@ -734,18 +716,18 @@ ob_install_service() {
 
 ob_restart_existing_service() {
   case "${ob_stopped_service:-}" in
-    system) systemctl start jiotv ;;
-    user) systemctl --user start jiotv ;;
+    system) systemctl start openstream ;;
+    user) systemctl --user start openstream ;;
     *) return 1 ;;
   esac
   ob_stopped_service=
 }
 
-ob_jiotv_process_running() {
+ob_openstream_process_running() {
   if command -v pgrep >/dev/null 2>&1; then
-    pgrep -x jiotv >/dev/null 2>&1
+    pgrep -x ost >/dev/null 2>&1 || pgrep -x openstream >/dev/null 2>&1
   elif command -v pidof >/dev/null 2>&1; then
-    [ -n "$(pidof jiotv 2>/dev/null || true)" ]
+    [ -n "$(pidof ost 2>/dev/null || true)$(pidof openstream 2>/dev/null || true)" ]
   else
     return 1
   fi
@@ -753,29 +735,89 @@ ob_jiotv_process_running() {
 
 ob_stop_existing_service() {
   ob_stopped_service=
-  command -v systemctl >/dev/null 2>&1 || return 0
-  if systemctl is-active --quiet jiotv 2>/dev/null; then
+  if ! command -v systemctl >/dev/null 2>&1; then
+    ob_openstream_process_running && return 1
+    return 0
+  fi
+  if systemctl is-active --quiet openstream 2>/dev/null; then
     ob_stopped_service=system
-    systemctl stop jiotv || return 1
-  elif systemctl --user is-active --quiet jiotv 2>/dev/null; then
+    systemctl stop openstream || return 1
+  elif systemctl --user is-active --quiet openstream 2>/dev/null; then
     ob_stopped_service=user
-    systemctl --user stop jiotv || return 1
+    systemctl --user stop openstream || return 1
   else
     # Do not sign in while an unmanaged/foreground server may still write its
     # in-memory store over the credentials being updated by this installer.
-    ob_jiotv_process_running && return 1
+    ob_openstream_process_running && return 1
     return 0
   fi
   ob_waited=0
   while [ "$ob_waited" -lt "$ready_timeout" ]; do
     case "$ob_stopped_service" in
-      system) systemctl is-active --quiet jiotv 2>/dev/null || { ob_jiotv_process_running || return 0; } ;;
-      user) systemctl --user is-active --quiet jiotv 2>/dev/null || { ob_jiotv_process_running || return 0; } ;;
+      system) systemctl is-active --quiet openstream 2>/dev/null || { ob_openstream_process_running || return 0; } ;;
+      user) systemctl --user is-active --quiet openstream 2>/dev/null || { ob_openstream_process_running || return 0; } ;;
     esac
     ob_waited=$((ob_waited + 1))
     sleep 1
   done
   return 1
+}
+
+ob_systemd_quote_arg() {
+  case "$1" in
+    ''|*[!A-Za-z0-9_./:=@,+-]*)
+      escaped=$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g; s/%/%%/g; s/\$/$$/g')
+      printf '"%s"' "$escaped"
+      ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+
+ob_migrate_legacy_service_exec() {
+  new_bin=$1
+  if [ -n "${OPENSTREAM_TEST_SYSTEMD_UNIT:-}" ]; then
+    unit=$OPENSTREAM_TEST_SYSTEMD_UNIT
+    user_service=1
+  elif [ ! -d /run/systemd/system ]; then
+    return 0
+  elif [ "$(id -u 2>/dev/null || echo 1)" = 0 ]; then
+    unit=/etc/systemd/system/openstream.service
+    user_service=0
+  else
+    config_home=${XDG_CONFIG_HOME:-${HOME:-}/.config}
+    unit=$config_home/systemd/user/openstream.service
+    user_service=1
+  fi
+  [ -f "$unit" ] || return 0
+  grep -F 'Description=OpenStream TV' "$unit" >/dev/null 2>&1 || return 1
+  grep -F -- '--skip-update-check' "$unit" >/dev/null 2>&1 || return 1
+
+  quoted_new=$(ob_systemd_quote_arg "$new_bin")
+  old_bin=${new_bin%/*}/openstream
+  quoted_old=$(ob_systemd_quote_arg "$old_bin")
+  exec_prefix="ExecStart=$quoted_old"
+  unit_tmp="${unit}.ost-migrate.$$"
+  changed=0
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      "$exec_prefix "*)
+        rest=${line#"$exec_prefix"}
+        case "$rest" in
+          *' --skip-update-check '*|*' --skip-update-check')
+            printf 'ExecStart=%s%s\n' "$quoted_new" "$rest"
+            changed=1
+            ;;
+          *) printf '%s\n' "$line" ;;
+        esac
+        ;;
+      *) printf '%s\n' "$line" ;;
+    esac
+  done <"$unit" >"$unit_tmp" || { rm -f "$unit_tmp"; return 1; }
+  [ "$changed" = 1 ] || { rm -f "$unit_tmp"; return 1; }
+  mv "$unit_tmp" "$unit" || return 1
+  if [ "$user_service" = 1 ]; then systemctl --user daemon-reload
+  else systemctl daemon-reload
+  fi
 }
 
 ob_summary() {
@@ -818,19 +860,18 @@ ob_summary() {
     esac
     printf '  %splaylist%s  %s\n' "$ui_dim" "$ui_reset" "$ob_playlist_url"
   else
-    ui_warn "Could not get the authenticated playlist URL; run 'jiotv key show' after starting the server"
+    ui_warn "Could not get the authenticated playlist URL; run 'ost key show' after starting the server"
   fi
   case "$tunnel" in
     temp) printf '  %sremote%s    a trycloudflare.com address, printed by the service each start\n' "$ui_dim" "$ui_reset" ;;
     named) printf '  %sremote%s    your Cloudflare hostname\n' "$ui_dim" "$ui_reset" ;;
-    api) printf '  %sremote%s    https://%s.%s\n' "$ui_dim" "$ui_reset" "$cloudflare_subdomain" "$cloudflare_domain" ;;
   esac
   printf '\n'
   if [ "$ob_service" != 1 ]; then
     if [ -n "${ob_env_file:-}" ]; then
-      printf '  Start it with: %s. %s && jiotv serve %s%s\n' "$ui_bold" "$(ob_shell_quote "$ob_env_file")" "$(ob_serve_args)" "$ui_reset"
+      printf '  Start it with: %s. %s && ost serve %s%s\n' "$ui_bold" "$(ob_shell_quote "$ob_env_file")" "$(ob_serve_args)" "$ui_reset"
     else
-      printf '  Start it with: %sjiotv serve %s%s\n' "$ui_bold" "$(ob_serve_args)" "$ui_reset"
+      printf '  Start it with: %sost serve %s%s\n' "$ui_bold" "$(ob_serve_args)" "$ui_reset"
     fi
   fi
   if [ "$variant" = full ]; then
@@ -843,7 +884,7 @@ ob_summary() {
 
 # ---------------------------------------------------------------------------
 openwrt=false
-if [ "${JIOTV_PLATFORM:-}" = openwrt ] || [ -r /etc/openwrt_release ]; then openwrt=true; fi
+if [ "${OPENSTREAM_PLATFORM:-${JIOTV_PLATFORM:-}}" = openwrt ] || [ -r /etc/openwrt_release ]; then openwrt=true; fi
 
 if [ "$openwrt" = true ]; then
   [ "$(id -u 2>/dev/null || echo 1)" = 0 ] || { echo "OpenWrt installation must be run as root" >&2; exit 1; }
@@ -891,13 +932,13 @@ if [ "$openwrt" = true ]; then
   [ -n "$tag" ] || { echo "could not determine the release version" >&2; exit 1; }
   say "Release $tag"
 
-  package_name=jiotv
-  [ "$variant" = slim ] && package_name=jiotv-slim
+  package_name=openstream
+  [ "$variant" = slim ] && package_name=openstream-slim
   if [ "$package_ext" = apk ]; then
     if [ "$variant" = full ]; then
-      pattern="^jiotv-[0-9].*_${package_arch}\\.apk$"
+      pattern="^openstream-[0-9].*_${package_arch}\\.apk$"
     else
-      pattern="^jiotv-slim-.*_${package_arch}\\.apk$"
+      pattern="^openstream-slim-.*_${package_arch}\\.apk$"
     fi
   else
     pattern="^${package_name}_.*_${package_arch}\\.ipk$"
@@ -914,11 +955,11 @@ if [ "$openwrt" = true ]; then
   verify_asset "$asset" "$tmp/SHA256SUMS" "$tmp/$asset"
   say "Checksum verified (SHA-256)"
 
-  other_package=jiotv-slim
-  [ "$variant" = slim ] && other_package=jiotv
-  init_script=${JIOTV_INIT_SCRIPT:-/etc/init.d/jiotv}
+  other_package=openstream-slim
+  [ "$variant" = slim ] && other_package=openstream
+  init_script=${OPENSTREAM_INIT_SCRIPT:-${JIOTV_INIT_SCRIPT:-/etc/init.d/openstream}}
   # Remember whether the service was already running: the package's own hook
-  # starts it on install, which JIOTV_START_SERVICE=0 must not leave behind.
+  # starts it on install, which OPENSTREAM_START_SERVICE=0 must not leave behind.
   was_running=false
   if [ -x "$init_script" ] && "$init_script" running >/dev/null 2>&1; then was_running=true; fi
   say "Installing with $package_manager"
@@ -929,6 +970,14 @@ if [ "$openwrt" = true ]; then
     if opkg status "$other_package" 2>/dev/null | grep -q '^Status: .* installed$'; then opkg remove "$other_package"; fi
     opkg install "$tmp/$asset"
   fi
+  openwrt_bin=${OPENSTREAM_TEST_OPENWRT_BIN:-}
+  if [ -z "$openwrt_bin" ]; then
+    if [ -x /usr/bin/ost ]; then openwrt_bin=/usr/bin/ost
+    elif [ -x /usr/bin/openstream ]; then openwrt_bin=/usr/bin/openstream
+    else openwrt_bin=/usr/bin/ost
+    fi
+  fi
+  openwrt_process=${openwrt_bin##*/}
   say "Enabling the service at boot"
   "$init_script" enable
 
@@ -940,14 +989,13 @@ if [ "$openwrt" = true ]; then
       ui_fail "Could not stop the existing service; account setup was not started"
       exit 1
     fi
-    ob_choose_provider /usr/bin/jiotv
+    ob_choose_provider "$openwrt_bin"
     ob_choose_host
     ob_choose_tunnel
-    if ob_credentials /usr/bin/jiotv; then ob_creds_done=1; else
+    if ob_credentials "$openwrt_bin"; then ob_creds_done=1; else
       ui_fail "The install is complete but the account is not connected"
     fi
-    ob_admin_password /usr/bin/jiotv
-    ob_setup_api /usr/bin/jiotv
+    ob_admin_password "$openwrt_bin"
     ob_write_uci
   fi
 
@@ -960,7 +1008,7 @@ if [ "$openwrt" = true ]; then
     if [ "$was_running" != true ]; then
       # The package hook may have started it, or left it between procd respawns where
       # "running" is briefly false, so stop unconditionally rather than only if running.
-      say "Making sure the service is stopped (JIOTV_START_SERVICE=0)"
+      say "Making sure the service is stopped (OPENSTREAM_START_SERVICE=0)"
       stop_service || stop_failed=true
     fi
     # What is left running now was running before and is deliberately untouched.
@@ -968,7 +1016,7 @@ if [ "$openwrt" = true ]; then
   elif [ "$disabled" = true ]; then
     # The setting wins over a process started earlier. Stop unconditionally: a respawning
     # instance between attempts reports "not running" but would launch again.
-    say "The service is disabled in /etc/config/jiotv (option enabled '0'); making sure it is stopped"
+    say "The service is disabled in /etc/config/openstream (option enabled '0'); making sure it is stopped"
     stop_service || stop_failed=true
   else
     # Stop and wait before starting: an upgrade must replace the old process, and
@@ -1011,52 +1059,52 @@ if [ "$openwrt" = true ]; then
   if [ "${ob_creds_done:-0}" = 1 ]; then
     ob_service=1
     [ "$running" = true ] || ob_service=0
-    ob_summary /usr/bin/jiotv
+    ob_summary "$openwrt_bin"
     [ "$stop_failed" != true ] || exit 1
     [ "$start_service" = 0 ] || [ "$disabled" = true ] || [ "$running" = true ] || exit 1
     exit 0
   fi
 
   echo
-  if [ "$stop_failed" = true ]; then echo "JioTV ($variant, ${tag#v}) is installed, but the service could not be stopped: run '$init_script stop'."
-  elif [ "$running" = true ]; then echo "JioTV ($variant, ${tag#v}) is installed and running."
-  elif [ "$kept_running" = true ]; then echo "JioTV ($variant, ${tag#v}) is installed; the service that was already running was left as it was (JIOTV_START_SERVICE=0)."
-  elif [ "$disabled" = true ]; then echo "JioTV ($variant, ${tag#v}) is installed; the service is disabled in /etc/config/jiotv."
-  elif [ "$start_service" = 1 ]; then echo "JioTV ($variant, ${tag#v}) is installed, but the service is not listening yet."
-  else echo "JioTV ($variant, ${tag#v}) is installed (not started: JIOTV_START_SERVICE=0)."
+  if [ "$stop_failed" = true ]; then echo "OpenStream TV ($variant, ${tag#v}) is installed, but the service could not be stopped: run '$init_script stop'."
+  elif [ "$running" = true ]; then echo "OpenStream TV ($variant, ${tag#v}) is installed and running."
+  elif [ "$kept_running" = true ]; then echo "OpenStream TV ($variant, ${tag#v}) is installed; the service that was already running was left as it was (OPENSTREAM_START_SERVICE=0)."
+  elif [ "$disabled" = true ]; then echo "OpenStream TV ($variant, ${tag#v}) is installed; the service is disabled in /etc/config/openstream."
+  elif [ "$start_service" = 1 ]; then echo "OpenStream TV ($variant, ${tag#v}) is installed, but the service is not listening yet."
+  else echo "OpenStream TV ($variant, ${tag#v}) is installed (not started: OPENSTREAM_START_SERVICE=0)."
   fi
   echo
   if [ "$variant" = slim ]; then
-    echo "  IPTV apps  : use the playlist URL the service logs when it starts (logread -e jiotv | grep -i playlist), on http://${ip}:${http_port}/. The slim build has no browser UI."
+    echo "  IPTV apps  : use the playlist URL the service logs when it starts (logread -e openstream | grep -i playlist), on http://${ip}:${http_port}/. The slim build has no browser UI."
   elif [ "$install_tls" = 1 ] && [ "$tls_on" = 1 ]; then
     echo "  Browser UI : https://${ip}:${tls_port}/  (HTTPS, self-signed certificate; accept the one-time warning)"
     echo "  IPTV apps  : http://${ip}:${http_port}/  (plain HTTP playlist)"
   else
     echo "  Browser UI : http://${ip}:${http_port}/  (browsers need HTTPS or localhost for DRM and encrypted HLS playback)"
-    [ "$install_tls" = 1 ] || echo "  HTTPS instructions are off (JIOTV_INSTALL_TLS=0); the service setting is unchanged, so HTTPS stays on unless 'option tls 0' is set in /etc/config/jiotv."
+    [ "$install_tls" = 1 ] || echo "  HTTPS instructions are off (OPENSTREAM_INSTALL_TLS=0); the service setting is unchanged, so HTTPS stays on unless 'option tls 0' is set in /etc/config/openstream."
   fi
   echo
   echo "Next steps:"
   step=1
   if [ "$disabled" = true ]; then
-    echo "  $step. Enable the service: uci set jiotv.main.enabled=1 && uci commit jiotv && $init_script start"
+    echo "  $step. Enable the service: uci set openstream.main.enabled=1 && uci commit openstream && $init_script start"
     step=$((step + 1))
   elif [ "$running" != true ] && [ "$kept_running" != true ]; then
-    echo "  $step. Start the service: $init_script start  (then check: logread -e jiotv)"
+    echo "  $step. Start the service: $init_script start  (then check: logread -e openstream)"
     step=$((step + 1))
   fi
   if [ "$variant" = slim ]; then
     echo "  $step. Sign in to JioTV from the terminal (you enter the OTP yourself). Stop the service first so it cannot overwrite the login:"
-    echo "       $init_script stop; while pidof jiotv >/dev/null; do sleep 1; done; jiotv login otp; $init_script start"
+    echo "       $init_script stop; while pidof $openwrt_process >/dev/null; do sleep 1; done; $openwrt_bin login otp; $init_script start"
   else
-    echo "  $step. Set the admin password: jiotv admin password"
+    echo "  $step. Set the admin password: $openwrt_bin admin password"
     step=$((step + 1))
     echo "  $step. Open the browser UI, log in with that password, then sign in to JioTV (you enter the OTP yourself)."
     echo "  To sign in to JioTV from the terminal instead, stop the service first so it cannot overwrite the login:"
-    echo "    $init_script stop; while pidof jiotv >/dev/null; do sleep 1; done; jiotv login otp; $init_script start"
+    echo "    $init_script stop; while pidof $openwrt_process >/dev/null; do sleep 1; done; $openwrt_bin login otp; $init_script start"
   fi
   echo
-  echo "Service control: $init_script start|stop|restart    Logs: logread -e jiotv"
+  echo "Service control: $init_script start|stop|restart    Logs: logread -e openstream"
   [ "$stop_failed" != true ] || exit 1
   [ "$start_service" = 0 ] || [ "$disabled" = true ] || [ "$running" = true ] || exit 1
   exit 0
@@ -1091,31 +1139,47 @@ if onboard_enabled; then
 fi
 
 say "Detected $sys/$machine: installing the $variant build for $target"
-asset="jiotv-${variant}-${target}"
+preferred_asset="openstream-${variant}-${target}"
+legacy_asset="jiotv-${variant}-${target}"
 if [ "$version" = latest ]; then
   base="https://github.com/${repo}/releases/latest/download"
 else
   case "$version" in v*) tag=$version ;; *) tag="v${version}" ;; esac
   base="https://github.com/${repo}/releases/download/${tag}"
 fi
+download "$base/SHA256SUMS" "$tmp/SHA256SUMS"
+if checksum_has_asset "$preferred_asset" "$tmp/SHA256SUMS"; then
+  asset=$preferred_asset
+elif checksum_has_asset "$legacy_asset" "$tmp/SHA256SUMS"; then
+  asset=$legacy_asset
+  note "Using legacy release asset $asset"
+else
+  echo "SHA256SUMS has no entry for $preferred_asset or $legacy_asset" >&2
+  exit 1
+fi
 say "Downloading $asset"
 download "$base/$asset" "$tmp/$asset"
 note "$(size_kib "$tmp/$asset") KiB"
-download "$base/SHA256SUMS" "$tmp/SHA256SUMS"
 verify_asset "$asset" "$tmp/SHA256SUMS" "$tmp/$asset"
 say "Checksum verified (SHA-256)"
 
-if [ -n "${JIOTV_INSTALL_DIR:-}" ]; then install_dir=$JIOTV_INSTALL_DIR
+if [ -n "${OPENSTREAM_INSTALL_DIR:-${JIOTV_INSTALL_DIR:-}}" ]; then install_dir=${OPENSTREAM_INSTALL_DIR:-$JIOTV_INSTALL_DIR}
 elif [ "$termux" = true ]; then install_dir=${PREFIX}/bin
 elif [ "$(id -u 2>/dev/null || echo 1)" = 0 ] && [ -w /usr/local/bin ]; then install_dir=/usr/local/bin
 else install_dir=${HOME:-}/.local/bin
 fi
-[ -n "$install_dir" ] || { echo "HOME is unset; set JIOTV_INSTALL_DIR" >&2; exit 1; }
+[ -n "$install_dir" ] || { echo "HOME is unset; set OPENSTREAM_INSTALL_DIR" >&2; exit 1; }
 was_installed=false
-[ -x "$install_dir/jiotv" ] && was_installed=true
+legacy_bin="$install_dir/openstream"
+legacy_installed=false
+[ -x "$install_dir/ost" ] && was_installed=true
+if [ -x "$legacy_bin" ]; then
+  was_installed=true
+  legacy_installed=true
+fi
 ob_existing_update=false
 if [ "$was_installed" = true ] && onboard_enabled; then
-  ui_step "JioTV is already installed here"
+  ui_step "OpenStream TV is already installed here"
   if ! ui_confirm "Update it in place and keep the current account?" yes; then
     ui_ok "Left as it was"
     exit 0
@@ -1127,41 +1191,53 @@ if [ "$ob_existing_update" = true ] && ! ob_stop_existing_service; then
   exit 1
 fi
 mkdir -p "$install_dir"
-if command -v install >/dev/null 2>&1; then install -m 0755 "$tmp/$asset" "$install_dir/jiotv"
-else cp "$tmp/$asset" "$install_dir/jiotv" && chmod 0755 "$install_dir/jiotv"
+if command -v install >/dev/null 2>&1; then install -m 0755 "$tmp/$asset" "$install_dir/ost"
+else cp "$tmp/$asset" "$install_dir/ost" && chmod 0755 "$install_dir/ost"
 fi
-echo "Installed jiotv ($variant, $target) to $install_dir/jiotv"
-case ":${PATH:-}:" in *":$install_dir:"*) ;; *) echo "Add $install_dir to PATH to run jiotv directly." ;; esac
+if [ "$legacy_installed" = true ]; then
+  if [ "$termux" = true ]; then
+    # Existing Termux startup lines may still point at the old filename. Keep
+    # that path on upgraded installs until ost autostart rewrites the marker.
+    if command -v install >/dev/null 2>&1; then install -m 0755 "$tmp/$asset" "$legacy_bin"
+    else cp "$tmp/$asset" "$legacy_bin" && chmod 0755 "$legacy_bin"
+    fi
+  elif ob_migrate_legacy_service_exec "$install_dir/ost"; then
+    rm -f "$legacy_bin"
+  else
+    ui_warn "Could not migrate the existing OpenStream TV service path; kept $legacy_bin so the service still starts"
+  fi
+fi
+echo "Installed ost ($variant, $target) to $install_dir/ost"
+case ":${PATH:-}:" in *":$install_dir:"*) ;; *) echo "Add $install_dir to PATH to run ost directly." ;; esac
 
 if onboard_enabled; then
-  jiotv_bin=$install_dir/jiotv
+  ost_bin=$install_dir/ost
   if [ "$ob_existing_update" = true ]; then
     if [ "$start_service" = 1 ] && ob_restart_existing_service; then
-      ui_ok "Updated and restarted the existing JioTV service; account settings were kept"
+      ui_ok "Updated and restarted the existing OpenStream TV service; account settings were kept"
     else
       ui_ok "Updated; the existing account settings were kept"
-      ui_note "If JioTV was already running, restart it to load the updated binary."
+      ui_note "If OpenStream TV was already running, restart it to load the updated binary."
       [ "$start_service" = 1 ] || ob_stopped_service=
     fi
     exit 0
   fi
-  ob_choose_provider "$jiotv_bin"
+  ob_choose_provider "$ost_bin"
   ob_choose_host
   ob_choose_tunnel
   if ! ob_stop_existing_service; then
     ui_fail "Could not stop the existing service; account setup was not started"
     exit 1
   fi
-  JIOTV_TVPLUS=$( [ "$provider" = extras ] && echo true || echo false )
-  JIOTV_FASTWAY=$( [ "$provider" = fastway ] && echo true || echo false )
-  export JIOTV_TVPLUS JIOTV_FASTWAY
-  if [ -n "$tunnel_token" ]; then export JIOTV_TUNNEL_TOKEN="$tunnel_token"; fi
+  OPENSTREAM_TVPLUS=$( [ "$provider" = extras ] && echo true || echo false )
+  OPENSTREAM_FASTWAY=$( [ "$provider" = fastway ] && echo true || echo false )
+  export OPENSTREAM_TVPLUS OPENSTREAM_FASTWAY
+  if [ -n "$tunnel_token" ]; then export OPENSTREAM_TUNNEL_TOKEN="$tunnel_token"; fi
   ob_write_shell_env
-  if ob_credentials "$jiotv_bin"; then
-    ob_admin_password "$jiotv_bin"
-    ob_setup_api "$jiotv_bin"
-    ob_install_service "$jiotv_bin"
-    ob_summary "$jiotv_bin"
+  if ob_credentials "$ost_bin"; then
+    ob_admin_password "$ost_bin"
+    ob_install_service "$ost_bin"
+    ob_summary "$ost_bin"
     [ "$start_service" = 1 ] || ob_stopped_service=
     exit 0
   fi
@@ -1172,25 +1248,25 @@ if onboard_enabled; then
     *) ob_login_cmd='login otp' ;;
   esac
   if [ -n "${ob_env_file:-}" ]; then
-    printf '\n  Sign in when you are ready: . %s && jiotv %s\n\n' "$(ob_shell_quote "$ob_env_file")" "$ob_login_cmd"
+    printf '\n  Sign in when you are ready: . %s && ost %s\n\n' "$(ob_shell_quote "$ob_env_file")" "$ob_login_cmd"
   else
-    printf '\n  Sign in when you are ready: %sjiotv %s%s\n\n' "$ui_bold" "$ob_login_cmd" "$ui_reset"
+    printf '\n  Sign in when you are ready: %sost %s%s\n\n' "$ui_bold" "$ob_login_cmd" "$ui_reset"
   fi
   exit 1
 fi
 
 if [ "$install_tls" = 1 ]; then
-  echo "Next: jiotv login otp; jiotv admin password; jiotv serve --host 0.0.0.0 --tls"
+  echo "Next: ost login otp; ost admin password; ost serve --host 0.0.0.0 --tls"
   if [ "$variant" = slim ]; then
-    echo "IPTV apps: use the playlist URL that jiotv serve prints when it starts, with localhost:5001 on this machine or this machine's address from other devices. The slim build has no browser UI."
+    echo "IPTV apps: use the playlist URL that ost serve prints when it starts, with localhost:5001 on this machine or this machine's address from other devices. The slim build has no browser UI."
   else
     echo "Browser UI on this machine (HTTPS, self-signed certificate; accept the one-time warning): https://localhost:5443/"
     echo "From other devices on your network, use this machine's address instead of localhost: https://<this-machine-ip>:5443/ (browser), http://<this-machine-ip>:5001/ (IPTV apps, plain HTTP playlist)."
   fi
 else
-  echo "Next: jiotv login otp; jiotv admin password; jiotv serve --host 0.0.0.0"
+  echo "Next: ost login otp; ost admin password; ost serve --host 0.0.0.0"
   if [ "$variant" = slim ]; then
-    echo "IPTV apps: use the playlist URL that jiotv serve prints when it starts, with localhost:5001 on this machine or this machine's address from other devices. The slim build has no browser UI."
+    echo "IPTV apps: use the playlist URL that ost serve prints when it starts, with localhost:5001 on this machine or this machine's address from other devices. The slim build has no browser UI."
   else
     echo "Browser UI on this machine: http://localhost:5001/ (browsers need HTTPS or localhost for DRM and encrypted HLS playback; add --tls to enable HTTPS)"
     echo "From other devices on your network, use this machine's address instead of localhost: http://<this-machine-ip>:5001/"

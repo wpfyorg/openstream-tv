@@ -1,29 +1,45 @@
 param(
     [ValidateSet('full', 'slim')][string]$Variant,
     [string]$Version = 'latest',
-    [string]$InstallDir = (Join-Path $env:LOCALAPPDATA 'Programs\JioTV'),
-    [string]$Repo = 'wpfyorg/better-jiotv-go',
+    [string]$InstallDir = (Join-Path $env:LOCALAPPDATA 'Programs\OpenStream TV'),
+    [string]$Repo = 'wpfyorg/openstream-tv',
     [switch]$NoTls
 )
 $ErrorActionPreference = 'Stop'
-if ($env:JIOTV_INSTALL_TLS -eq '0') { $NoTls = $true }
+
+function Get-OpenStreamEnv([string]$Primary, [string]$Legacy, [string]$Default = '') {
+    $value = [Environment]::GetEnvironmentVariable($Primary, 'Process')
+    if (-not [string]::IsNullOrEmpty($value)) { return $value }
+    $value = [Environment]::GetEnvironmentVariable($Legacy, 'Process')
+    if (-not [string]::IsNullOrEmpty($value)) { return $value }
+    return $Default
+}
+
+if ((Get-OpenStreamEnv 'OPENSTREAM_INSTALL_TLS' 'JIOTV_INSTALL_TLS' '1') -eq '0') { $NoTls = $true }
+if (-not $PSBoundParameters.ContainsKey('Version')) { $Version = Get-OpenStreamEnv 'OPENSTREAM_VERSION' 'JIOTV_VERSION' $Version }
+if (-not $PSBoundParameters.ContainsKey('Repo')) { $Repo = Get-OpenStreamEnv 'OPENSTREAM_REPO' 'JIOTV_REPO' $Repo }
+if (-not $PSBoundParameters.ContainsKey('InstallDir')) {
+    $configuredInstallDir = Get-OpenStreamEnv 'OPENSTREAM_INSTALL_DIR' 'JIOTV_INSTALL_DIR'
+    if ($configuredInstallDir) { $InstallDir = $configuredInstallDir }
+}
 
 $VariantExplicit = $PSBoundParameters.ContainsKey('Variant')
-if ($env:JIOTV_VARIANT) {
-    if ($env:JIOTV_VARIANT -notin @('full', 'slim')) { throw 'JIOTV_VARIANT must be full or slim' }
-    if (-not $VariantExplicit) { $Variant = $env:JIOTV_VARIANT }
+$envVariant = Get-OpenStreamEnv 'OPENSTREAM_VARIANT' 'JIOTV_VARIANT'
+if ($envVariant) {
+    if ($envVariant -notin @('full', 'slim')) { throw 'OPENSTREAM_VARIANT must be full or slim' }
+    if (-not $VariantExplicit) { $Variant = $envVariant }
     $VariantExplicit = $true
 }
 if (-not $Variant) { $Variant = 'full' }
-$Onboard = if ($env:JIOTV_ONBOARD) { $env:JIOTV_ONBOARD } else { 'auto' }
-if ($Onboard -notin @('auto', 'always', 'never')) { throw 'JIOTV_ONBOARD must be auto, always or never' }
-$Provider = if ($env:JIOTV_PROVIDER) { $env:JIOTV_PROVIDER } else { '' }
+$Onboard = Get-OpenStreamEnv 'OPENSTREAM_ONBOARD' 'JIOTV_ONBOARD' 'auto'
+if ($Onboard -notin @('auto', 'always', 'never')) { throw 'OPENSTREAM_ONBOARD must be auto, always or never' }
+$Provider = Get-OpenStreamEnv 'OPENSTREAM_PROVIDER' 'JIOTV_PROVIDER'
 if ($Provider -in @('tv+', 'tvplus')) { $Provider = 'extras' }
-if ($Provider -notin @('', 'jiotv', 'extras', 'fastway')) { throw 'JIOTV_PROVIDER must be jiotv, tv+ or fastway' }
-$PublicHost = if ($env:JIOTV_PUBLIC_HOST) { $env:JIOTV_PUBLIC_HOST } else { '' }
-$Tunnel = if ($env:JIOTV_TUNNEL) { $env:JIOTV_TUNNEL } else { '' }
-if ($Tunnel -notin @('', 'none', 'temp', 'named', 'api')) { throw 'JIOTV_TUNNEL must be none, temp, named, or api' }
-$TunnelToken = if ($env:JIOTV_TUNNEL_TOKEN) { $env:JIOTV_TUNNEL_TOKEN } else { '' }
+if ($Provider -notin @('', 'jiotv', 'extras', 'fastway')) { throw 'OPENSTREAM_PROVIDER must be jiotv, tv+ or fastway' }
+$PublicHost = Get-OpenStreamEnv 'OPENSTREAM_PUBLIC_HOST' 'JIOTV_PUBLIC_HOST'
+$Tunnel = Get-OpenStreamEnv 'OPENSTREAM_TUNNEL' 'JIOTV_TUNNEL'
+if ($Tunnel -notin @('', 'none', 'temp', 'named')) { throw 'OPENSTREAM_TUNNEL must be none, temp, or named' }
+$TunnelToken = Get-OpenStreamEnv 'OPENSTREAM_TUNNEL_TOKEN' 'JIOTV_TUNNEL_TOKEN'
 
 # Same rule as the shell installer: only a real console drives the flow, so
 # redirected runs (CI, scheduled tasks) keep the old non-interactive output.
@@ -50,7 +66,7 @@ function Set-UserEnvironment([string]$Name, [AllowNull()][string]$Value) {
 
 function Show-Banner([string]$Subtitle) {
     Write-Host ''
-    Write-Host '  JioTV ' -ForegroundColor Cyan -NoNewline
+    Write-Host '  OpenStream TV ' -ForegroundColor Cyan -NoNewline
     Write-Host 'installer ' -NoNewline
     Write-Host " $Subtitle" -ForegroundColor DarkGray
     Write-Rule
@@ -346,7 +362,8 @@ if ($Interactive -and -not $VariantExplicit) {
     ) $defaultVariant
 }
 
-$asset = "jiotv-$Variant-$target.exe"
+$preferredAsset = "openstream-$Variant-$target.exe"
+$legacyAsset = "jiotv-$Variant-$target.exe"
 if ($Version -eq 'latest') { $base = "https://github.com/$Repo/releases/latest/download" }
 else {
     if (-not $Version.StartsWith('v')) { $Version = "v$Version" }
@@ -355,22 +372,29 @@ else {
 $temp = Join-Path ([IO.Path]::GetTempPath()) ([Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $temp | Out-Null
 try {
-    $binary = Join-Path $temp $asset
     $sums = Join-Path $temp 'SHA256SUMS'
-    Invoke-WebRequest -Uri "$base/$asset" -OutFile $binary
     Invoke-WebRequest -Uri "$base/SHA256SUMS" -OutFile $sums
+    $asset = $preferredAsset
     $entry = Get-Content $sums | Where-Object { $_ -match "^\s*([0-9a-fA-F]{64})\s+\*?$([regex]::Escape($asset))\s*$" } | Select-Object -First 1
-    if (-not $entry) { throw "SHA256SUMS has no entry for $asset" }
+    if (-not $entry) {
+        $asset = $legacyAsset
+        $entry = Get-Content $sums | Where-Object { $_ -match "^\s*([0-9a-fA-F]{64})\s+\*?$([regex]::Escape($asset))\s*$" } | Select-Object -First 1
+        if ($entry) { Write-Warn2 "Using legacy release asset $asset" }
+    }
+    if (-not $entry) { throw "SHA256SUMS has no entry for $preferredAsset or $legacyAsset" }
+    $binary = Join-Path $temp $asset
+    Invoke-WebRequest -Uri "$base/$asset" -OutFile $binary
     $expected = [regex]::Match($entry, '^\s*([0-9a-fA-F]{64})').Groups[1].Value.ToLowerInvariant()
     $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $binary).Hash.ToLowerInvariant()
     if ($actual -ne $expected) { throw "Checksum mismatch for $asset" }
 
     New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
-    $destination = Join-Path $InstallDir 'jiotv.exe'
-    $alreadyInstalled = Test-Path -LiteralPath $destination
+    $destination = Join-Path $InstallDir 'ost.exe'
+    $legacyDestination = Join-Path $InstallDir 'openstream.exe'
+    $alreadyInstalled = (Test-Path -LiteralPath $destination) -or (Test-Path -LiteralPath $legacyDestination)
     $keepExistingAccount = $false
     if ($Interactive -and $alreadyInstalled) {
-        Write-Step 'JioTV is already installed here'
+        Write-Step 'OpenStream TV is already installed here'
         $update = Select-Option 'Update it in place and keep the current account?' @(
             @{ Value = $true; Label = 'Yes' },
             @{ Value = $false; Label = 'No' }
@@ -379,35 +403,43 @@ try {
         $keepExistingAccount = $true
     }
     Copy-Item -LiteralPath $binary -Destination $destination -Force
+    if (Test-Path -LiteralPath $legacyDestination) {
+        try {
+            Remove-Item -LiteralPath $legacyDestination -Force
+        }
+        catch {
+            Write-Warn2 "Could not remove legacy openstream.exe: $($_.Exception.Message) Stop the old server, remove openstream.exe, then start ost."
+        }
+    }
     $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
     $entries = @($userPath -split ';' | Where-Object { $_ })
     if (-not ($entries | Where-Object { $_.TrimEnd('\') -ieq $InstallDir.TrimEnd('\') })) {
         [Environment]::SetEnvironmentVariable('Path', (($entries + $InstallDir) -join ';'), 'User')
         $env:Path = "$InstallDir;$env:Path"
     }
-    Write-Output "Installed jiotv ($Variant, $target) to $destination"
+    Write-Output "Installed ost ($Variant, $target) to $destination"
 
-    $serveLine = 'jiotv serve --host 0.0.0.0'
+    $serveLine = 'ost serve --host 0.0.0.0'
     if (-not $NoTls) { $serveLine += ' --tls' }
 
     if ($Interactive) {
         if ($keepExistingAccount) {
             Write-Ok 'Updated the binary; existing account and environment settings were kept'
-            Write-Host "  Start it with: $serveLine"
+            Write-Host "  Restart the server with: $serveLine"
             return
         }
 
-        $jiotv = $destination
+        $ost = $destination
         $help = ''
-        try { $help = (& $jiotv --help 2>&1 | Out-String) } catch { $help = '' }
+        try { $help = (& $ost --help 2>&1 | Out-String) } catch { $help = '' }
         # `tv+ login` is the current name; older binaries still answer to
         # `extras login`, so that is used when it is the only one advertised.
         $TvPlusCmd = ''
         if ($help -match 'tv\+ login') { $TvPlusCmd = 'tv+ login' }
         elseif ($help -match 'extras login') { $TvPlusCmd = 'extras login' }
-        $providers = @(@{ Value = 'jiotv'; Label = 'JioTV       live channels and programme guide - any network' })
-        if ($TvPlusCmd) { $providers += @{ Value = 'extras'; Label = 'JioTV+      extra channels, movies and shows - JioFiber/AirFiber' } }
-        if ($help -match 'fastway login') { $providers += @{ Value = 'fastway'; Label = 'Fastway     live TV from a Fastway subscription - Fastway/ACT' } }
+        $providers = @(@{ Value = 'jiotv'; Label = 'JioTV       live channels and programme guide - mobile-number OTP' })
+        if ($TvPlusCmd) { $providers += @{ Value = 'extras'; Label = 'JioTV+      extra channels, movies and shows - eligible JioFiber/AirFiber login' } }
+        if ($help -match 'fastway login') { $providers += @{ Value = 'fastway'; Label = 'Fastway     live TV - Fastway-accepted credentials' } }
 
         if (-not ($providers.Value -contains $Provider)) { $Provider = '' }
         if (-not $Provider) {
@@ -417,8 +449,9 @@ try {
                 Write-Step "Using $only (the only provider this build supports)"
             }
             else {
-                Write-Host '  Which login you have depends on your network: JioTV works anywhere,' -ForegroundColor DarkGray
-                Write-Host '  JioTV+ needs a JioFiber or AirFiber login, Fastway needs Fastway or ACT.' -ForegroundColor DarkGray
+                Write-Host '  JioTV signs in with a mobile-number OTP. JioTV+ needs an eligible' -ForegroundColor DarkGray
+                Write-Host '  JioFiber or AirFiber login. Fastway needs credentials its provider accepts.' -ForegroundColor DarkGray
+                Write-Host '  ACT eligibility, where offered, depends on the provider.' -ForegroundColor DarkGray
                 $Provider = Select-Option 'Which account are you setting up?' $providers
             }
         }
@@ -428,11 +461,10 @@ try {
 
         if (-not $Tunnel) {
             Write-Step 'Access from outside your network'
-            $Tunnel = Select-Option 'Open JioTV up beyond your LAN?' @(
+            $Tunnel = Select-Option 'Open OpenStream TV beyond your LAN?' @(
                 @{ Value = 'none'; Label = 'No, LAN only' },
                 @{ Value = 'temp'; Label = 'Temporary Cloudflare URL, new address every start' },
-                @{ Value = 'named'; Label = 'Permanent Cloudflare tunnel, use existing token' },
-                @{ Value = 'api'; Label = 'Set up permanent Cloudflare tunnel with an API token' }
+                @{ Value = 'named'; Label = 'Permanent Cloudflare tunnel, needs a tunnel token' }
             )
         }
         if ($Tunnel -eq 'named') {
@@ -449,71 +481,45 @@ try {
         elseif ($Tunnel -eq 'temp') {
             Write-Warn2 'Anyone with the address can reach the sign-in page. Keep the admin password strong.'
         }
-        elseif ($Tunnel -eq 'api') {
-            Write-Step 'Create a Cloudflare tunnel'
-            Write-Host '  Create a scoped Cloudflare API token with Zone Read, DNS Edit and Account Cloudflare Tunnel Edit.'
-            Write-Warn2 'The hostname will expose the sign-in page; protect it with a strong admin password.'
-            $cfDomain = if ($env:JIOTV_CF_DOMAIN) { $env:JIOTV_CF_DOMAIN } else { Read-Text 'Domain already on Cloudflare (example.com)' }
-            $cfSubdomain = if ($env:JIOTV_CF_SUBDOMAIN) { $env:JIOTV_CF_SUBDOMAIN } else { Read-Text 'Subdomain (tv.example.com -> tv)' 'tv' }
-            $oldCfToken = $env:CLOUDFLARE_API_TOKEN
-            try {
-                $env:CLOUDFLARE_API_TOKEN = Read-Secret 'Cloudflare API token (used once, never saved)'
-                if ([string]::IsNullOrWhiteSpace($env:CLOUDFLARE_API_TOKEN)) { throw 'Cloudflare API token is empty' }
-                $setupOutput = & $jiotv tunnel setup --domain $cfDomain --subdomain $cfSubdomain 2>&1
-                if ($LASTEXITCODE -ne 0) { throw ($setupOutput | Out-String) }
-                Write-Ok "Permanent Cloudflare hostname configured: https://$cfSubdomain.$cfDomain"
-            }
-            catch {
-                Write-Fail 'Cloudflare setup failed; remote access stays off'
-                Write-Warn2 $_.Exception.Message
-                $Tunnel = 'none'
-            }
-            finally {
-                if ($null -eq $oldCfToken) { Remove-Item Env:CLOUDFLARE_API_TOKEN -ErrorAction SilentlyContinue }
-                else { $env:CLOUDFLARE_API_TOKEN = $oldCfToken }
-            }
-        }
         if ($Tunnel -ne 'none') { $serveLine += ' --tunnel' }
-        if ($Tunnel -eq 'temp') { $serveLine += ' --tunnel-quick' }
-        if ($Tunnel -eq 'api') { $serveLine += ' --tunnel-saved' }
 
         $tvPlusEnabled = if ($Provider -eq 'extras') { 'true' } else { 'false' }
         $fastwayEnabled = if ($Provider -eq 'fastway') { 'true' } else { 'false' }
-        Set-UserEnvironment 'JIOTV_TVPLUS' $tvPlusEnabled
-        Set-UserEnvironment 'JIOTV_FASTWAY' $fastwayEnabled
+        Set-UserEnvironment 'OPENSTREAM_TVPLUS' $tvPlusEnabled
+        Set-UserEnvironment 'OPENSTREAM_FASTWAY' $fastwayEnabled
         if ($Tunnel -eq 'named' -and $TunnelToken) {
-            Set-UserEnvironment 'JIOTV_TUNNEL_TOKEN' $TunnelToken
+            Set-UserEnvironment 'OPENSTREAM_TUNNEL_TOKEN' $TunnelToken
         }
         else {
-            Set-UserEnvironment 'JIOTV_TUNNEL_TOKEN' $null
+            Set-UserEnvironment 'OPENSTREAM_TUNNEL_TOKEN' $null
         }
         $providerEnv = switch ($Provider) {
-            'extras'  { "`$env:JIOTV_TVPLUS = 'true'; `$env:JIOTV_FASTWAY = 'false'; " }
-            'fastway' { "`$env:JIOTV_TVPLUS = 'false'; `$env:JIOTV_FASTWAY = 'true'; " }
-            default   { "`$env:JIOTV_TVPLUS = 'false'; `$env:JIOTV_FASTWAY = 'false'; " }
+            'extras'  { "`$env:OPENSTREAM_TVPLUS = 'true'; `$env:OPENSTREAM_FASTWAY = 'false'; " }
+            'fastway' { "`$env:OPENSTREAM_TVPLUS = 'false'; `$env:OPENSTREAM_FASTWAY = 'true'; " }
+            default   { "`$env:OPENSTREAM_TVPLUS = 'false'; `$env:OPENSTREAM_FASTWAY = 'false'; " }
         }
         $serveLine = "$providerEnv$serveLine"
 
         # Sign-in happens inside the wizard: the commands read plain stdin
         # lines, so the number and the OTP are typed here, once.
-        $signedIn = Connect-Provider $jiotv $Provider
+        $signedIn = Connect-Provider $ost $Provider
         $loginCmd = switch ($Provider) {
             'extras' { $TvPlusCmd }
             'fastway' { 'fastway login' }
             default { 'login otp' }
         }
         if ($signedIn) { Write-Ok 'Signed in' }
-        else { Write-Fail "Sign-in did not complete; run 'jiotv $loginCmd' when you are ready" }
+        else { Write-Fail "Sign-in did not complete; run 'ost $loginCmd' when you are ready" }
 
         if ($Variant -eq 'full') {
             Write-Step 'Protect the browser interface'
             $password = Read-Secret 'Choose an admin password'
             if ($password) {
-                $password | & $jiotv admin password | Out-Null
+                $password | & $ost admin password | Out-Null
                 if ($LASTEXITCODE -eq 0) { Write-Ok 'Admin password saved' }
-                else { Write-Fail 'Could not save the password; run: jiotv admin password' }
+                else { Write-Fail 'Could not save the password; run: ost admin password' }
             }
-            else { Write-Warn2 'No password set; run: jiotv admin password' }
+            else { Write-Warn2 'No password set; run: ost admin password' }
         }
 
         Write-Host ''
@@ -522,12 +528,12 @@ try {
         Write-Rule
         Write-Host "  build     $Variant $target" -ForegroundColor DarkGray
         Write-Host "  account   $(if ($Provider -eq 'extras') { 'JioTV+' } else { $Provider })"
-        if (-not $signedIn) { Write-Warn2 "  Not signed in yet: run 'jiotv $loginCmd'" }
+        if (-not $signedIn) { Write-Warn2 "  Not signed in yet: run 'ost $loginCmd'" }
         if ($Variant -eq 'full') {
             if ($NoTls) { Write-Host "  browser   http://${PublicHost}:5001/" }
             else { Write-Host "  browser   https://${PublicHost}:5443/" }
         }
-        $playlistPath = (& $jiotv key show 2>$null | Out-String).Trim()
+        $playlistPath = (& $ost key show 2>$null | Out-String).Trim()
         if ($playlistPath.StartsWith('http://') -or $playlistPath.StartsWith('https://')) {
             $playlistUrl = $playlistPath
         }
@@ -541,7 +547,7 @@ try {
             $playlistUrl = ''
         }
         if ($playlistUrl) { Write-Host "  playlist  $playlistUrl" }
-        else { Write-Warn2 "Could not get the authenticated playlist URL; run 'jiotv key show' after starting the server" }
+        else { Write-Warn2 "Could not get the authenticated playlist URL; run 'ost key show' after starting the server" }
         if ($Tunnel -ne 'none') { Write-Host '  remote    a Cloudflare tunnel address' }
         Write-Host ''
         if ($TunnelToken) {
@@ -554,16 +560,16 @@ try {
     }
 
     if ($NoTls) {
-        Write-Output 'Next: jiotv login otp; jiotv admin password; jiotv serve --host 0.0.0.0'
-        if ($Variant -eq 'slim') { Write-Output 'IPTV apps: use the playlist URL that jiotv serve prints when it starts, with localhost:5001 on this PC or <this-pc-ip>:5001 from other devices (see ipconfig). The slim build has no browser UI.' }
+        Write-Output 'Next: ost login otp; ost admin password; ost serve --host 0.0.0.0'
+        if ($Variant -eq 'slim') { Write-Output 'IPTV apps: use the playlist URL that ost serve prints when it starts, with localhost:5001 on this PC or <this-pc-ip>:5001 from other devices (see ipconfig). The slim build has no browser UI.' }
         else {
             Write-Output 'Browser UI on this PC: http://localhost:5001/ (browsers need HTTPS or localhost for DRM and encrypted HLS playback; add --tls to enable HTTPS)'
             Write-Output 'From other devices on your network: http://<this-pc-ip>:5001/ (see ipconfig)'
         }
     }
     else {
-        Write-Output 'Next: jiotv login otp; jiotv admin password; jiotv serve --host 0.0.0.0 --tls'
-        if ($Variant -eq 'slim') { Write-Output 'IPTV apps: use the playlist URL that jiotv serve prints when it starts, with localhost:5001 on this PC or <this-pc-ip>:5001 from other devices (see ipconfig). The slim build has no browser UI.' }
+        Write-Output 'Next: ost login otp; ost admin password; ost serve --host 0.0.0.0 --tls'
+        if ($Variant -eq 'slim') { Write-Output 'IPTV apps: use the playlist URL that ost serve prints when it starts, with localhost:5001 on this PC or <this-pc-ip>:5001 from other devices (see ipconfig). The slim build has no browser UI.' }
         else {
             Write-Output 'Browser UI on this PC (HTTPS, self-signed certificate; accept the one-time warning): https://localhost:5443/'
             Write-Output 'From other devices on your network: https://<this-pc-ip>:5443/ (browser), http://<this-pc-ip>:5001/ (IPTV apps, plain HTTP playlist); see ipconfig for the address'

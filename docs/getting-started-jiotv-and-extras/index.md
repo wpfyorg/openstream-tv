@@ -1,36 +1,42 @@
 ---
-title: JioTV, JioTV+ and Fastway: Which Account Do You Need?
-description: Understand the three accounts, which network each one needs, and what content they unlock.
+title: JioTV, JioTV+ and the Optional Providers
+description: Understand each provider account, its prerequisites, and which OpenStream TV features use it.
 category: Getting Started
-keywords: [JioTV, JioTV+, Fastway, TV+, provider, subscription, channels, on demand]
+keywords: [JioTV, JioTV+, Fastway, PlayboxTV, VZY, Tata Play, TV+, provider, subscription, channels, on demand]
 ---
 
-# JioTV, JioTV+ and Fastway: Which Account Do You Need?
+# JioTV, JioTV+ and the optional providers
 
-The server can hold three accounts. Your network decides which one you have:
+OpenStream TV can hold several provider accounts, but only one provider catalogue is exposed at a time. Provider eligibility and subscriptions decide what each account can use:
 
-| Account | Needs | Gives you |
+| Provider | Needs | Gives you |
 | --- | --- | --- |
-| **JioTV** | Any network | Live television and programme information |
-| **JioTV+** | A JioFiber or AirFiber login (Jio network) | JioTV+ channels, movies and shows |
-| **Fastway** | A Fastway subscription, or an ACT connection | Live TV from Fastway |
+| **JioTV** | A JioTV account that can complete the mobile-number OTP flow | Live television and programme information |
+| **JioTV+** (Beta) | An eligible JioFiber or AirFiber login | JioTV+ channels plus supported on-demand catalogues |
+| **Fastway** (Beta) | Fastway credentials accepted by the provider | Fastway live TV only |
+| **PlayboxTV** (Beta) | A PlayboxTV mobile number that can complete the OTP flow | PlayboxTV live channels |
+| **VZY** (Beta) | No account | VZY's free-tier live channels |
+| **Tata Play** (diagnostic) | A Tata Play Smart account | Diagnostic login/EPG tools only; not added to the channel list or playback yet |
 
-- **JioTV** is the one to start with. It is the only account that works on any network, so it is enough for a new installation.
-- **JioTV+** is the optional second source, marked **Beta**. It is off until `tv_plus = true` (or `JIOTV_TVPLUS=true`) is set, and it needs its own sign-in with the JioFiber or AirFiber number, separate from JioTV.
-- **Fastway** is only offered when the installed release supports it.
+- **JioTV** is the default provider flow. OpenStream TV does not add a fixed-line-network gate to this login, but the provider still decides account and content availability.
+- **JioTV+** is the optional second source. It is off until `tv_plus = true` (or `JIOTV_TVPLUS=true` / `OPENSTREAM_TVPLUS=true`) is set, and it needs its own sign-in with the JioFiber or AirFiber number, separate from JioTV.
+- **Fastway** is enabled with `fastway = true` (or `OPENSTREAM_FASTWAY=true`) and connected with credentials accepted by the provider. ACT eligibility, where offered, depends on the provider and plan. Fastway supplies live TV, not the on-demand catalogue. See [Connect Fastway Live TV](../account-fastway/index.md).
+- **PlayboxTV** is enabled with `playbox = true` (or `OPENSTREAM_PLAYBOX=true`) and uses its own OTP login. See [PlayboxTV](../ott-provider-playbox/index.md).
+- **VZY** is enabled with `vzy = true` (or `OPENSTREAM_VZY=true`) and uses an anonymous free-tier session; premium channels are not advertised. See [VZY](../ott-provider-vzy/index.md).
+- **Tata Play** is enabled with `tataplay = true` for diagnostics only. It is deliberately not part of the shared catalogue, playlist, `/live` or DRM proxy. See [Tata Play Smart](../ott-provider-tataplay/index.md).
 
-The installers list only the accounts the downloaded release supports and print this same hint above the account menu. The older name **Extras** may still appear in older guides and error messages. `jiotv extras login` remains a command alias; `jiotv tv+ login` is the current spelling.
+The installers list only the accounts the downloaded release supports and print this same hint above the account menu. The older name **Extras** may still appear in older guides and error messages. `ost extras login` remains a command alias; `ost tv+ login` is the current spelling.
 
-## Check which source is active
+## Check which provider is active
 
 1. Open **Settings** in the web interface.
-2. Each provider card shows whether it is logged in or connected and whether it is the **Active** provider.
-3. Only one provider can be active at a time. Signing in to a provider makes it active; use **Use JioTV** or **Use JioTV+** on a connected card to switch. JioTV+ is marked **Beta**.
-4. Open **Channels**. The list, IPTV playlist and programme guide show only the active provider's catalogue.
+2. Each enabled provider card shows whether it is logged in or connected and whether it is the **Active** provider.
+3. Only one provider can be active at a time. Signing in to a provider makes it active; use **Use JioTV**, **Use JioTV+**, **Use Fastway**, **Use PlayboxTV** or **Use VZY** on a connected card to switch.
+4. Open **Channels**. The list, IPTV playlist and programme guide show only the active provider's catalogue. Custom channels remain available.
 
-![Real Settings screen showing a disconnected JioTV account. JioTV+ is disabled in this example.](../images/settings-no-account.png)
+![Settings showing a disconnected JioTV card and a connected JioTV+ card](../images/settings-jiotv-plus.png)
 
-The screenshot is from a clean installation with no account connected. Your screen may include more account controls when JioTV+ or Fastway is enabled. The existence of a channel tile never guarantees permission to play it.
+The screenshot is from a disposable v1.5.0 server with JioTV+ connected and JioTV disconnected. Fastway is disabled in this capture. The existence of a channel tile never guarantees permission to play it.
 
 ## Understand labels and restrictions
 

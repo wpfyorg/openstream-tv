@@ -3,20 +3,26 @@ use crate::config::Config;
 use crate::custom_channels::CustomChannels;
 use crate::dash::DashState;
 use crate::extras_state::ExtrasState;
+use crate::fastway_state::FastwayState;
+use crate::playbox_state::PlayboxState;
 use crate::secureurl::SecureUrl;
 use crate::store::Store;
 use crate::stream::RenderCaches;
 use crate::television::Television;
+use crate::vzy_state::VzyState;
 use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActiveProduct {
     Tv,
     Extras,
+    Fastway,
+    Playbox,
+    Vzy,
 }
 
 /// Store key holding the provider the user last activated. Exactly one value
-/// is kept, so the two catalogues can never be active together.
+/// is kept, so the provider catalogues can never be active together.
 pub const STORE_KEY_ACTIVE_PROVIDER: &str = "active_provider";
 
 impl ActiveProduct {
@@ -24,15 +30,21 @@ impl ActiveProduct {
         match self {
             ActiveProduct::Tv => "tv",
             ActiveProduct::Extras => "extras",
+            ActiveProduct::Fastway => "fastway",
+            ActiveProduct::Playbox => "playbox",
+            ActiveProduct::Vzy => "vzy",
         }
     }
 
-    /// The provider names accepted by the UI/API. The older `tv`/`extras`
-    /// spellings are still accepted so an existing store keeps working.
+    /// Provider names accepted by the UI/API. The legacy `tv`/`extras`
+    /// spellings keep an existing store working.
     pub fn from_name(name: &str) -> Option<ActiveProduct> {
         match name {
             "jiotv" | "tv" => Some(ActiveProduct::Tv),
-            "jiotv_plus" | "jiotv-plus" | "extras" => Some(ActiveProduct::Extras),
+            "jiotv_plus" | "jiotv-plus" | "tv_plus" | "extras" => Some(ActiveProduct::Extras),
+            "fastway" => Some(ActiveProduct::Fastway),
+            "playbox" | "playbox_tv" | "playboxtv" => Some(ActiveProduct::Playbox),
+            "vzy" => Some(ActiveProduct::Vzy),
             _ => None,
         }
     }
@@ -41,13 +53,16 @@ impl ActiveProduct {
         match self {
             ActiveProduct::Tv => "jiotv",
             ActiveProduct::Extras => "jiotv_plus",
+            ActiveProduct::Fastway => "fastway",
+            ActiveProduct::Playbox => "playbox",
+            ActiveProduct::Vzy => "vzy",
         }
     }
 }
 
 pub struct AppState {
     pub config: Config,
-    /// The resolved data directory (`config.path_prefix`, or `~/.jiotv_go`; `/etc/jiotv` on OpenWrt),
+    /// The resolved data directory (`config.path_prefix`, or `~/.openstream-tv`; `/etc/openstream` on OpenWrt),
     /// always ending in `/`. Used for `epg.xml.gz` and similar data files.
     pub path_prefix: String,
     pub access: Arc<Access>,
@@ -66,6 +81,9 @@ pub struct AppState {
     pub dash_state: DashState,
     pub epg_state: crate::epg::EpgState,
     pub extras: Arc<ExtrasState>,
+    pub fastway: Arc<FastwayState>,
+    pub playbox: Arc<PlayboxState>,
+    pub vzy: Arc<VzyState>,
     pub vod_state: crate::vod::VodState,
     /// The server's cached public IPv4, used to compute today's extras
     /// unlock code. See `unlock.rs`.
@@ -125,13 +143,15 @@ impl AppState {
         self.render_caches.clear();
         self.dash_state.clear();
         self.vod_state.clear();
+        // Provider switching must not leak one account's catalogue into the
+        // next context: drop provider caches at the same boundary.
+        self.playbox.clear();
+        self.vzy.clear();
     }
 
-    /// Product selection follows the provider the user activated, but a
-    /// JioTV+ selection only takes effect while that source is enabled and
-    /// connected. Locking or logging out of extras immediately falls back to
-    /// the TV catalogue; the stored preference survives so reconnecting
-    /// JioTV+ makes it active again.
+    /// The provider the user explicitly activated, if any. A stored choice is
+    /// kept even while its provider is disconnected, so reconnecting that
+    /// provider makes it active again.
     pub fn preferred_product(&self) -> Option<ActiveProduct> {
         self.store
             .get_opt(STORE_KEY_ACTIVE_PROVIDER)
@@ -139,20 +159,46 @@ impl AppState {
             .and_then(ActiveProduct::from_name)
     }
 
-    pub fn active_product(&self) -> ActiveProduct {
-        let extras_available = self.extras.connected();
-        match self.preferred_product() {
-            Some(ActiveProduct::Extras) if extras_available => ActiveProduct::Extras,
-            Some(ActiveProduct::Tv) => ActiveProduct::Tv,
-            // No usable selection: keep the previous behaviour of preferring
-            // a connected JioTV+ source.
-            _ if extras_available => ActiveProduct::Extras,
-            _ => ActiveProduct::Tv,
+    /// Whether a provider can currently supply its catalogue.
+    pub fn provider_available(&self, product: ActiveProduct) -> bool {
+        match product {
+            ActiveProduct::Tv => true,
+            ActiveProduct::Extras => self.extras.connected(),
+            ActiveProduct::Fastway => self.fastway.connected(),
+            ActiveProduct::Playbox => self.playbox.connected(),
+            ActiveProduct::Vzy => self.vzy.connected(),
         }
     }
 
-    /// Persists the provider the user activated. Only one value is stored, so
-    /// activating one provider deactivates the other.
+    /// Used when the stored choice is unavailable or absent: prefer an
+    /// authenticated alternate provider in the historical order, otherwise
+    /// the JioTV catalogue.
+    fn default_product(&self) -> ActiveProduct {
+        if self.fastway.connected() {
+            ActiveProduct::Fastway
+        } else if self.extras.connected() {
+            ActiveProduct::Extras
+        } else if self.playbox.connected() {
+            ActiveProduct::Playbox
+        } else if self.vzy.connected() {
+            ActiveProduct::Vzy
+        } else {
+            ActiveProduct::Tv
+        }
+    }
+
+    /// Product selection follows the provider the user activated, but only
+    /// while that provider can supply its catalogue. Disconnecting it falls
+    /// back to the next available provider without erasing the preference.
+    pub fn active_product(&self) -> ActiveProduct {
+        match self.preferred_product() {
+            Some(product) if self.provider_available(product) => product,
+            _ => self.default_product(),
+        }
+    }
+
+    /// Persists the provider the user activated. A single value is stored, so
+    /// activating one provider deactivates every other one.
     pub fn set_active_product(
         &self,
         product: ActiveProduct,
@@ -168,9 +214,29 @@ impl AppState {
         &self,
     ) -> anyhow::Result<Vec<crate::television::Channel>> {
         match self.active_product() {
+            ActiveProduct::Fastway => {
+                self.fastway.refresh_catalogue_if_needed(&self.store).await;
+                Ok(self.fastway.catalogue_channels())
+            }
             ActiveProduct::Extras => {
                 self.extras.refresh_catalogue_if_needed(&self.tv).await;
                 Ok(self.extras.catalogue_channels())
+            }
+            ActiveProduct::Playbox => {
+                let loaded = self.playbox.ensure_catalogue().await;
+                let channels = self.playbox.channels();
+                if !loaded && channels.is_empty() {
+                    anyhow::bail!("playbox catalogue is unavailable");
+                }
+                Ok(channels)
+            }
+            ActiveProduct::Vzy => {
+                let loaded = self.vzy.ensure_catalogue(&self.store).await;
+                let channels = self.vzy.channels();
+                if !loaded && channels.is_empty() {
+                    anyhow::bail!("vzy catalogue is unavailable");
+                }
+                Ok(channels)
             }
             ActiveProduct::Tv => Ok(self.tv.channels().await?.result),
         }
@@ -189,9 +255,21 @@ impl AppState {
             return true;
         }
         match self.active_product() {
+            ActiveProduct::Fastway => {
+                self.fastway.refresh_catalogue_if_needed(&self.store).await;
+                self.fastway.contains_catalogue_channel(id)
+            }
             ActiveProduct::Extras => {
                 self.extras.refresh_catalogue_if_needed(&self.tv).await;
                 self.extras.contains_catalogue_channel(id)
+            }
+            ActiveProduct::Playbox => {
+                self.playbox.ensure_catalogue().await;
+                self.playbox.contains(id)
+            }
+            ActiveProduct::Vzy => {
+                self.vzy.ensure_catalogue(&self.store).await;
+                self.vzy.contains(id)
             }
             ActiveProduct::Tv => self
                 .tv
@@ -202,14 +280,22 @@ impl AppState {
         }
     }
 
-    /// Mirrors `isDRMChannel`: DRM state comes from the extras learned map when
-    /// the channel routes through extras, else the static JioTV DRM list.
-    /// Callers on a hot path that needs a fresh mirrors lookup should await
-    /// `extras.refresh_catalogue_if_needed` first (playlist/channels
-    /// handlers already do).
+    /// Mirrors `isDRMChannel`: DRM state comes from the provider when the
+    /// channel routes through Fastway or extras, else the static JioTV DRM
+    /// list. Fastway clear channels are DASH without a license and therefore
+    /// report `false` here; use `is_dash_channel` for the container choice.
+    /// Callers on a hot path that needs a fresh catalogue should await the
+    /// provider's `refresh_*_if_needed` first (playlist/channels handlers
+    /// already do).
     pub fn is_drm_channel(&self, id: &str) -> bool {
         if !self.config.drm {
             return false;
+        }
+        if FastwayState::is_fastway_channel(id) {
+            return self.fastway.is_drm(id);
+        }
+        if crate::playbox::is_playbox_channel(id) {
+            return self.playbox.is_drm(id);
         }
         match self
             .extras
@@ -231,6 +317,28 @@ impl AppState {
         }
     }
 
+    /// Whether the channel is DASH even without a Widevine license. Fastway's
+    /// whole catalogue is DASH, while Playbox learns the container from its
+    /// resolved playback metadata.
+    pub fn is_dash_channel(&self, id: &str) -> bool {
+        if FastwayState::is_fastway_channel(id) {
+            return self.fastway.is_dash(id);
+        }
+        if crate::playbox::is_playbox_channel(id) {
+            return self.playbox.is_dash(id);
+        }
+        false
+    }
+
+    /// The user agent a provider's CDN expects for manifests and segments.
+    pub fn player_user_agent_for(&self, host: &str) -> &'static str {
+        if self.fastway.is_cdn_host(host) {
+            crate::fastway::PLAYER_USER_AGENT
+        } else {
+            self.extras.player_user_agent_for(host)
+        }
+    }
+
     /// Whether a channel from the already-filtered effective catalogue can
     /// be started with the active account.
     pub fn is_playable(&self, id: &str) -> bool {
@@ -238,7 +346,10 @@ impl AppState {
             return true;
         }
         match self.active_product() {
+            ActiveProduct::Fastway => self.fastway.connected(),
             ActiveProduct::Extras => self.extras.connected(),
+            ActiveProduct::Playbox => self.playbox.connected(),
+            ActiveProduct::Vzy => self.vzy.connected(),
             ActiveProduct::Tv => self.tv.logged_in(),
         }
     }
@@ -249,7 +360,7 @@ mod tests {
     use super::*;
     use axum::response::IntoResponse;
 
-    fn state_with_extras(extras: Arc<ExtrasState>) -> Arc<AppState> {
+    fn state() -> Arc<AppState> {
         let dir = tempfile::tempdir().unwrap();
         let store = Arc::new(Store::open(dir.path().to_str().unwrap()).unwrap());
         std::mem::forget(dir);
@@ -266,7 +377,10 @@ mod tests {
             render_caches: Default::default(),
             dash_state: Default::default(),
             epg_state: Default::default(),
-            extras,
+            extras: Arc::new(ExtrasState::new(false, None)),
+            fastway: Arc::new(FastwayState::new(false)),
+            playbox: Arc::new(PlayboxState::new(false)),
+            vzy: Arc::new(VzyState::new(false)),
             vod_state: Default::default(),
             public_ip: Arc::new(crate::unlock::PublicIp::new(reqwest::Client::new())),
             unlock_limiter: Arc::new(crate::unlock::AttemptLimiter::default()),
@@ -275,52 +389,181 @@ mod tests {
         })
     }
 
-    fn state() -> Arc<AppState> {
-        state_with_extras(Arc::new(ExtrasState::new(false, None)))
+    fn state_with_providers(
+        store: Arc<Store>,
+        extras: Arc<ExtrasState>,
+        playbox: Arc<PlayboxState>,
+    ) -> Arc<AppState> {
+        Arc::new(AppState {
+            config: Config::default(),
+            path_prefix: String::new(),
+            access: Arc::new(Access::new(store.clone())),
+            store,
+            tv: Arc::new(Television::new(reqwest::Client::new())),
+            secure: Arc::new(SecureUrl::new(false)),
+            http: reqwest::Client::new(),
+            drm_channels: Default::default(),
+            custom_channels: Arc::new(CustomChannels::new()),
+            render_caches: Default::default(),
+            dash_state: Default::default(),
+            epg_state: Default::default(),
+            extras,
+            fastway: Arc::new(FastwayState::new(false)),
+            playbox,
+            vzy: Arc::new(VzyState::new(false)),
+            vod_state: Default::default(),
+            public_ip: Arc::new(crate::unlock::PublicIp::new(reqwest::Client::new())),
+            unlock_limiter: Arc::new(crate::unlock::AttemptLimiter::default()),
+            listen: Default::default(),
+            tunnel_origin: Default::default(),
+        })
     }
 
-    fn connected_extras_state() -> Arc<AppState> {
-        let s = state_with_extras(Arc::new(ExtrasState::new(true, None)));
-        s.extras.init(&s.http, &s.store);
-        s.extras.prime_for_test(
-            crate::extras::Credentials {
-                number: "redacted".into(),
-                sso_token: "redacted-sso".into(),
-                auth_token: "redacted-at".into(),
-                ..Default::default()
-            },
-            Vec::new(),
-            None,
+    fn playbox_state_with_mock(server: &wiremock::MockServer) -> Arc<PlayboxState> {
+        let state = Arc::new(PlayboxState::new(true));
+        let mut client =
+            crate::playbox::Client::new(reqwest::Client::new(), crate::playbox::Device::new());
+        client.set_bases_for_test(&server.uri());
+        *client.creds.write().unwrap() = crate::playbox::Credentials {
+            phone: "9876543210".into(),
+            token: "opaque-session-token".into(),
+            customer_id: "cust-1".into(),
+        };
+        state.set_client_for_test(Arc::new(client));
+        state
+    }
+
+    fn empty_store() -> Arc<Store> {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(Store::open(dir.path().to_str().unwrap()).unwrap());
+        std::mem::forget(dir);
+        store
+    }
+
+    #[tokio::test]
+    async fn playbox_becomes_the_active_catalogue_only_when_connected() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/catalogue/v3/page/livetv2"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "livetv": [{"id": "ch1", "name": "One", "typeId": 106}]
+            })))
+            .mount(&server)
+            .await;
+
+        let disconnected = state_with_providers(
+            empty_store(),
+            Arc::new(ExtrasState::new(false, None)),
+            Arc::new(PlayboxState::new(false)),
         );
-        s
+        assert_eq!(disconnected.active_product(), ActiveProduct::Tv);
+        assert!(!disconnected.is_playable("pb_ch1"));
+
+        let s = state_with_providers(
+            empty_store(),
+            Arc::new(ExtrasState::new(false, None)),
+            playbox_state_with_mock(&server),
+        );
+        assert_eq!(s.active_product(), ActiveProduct::Playbox);
+        assert!(s.is_playable("pb_ch1"));
+
+        let channels = s.effective_upstream_channels().await.unwrap();
+        assert_eq!(channels.len(), 1);
+        assert_eq!(channels[0].id, "pb_ch1");
+        assert!(s.channel_allowed("pb_ch1").await);
+        assert!(!s.channel_allowed("pb_other").await);
     }
 
-    #[test]
-    fn active_provider_defaults_to_a_connected_jiotv_plus_source() {
-        let s = connected_extras_state();
-        assert_eq!(s.preferred_product(), None);
+    #[tokio::test]
+    async fn cold_playbox_catalogue_failure_is_reported() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/catalogue/v3/page/livetv2"))
+            .respond_with(ResponseTemplate::new(503))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let s = state_with_providers(
+            empty_store(),
+            Arc::new(ExtrasState::new(false, None)),
+            playbox_state_with_mock(&server),
+        );
+
+        assert_eq!(
+            s.effective_upstream_channels()
+                .await
+                .unwrap_err()
+                .to_string(),
+            "playbox catalogue is unavailable"
+        );
+    }
+
+    #[tokio::test]
+    async fn jiotv_plus_keeps_precedence_over_playbox() {
+        let store = empty_store();
+        store
+            .set(
+                crate::extras::STORE_KEY_CREDENTIALS,
+                &serde_json::to_string(&crate::extras::Credentials {
+                    sso_token: "redacted-sso".into(),
+                    subscriber_id: "redacted-sub".into(),
+                    user_id: "redacted-user".into(),
+                    auth_token: "redacted-access".into(),
+                    ..Default::default()
+                })
+                .unwrap(),
+            )
+            .unwrap();
+        let extras = Arc::new(ExtrasState::new(true, None));
+        extras.init(&reqwest::Client::new(), &store);
+        assert!(extras.connected());
+
+        let server = wiremock::MockServer::start().await;
+        let s = state_with_providers(empty_store(), extras, playbox_state_with_mock(&server));
         assert_eq!(s.active_product(), ActiveProduct::Extras);
     }
 
-    #[test]
-    fn activating_jiotv_outranks_a_connected_jiotv_plus_source() {
-        let s = connected_extras_state();
+    #[tokio::test]
+    async fn explicit_provider_choice_outranks_the_automatic_priority() {
+        let server = wiremock::MockServer::start().await;
+        let s = state_with_providers(
+            empty_store(),
+            Arc::new(ExtrasState::new(false, None)),
+            playbox_state_with_mock(&server),
+        );
+        assert_eq!(s.active_product(), ActiveProduct::Playbox);
         s.set_active_product(ActiveProduct::Tv).unwrap();
         assert_eq!(s.preferred_product(), Some(ActiveProduct::Tv));
         assert_eq!(s.active_product(), ActiveProduct::Tv);
     }
 
     #[test]
-    fn a_disconnected_jiotv_plus_selection_falls_back_to_jiotv() {
-        let s = state_with_extras(Arc::new(ExtrasState::new(false, None)));
-        s.set_active_product(ActiveProduct::Extras).unwrap();
-        assert_eq!(s.preferred_product(), Some(ActiveProduct::Extras));
+    fn a_disconnected_provider_choice_falls_back_without_being_erased() {
+        let s = state_with_providers(
+            empty_store(),
+            Arc::new(ExtrasState::new(false, None)),
+            Arc::new(PlayboxState::new(false)),
+        );
+        s.set_active_product(ActiveProduct::Fastway).unwrap();
+        assert_eq!(s.preferred_product(), Some(ActiveProduct::Fastway));
         assert_eq!(s.active_product(), ActiveProduct::Tv);
     }
 
     #[test]
-    fn store_name_round_trips() {
-        for product in [ActiveProduct::Tv, ActiveProduct::Extras] {
+    fn provider_store_names_round_trip() {
+        for product in [
+            ActiveProduct::Tv,
+            ActiveProduct::Extras,
+            ActiveProduct::Fastway,
+            ActiveProduct::Playbox,
+            ActiveProduct::Vzy,
+        ] {
             assert_eq!(
                 ActiveProduct::from_name(product.store_name()),
                 Some(product)

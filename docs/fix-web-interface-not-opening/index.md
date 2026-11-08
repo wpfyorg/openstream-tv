@@ -8,19 +8,19 @@ keywords: [web inaccessible, connection refused, port, firewall, localhost, LAN,
 # Fix Web Interface Not Opening
 
 ## Symptoms
-The browser shows **Connection refused**, **Site cannot be reached**, a timeout, or a certificate warning when opening JioTV.
+The browser shows **Connection refused**, **Site cannot be reached**, a timeout, or a certificate warning when opening OpenStream TV.
 
 ## Possible causes
 The server is stopped, the address or port is wrong, the process listens only on localhost, a firewall blocks access, or the browser is using HTTP for an HTTPS-only port.
 
 ## Diagnosis
-1. On the server, run `jiotv serve` in a terminal if it is not running as a service. Look for startup or port-binding errors.
+1. On the server, run `ost serve` in a terminal if it is not running as a service. Look for startup or port-binding errors.
 2. Open `http://localhost:5001/` on that same machine using the default listener.
 3. For another LAN device, check whether the server was started with `--host 0.0.0.0` and whether its firewall permits the chosen port.
 4. When `--tls` is enabled, use `https://<server-address>:5443/` for the HTTPS listener. Plain HTTP remains on port 5001 by default.
 
 ## Solution
-1. Start the server and use its configured host and port. For an occupied port, choose an unused one such as `jiotv serve --port 5002`.
+1. Start the server and use its configured host and port. For an occupied port, choose an unused one such as `ost serve --port 5002`.
 2. For trusted LAN access, bind to the intended interface and allow the chosen port in the host firewall.
 3. If HTTPS is enabled, use the HTTPS URL. Trust a self-signed certificate only if you control and trust this server.
 

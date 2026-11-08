@@ -34,7 +34,7 @@
   let activityTimer = null;
   let toastTimer = null;
 
-  const fullStageKinds = new Set(["offline", "playback", "secure", "protected", "subscription", "restricted", "extras-signin", "extras-status", "extras-unavailable", "service"]);
+  const fullStageKinds = new Set(["offline", "playback", "secure", "protected", "subscription", "restricted", "extras-signin", "extras-status", "extras-unavailable", "fastway-signin", "fastway-status", "fastway-unavailable", "playbox-signin", "playbox-status", "playbox-unavailable", "vzy-status", "vzy-unavailable", "service"]);
 
   let currentProgramIndex = $derived(guide.findIndex((program) => isNow(program, clock)));
   let currentProgram = $derived(currentProgramIndex >= 0 ? guide[currentProgramIndex] : null);
@@ -300,6 +300,81 @@
         }
       }
 
+      if (channelID.startsWith("fw_")) {
+        const status = await api("/api/fastway/status").catch(() => null);
+        if (!isCurrent()) return;
+        if (!status) {
+          if (!navigator.onLine) {
+            setPlayerState("offline", "Connection issue", "You’re offline", "Reconnect to the internet, then try the stream again.");
+          } else {
+            setPlayerState("fastway-unavailable", "Fastway", "Fastway status unavailable", "We could not check the Fastway account right now. Wait a moment and try again.");
+          }
+          return;
+        }
+        if (!status?.fastway?.enabled) {
+          setPlayerState("fastway-status", "Fastway", "Fastway is not enabled", "Enable Fastway in account settings, then return here to start playback.");
+          return;
+        }
+        if (!status?.fastway?.connected) {
+          setPlayerState("fastway-signin", "Fastway", "Connect Fastway to play", "This channel comes from Fastway. Connect the Fastway account, then return here to start playback.");
+          return;
+        }
+        if (status?.fastway?.activeProduct !== "fastway") {
+          setPlayerState("fastway-status", "Fastway", "Fastway is not the active provider", "Switch to Fastway in account settings, then return here to start playback.");
+          return;
+        }
+      }
+
+      if (channelID.startsWith("pb_")) {
+        const status = await api("/api/playbox/status").catch(() => null);
+        if (!isCurrent()) return;
+        if (!status) {
+          if (!navigator.onLine) {
+            setPlayerState("offline", "Connection issue", "You’re offline", "Reconnect to the internet, then try the stream again.");
+          } else {
+            setPlayerState("playbox-unavailable", "PlayboxTV", "PlayboxTV status unavailable", "We could not check the PlayboxTV account right now. Wait a moment and try again.");
+          }
+          return;
+        }
+        if (!status?.playbox?.enabled) {
+          setPlayerState("playbox-status", "PlayboxTV", "PlayboxTV is not enabled", "Enable PlayboxTV in account settings, then return here to start playback.");
+          return;
+        }
+        if (!status?.playbox?.connected) {
+          setPlayerState("playbox-signin", "PlayboxTV", "Connect PlayboxTV to play", "This channel comes from PlayboxTV. Connect the PlayboxTV account, then return here to start playback.");
+          return;
+        }
+        if (status?.playbox?.activeProduct !== "playbox") {
+          setPlayerState("playbox-status", "PlayboxTV", "PlayboxTV is not the active provider", "Switch to PlayboxTV in account settings, then return here to start playback.");
+          return;
+        }
+      }
+
+      if (channelID.startsWith("vzy_")) {
+        const status = await api("/api/vzy/status").catch(() => null);
+        if (!isCurrent()) return;
+        if (!status) {
+          if (!navigator.onLine) {
+            setPlayerState("offline", "Connection issue", "You’re offline", "Reconnect to the internet, then try the stream again.");
+          } else {
+            setPlayerState("vzy-unavailable", "VZY", "VZY status unavailable", "We could not check the VZY free tier right now. Wait a moment and try again.");
+          }
+          return;
+        }
+        if (!status?.vzy?.enabled) {
+          setPlayerState("vzy-status", "VZY", "VZY is not enabled", "Enable VZY in server settings, then return here to start playback.");
+          return;
+        }
+        if (!status?.vzy?.connected) {
+          setPlayerState("vzy-unavailable", "VZY", "VZY free tier is not ready", "The anonymous session could not be created. Try again in a moment.");
+          return;
+        }
+        if (status?.vzy?.activeProduct !== "vzy") {
+          setPlayerState("vzy-status", "VZY", "VZY is not the active provider", "Switch to VZY in account settings, then return here to start playback.");
+          return;
+        }
+      }
+
       const source = await api(`/api/live/play/${encodeURIComponent(channelID)}?q=${q}`);
       if (!isCurrent()) return;
       const session = await createShakaPlayer(playerContainer, video, { controls: false });
@@ -516,7 +591,7 @@
         <h2 id="player-error-title">{playerState.title}</h2>
         <p class="error-detail">{playerState.detail}</p>
         <div class="error-actions">
-          {#if ["extras-signin", "extras-status", "secure", "protected"].includes(playerState.kind)}
+          {#if ["extras-signin", "extras-status", "fastway-signin", "fastway-status", "playbox-signin", "playbox-status", "vzy-status", "secure", "protected"].includes(playerState.kind)}
             <a class="retry-button" href="#/settings">Open account settings</a>
           {:else}
             <button class="retry-button" onclick={() => start(id, quality)}>Try again</button>
@@ -536,6 +611,9 @@
           {[channel?.category, channel?.language].filter(Boolean).join(" · ")}
           {#if channel?.requiresSubscription}<span class="badge premium">Premium</span>{/if}
           {#if channel?.extras}<span class="badge extras">Extra</span>{/if}
+          {#if channel?.fastway}<span class="badge fastway">Fastway</span>{/if}
+          {#if channel?.playbox}<span class="badge playbox">PlayboxTV</span>{/if}
+          {#if channel?.vzy}<span class="badge vzy">VZY</span>{/if}
         </p>
         {#if channel?.requiresSubscription}<p class="subscription-notice" role="note">A subscription may be required to play this channel.</p>{/if}
       </div>

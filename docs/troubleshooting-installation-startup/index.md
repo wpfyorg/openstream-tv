@@ -29,7 +29,7 @@ Use the installer for your platform or select a release asset that matches both 
 
 ### Verification
 
-Run `jiotv --help`. It should print the command help and exit successfully. Then follow [Getting started](../getting-started-in-5-minutes/index.md) to start the server.
+Run `ost --help`. It should print the command help and exit successfully. Then follow [Getting started](../getting-started-in-5-minutes/index.md) to start the server.
 
 ### Further help
 
@@ -58,7 +58,7 @@ Remove only the incomplete download or partial file you created, then use the of
 
 ### Verification
 
-Run `jiotv --help`, then consult the current [CLI options](../configuration-cli/index.md) for server flags. A successful help response confirms the executable starts; it does not confirm the server is reachable.
+Run `ost --help`, then consult the current [CLI options](../configuration-cli/index.md) for server flags. A successful help response confirms the executable starts; it does not confirm the server is reachable.
 
 ### Further help
 
@@ -74,11 +74,11 @@ The program cannot create files, login state is lost, or the service works inter
 
 - The service account cannot write to the configured data directory.
 - The container data volume is missing or mounted at a different path.
-- Interactive login and the running service use different `JIOTV_PATH_PREFIX` values or operating-system users.
+- Interactive login and the running service use different `OPENSTREAM_PATH_PREFIX` values or operating-system users.
 
 ### Diagnosis
 
-Check the effective `JIOTV_PATH_PREFIX` and the service/container mount, then verify that the same runtime user can read and write there. The default data directory is under the user's home directory; Docker and OpenWrt may use a different location documented by their install guide.
+Check the effective `OPENSTREAM_PATH_PREFIX` and the service/container mount, then verify that the same runtime user can read and write there. The default data directory is under the user's home directory; Docker and OpenWrt may use a different location documented by their install guide.
 
 ### Solution
 
@@ -111,7 +111,7 @@ Check startup output for the actual bind address and ports. The Rust CLI default
 
 ### Solution
 
-Stop only the duplicate JioTV instance you own, or choose an unused port using `--port`. To allow LAN clients, bind to the host's LAN interface or `0.0.0.0`, and allow only the needed LAN traffic in the firewall. For browser protected playback, enable TLS with `--tls`; see [protected playback](../troubleshooting-protected-playback/index.md). Keep IPTV clients on the documented HTTP playlist listener.
+Stop only the duplicate OpenStream TV instance you own, or choose an unused port using `--port`. To allow LAN clients, bind to the host's LAN interface or `0.0.0.0`, and allow only the needed LAN traffic in the firewall. For browser protected playback, enable TLS with `--tls`; see [protected playback](../troubleshooting-protected-playback/index.md). Keep IPTV clients on the documented HTTP playlist listener.
 
 ### Verification
 

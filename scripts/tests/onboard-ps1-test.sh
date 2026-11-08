@@ -1,5 +1,5 @@
 #!/bin/sh
-# Drives the PowerShell onboarding sign-in against a stub `jiotv` so the
+# Drives the PowerShell onboarding sign-in against a stub `ost` so the
 # Windows flow is exercised without a Windows machine or a real account.
 #
 # The wizard code is sliced out of install.ps1 between the onboarding-ui
@@ -23,10 +23,10 @@ if ! command -v pwsh >/dev/null 2>&1; then
     exit 0
 fi
 
-tmp=$(mktemp -d "${TMPDIR:-/tmp}/jiotv-ps1.XXXXXX")
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/openstream-ps1.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT INT TERM
 
-cat > "$tmp/jiotv" <<'STUB'
+cat > "$tmp/ost" <<'STUB'
 #!/bin/sh
 # Stand-in for the real binary: same prompts, same success lines, a wrong OTP
 # fails the way the real one does.
@@ -93,7 +93,7 @@ case "$1 $2" in
     ;;
 esac
 STUB
-chmod +x "$tmp/jiotv"
+chmod +x "$tmp/ost"
 
 cat > "$tmp/harness.ps1" <<'HARNESS'
 param(
@@ -206,7 +206,7 @@ exit 0
 HARNESS
 
 if pwsh -NoProfile -NonInteractive -File "$tmp/harness.ps1" \
-    -Installer "$installer" -Stub "$tmp/jiotv" -LogPath "$tmp/calls.log"; then
+    -Installer "$installer" -Stub "$tmp/ost" -LogPath "$tmp/calls.log"; then
     echo "onboarding (PowerShell) OK"
 else
     echo "onboarding (PowerShell) FAILED" >&2

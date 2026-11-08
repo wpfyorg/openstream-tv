@@ -22,11 +22,11 @@ The XMLTV URL fails, the guide is empty, or programme times do not match current
 
 ### Diagnosis
 
-Check **Settings** for the EPG status and use the EPG URL shown there. Check the server output for generation errors. Confirm `JIOTV_EPG=true` or `epg = true` if using configuration. The server refreshes its EPG cache periodically; generation can take several minutes.
+Check **Settings** for the EPG status and use the EPG URL shown there. Check the server output for generation errors. Confirm `OPENSTREAM_EPG=true` or `epg = true` if using configuration. The server refreshes its EPG cache periodically; generation can take several minutes.
 
 ### Solution
 
-Enable EPG and restart the server if needed. To explicitly regenerate from the CLI, stop the service first if it owns the same data directory, then run `jiotv epg generate` using the same config and data path. Re-import or refresh the XMLTV source in the IPTV app after generation. Do not delete the cache as a first step.
+Enable EPG and restart the server if needed. To explicitly regenerate from the CLI, stop the service first if it owns the same data directory, then run `ost epg generate` using the same config and data path. Re-import or refresh the XMLTV source in the IPTV app after generation. Do not delete the cache as a first step.
 
 ### Verification
 

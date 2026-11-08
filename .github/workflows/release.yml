@@ -9,7 +9,16 @@ on:
   # a real tag depends on them.
   pull_request:
     types: [labeled, synchronize, reopened]
-    paths: [".github/workflows/release.yml", "scripts/ci-openwrt-packages.sh", "scripts/build-openwrt-packages.sh", "openwrt/**"]
+    paths:
+      - ".github/workflows/release.yml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "src/**"
+      - "build.rs"
+      - "web/ui/dist/**"
+      - "scripts/ci-openwrt-packages.sh"
+      - "scripts/build-openwrt-packages.sh"
+      - "openwrt/**"
   workflow_dispatch:
 
 # Read-only by default: dry runs on pull requests execute branch code. Only the publish
@@ -39,7 +48,7 @@ jobs:
           - { triple: aarch64-unknown-linux-musl, os: ubuntu-latest, kind: zig }
           - { triple: armv7-unknown-linux-musleabihf, os: ubuntu-latest, kind: zig }
           - { triple: i686-unknown-linux-musl, os: ubuntu-latest, kind: zig }
-          - { triple: aarch64-apple-darwin, os: macos-14, kind: native, test: true }
+          - { triple: aarch64-apple-darwin, os: macos-15, kind: native, test: true }
           - { triple: x86_64-apple-darwin, os: macos-15-intel, kind: native }
           - { triple: x86_64-pc-windows-msvc, os: windows-2022, kind: native, test: true }
           - { triple: i686-pc-windows-msvc, os: windows-2022, kind: native }
@@ -83,7 +92,7 @@ jobs:
               android) cargo ndk --target "${{ matrix.target.triple }}" --platform 21 build --release --locked "${flags[@]}" ;;
               *) cargo build --release --locked --target "${{ matrix.target.triple }}" "${flags[@]}" ;;
             esac
-            cp "target/${{ matrix.target.triple }}/release/jiotv${suffix}" "out/jiotv-${variant}-${{ matrix.target.triple }}${suffix}"
+            cp "target/${{ matrix.target.triple }}/release/ost${suffix}" "out/openstream-${variant}-${{ matrix.target.triple }}${suffix}"
           done
       - name: Run native target tests
         if: matrix.target.test
@@ -106,7 +115,7 @@ jobs:
           if ($errors.Count) { $errors | Format-List; exit 1 }
       - uses: actions/upload-artifact@v4
         with:
-          name: jiotv-${{ matrix.target.triple }}
+          name: openstream-${{ matrix.target.triple }}
           path: out/*
           if-no-files-found: error
           retention-days: 7
@@ -128,10 +137,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: jiotv-${{ matrix.arch == 'x86_64' && 'x86_64-unknown-linux-musl' || matrix.arch == 'aarch64' && 'aarch64-unknown-linux-musl' || 'armv7-unknown-linux-musleabihf' }}
+          name: openstream-${{ matrix.arch == 'x86_64' && 'x86_64-unknown-linux-musl' || matrix.arch == 'aarch64' && 'aarch64-unknown-linux-musl' || 'armv7-unknown-linux-musleabihf' }}
           path: dist/bin
       - name: Restore executable permissions
-        run: chmod 0755 dist/bin/jiotv-*
+        run: chmod 0755 dist/bin/openstream-*
       - name: Install SDK archive support
         run: sudo apt-get update && sudo apt-get install -y zstd
       # A tag names the version; a dry run has no tag, and its ref name (for example
@@ -139,8 +148,11 @@ jobs:
       - name: Package version
         id: version
         run: |
-          if [ "$GITHUB_REF_TYPE" = tag ]; then version=${GITHUB_REF_NAME#v}
-          else version=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+          cargo_version=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            version=${GITHUB_REF_NAME#v}
+            [ "$version" = "$cargo_version" ] || { echo "tag $GITHUB_REF_NAME does not match Cargo.toml version v$cargo_version"; exit 1; }
+          else version=$cargo_version
           fi
           echo "value=$version" >> "$GITHUB_OUTPUT"
       - name: Build packages with the OpenWrt SDK
@@ -179,10 +191,10 @@ jobs:
           set -eu
           for variant in full slim; do
             for target in x86_64-unknown-linux-musl aarch64-unknown-linux-musl armv7-unknown-linux-musleabihf i686-unknown-linux-musl aarch64-apple-darwin x86_64-apple-darwin aarch64-linux-android armv7-linux-androideabi x86_64-linux-android; do
-              test -s "dist/jiotv-${variant}-${target}"
+              test -s "dist/openstream-${variant}-${target}"
             done
             for target in x86_64-pc-windows-msvc i686-pc-windows-msvc aarch64-pc-windows-msvc; do
-              test -s "dist/jiotv-${variant}-${target}.exe"
+              test -s "dist/openstream-${variant}-${target}.exe"
             done
           done
           test "$(find dist -type f -name '*.ipk' | wc -l)" -ge 6
@@ -215,10 +227,18 @@ jobs:
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "${GITHUB_REF_NAME}" dist/* --repo "${GITHUB_REPOSITORY}" --title "${GITHUB_REF_NAME}" --generate-notes
+        run: |
+          prerelease=""
+          case "${GITHUB_REF_NAME}" in
+            *-*) prerelease="--prerelease" ;;
+          esac
+          gh release create "${GITHUB_REF_NAME}" dist/* --repo "${GITHUB_REPOSITORY}" --title "${GITHUB_REF_NAME}" --generate-notes $prerelease
 
+  # A beta tag must not move the Docker `latest`/major/minor tags.
   docker:
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    if: >-
+      github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') &&
+      !contains(github.ref_name, '-')
     needs: publish
     uses: ./.github/workflows/docker.yml
     permissions:

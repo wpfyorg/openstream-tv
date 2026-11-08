@@ -1,8 +1,8 @@
 ---
 title: Accounts and sign-in
-description: Connect the JioTV provider account and, if enabled, JioTV+ channels. Admin access is separate.
+description: Connect the JioTV provider account and, if enabled, JioTV+ or Fastway. Admin access is separate.
 category: Account Setup
-keywords: [JioTV, help, guide, account]
+keywords: [JioTV, help, guide, account, Fastway]
 ---
 
 # Accounts and sign-in
@@ -14,6 +14,7 @@ Connect the JioTV provider account and, if enabled, JioTV+ channels. Admin acces
 - [Connect Your JioTV Account](../account-connect-jiotv/index.md)
 - [Switch to Another JioTV Account](../account-switch-jiotv/index.md)
 - [Connect JioTV+](../account-extras/index.md)
+- [Connect Fastway Live TV](../account-fastway/index.md)
 - [Admin Sessions and Sign Out](../account-sessions/index.md)
 
 [All help centre articles](../help-centre/index.md).

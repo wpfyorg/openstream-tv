@@ -1,21 +1,21 @@
 ---
 title: Install on Windows
-description: Install the JioTV server on Windows with PowerShell and configure first launch.
+description: Install OpenStream TV on Windows with PowerShell and configure first launch.
 category: Installation
 keywords: [Windows, PowerShell, install, Windows 11, Windows 10]
 ---
 
 # Install on Windows
 
-The PowerShell installer supports x64, x86, and ARM64 Windows. It verifies the matching release binary with the release SHA-256 manifest, installs `jiotv.exe` under your local Programs directory, and adds that directory to your user `PATH`.
+The PowerShell installer supports x64, x86, and ARM64 Windows. It downloads the latest matching GitHub release by default, verifies it with the release SHA-256 manifest, installs `ost.exe` under your local Programs directory, and adds that directory to your user `PATH`. Use `-Version 1.5.0` or set `$env:OPENSTREAM_VERSION = '1.5.0'` before running the installer when you need to pin the installed version.
 
 Open PowerShell and run:
 
 ```powershell
-irm https://raw.githubusercontent.com/wpfyorg/better-jiotv-go/main/scripts/install.ps1 | iex
+irm https://raw.githubusercontent.com/wpfyorg/openstream-tv/main/scripts/install.ps1 | iex
 ```
 
-Close and reopen PowerShell if `jiotv` is not found.
+Close and reopen PowerShell if `ost` is not found.
 
 ## Guided setup
 
@@ -26,34 +26,57 @@ The sign-in step asks for the mobile number and one-time password inside the wiz
 Skip the questions by setting the environment before running the script, or turn the flow off entirely:
 
 ```powershell
-$env:JIOTV_VARIANT = 'slim'
-$env:JIOTV_PROVIDER = 'jiotv'
-$env:JIOTV_TUNNEL = 'none'
+$env:OPENSTREAM_VARIANT = 'slim'
+$env:OPENSTREAM_PROVIDER = 'jiotv'
+$env:OPENSTREAM_TUNNEL = 'none'
 ```
 
-`$env:JIOTV_ONBOARD = 'never'` keeps the plain non-interactive install. Redirected output (CI, scheduled tasks) skips the flow automatically.
+`$env:OPENSTREAM_ONBOARD = 'never'` keeps the plain non-interactive install. Redirected output (CI, scheduled tasks) skips the flow automatically.
 
-The installer configures the account but does not start the server. Start it after setup:
+The guided installer configures the selected account and admin password but does not keep the server running. After successful guided setup, reuse the exact `Start it with:` command printed by the installer. It includes the selected provider settings and, when you chose a temporary or named Cloudflare tunnel, the required `--tunnel` option. If you selected LAN-only access, the equivalent start command is:
 
 ```powershell
-jiotv login otp
-jiotv admin password
-jiotv serve --host 0.0.0.0 --tls
+ost serve --host 0.0.0.0 --tls
 ```
 
-Enter the OTP in the terminal. The installer configures the account but does not start the server; run the printed `jiotv serve` command after setup. Open `https://localhost:5443/` on the same PC and accept the self-signed certificate warning. Other devices on your trusted LAN can use `https://<this-PC-ip>:5443/`; find the address with `ipconfig`. IPTV players use the authenticated playlist URL printed by the installer. The `slim` build has no browser interface.
+If guided setup ran, it saves the selected provider flags in your user environment. If you skipped it with `OPENSTREAM_ONBOARD=never`, set the matching provider flags in the same PowerShell session before signing in and keep that session open for `serve`:
+
+```powershell
+# JioTV: mobile-number OTP
+$env:OPENSTREAM_TVPLUS = 'false'
+$env:OPENSTREAM_FASTWAY = 'false'
+ost login otp
+
+# JioTV+: eligible JioFiber or AirFiber login
+$env:OPENSTREAM_TVPLUS = 'true'
+$env:OPENSTREAM_FASTWAY = 'false'
+ost tv+ login
+
+# Fastway: prompts for the provider username and password
+$env:OPENSTREAM_TVPLUS = 'false'
+$env:OPENSTREAM_FASTWAY = 'true'
+ost fastway login
+```
+
+For the full web build, set the admin password before `serve`:
+
+```powershell
+ost admin password
+```
+
+Open `https://localhost:5443/` on the same PC and accept the self-signed certificate warning. Other devices on your trusted LAN can use `https://<this-PC-ip>:5443/`; find the address with `ipconfig`. IPTV players use the authenticated playlist URL printed by the installer. The `slim` build has no browser interface.
 
 The installer accepts `-Variant full|slim`, `-Version latest|<version>`, `-InstallDir <directory>`, and `-Repo <owner/repository>`. For example, to install a specific release in a custom directory:
 
 ```powershell
-irm https://raw.githubusercontent.com/wpfyorg/better-jiotv-go/main/scripts/install.ps1 -OutFile install-jiotv.ps1
-.\install-jiotv.ps1 -Version 1.3.3 -InstallDir "$env:LOCALAPPDATA\JioTV"
+irm https://raw.githubusercontent.com/wpfyorg/openstream-tv/main/scripts/install.ps1 -OutFile install-openstream.ps1
+.\install-openstream.ps1 -Version 1.5.0 -InstallDir "$env:LOCALAPPDATA\OpenStream TV"
 ```
 
-The installer does not register a Windows service. Keep the terminal running while serving, or use a separately managed service wrapper only if you know how to configure and secure it. Update with `jiotv update`; see [Update and uninstall](../maintenance-update-uninstall/index.md).
+The installer does not register a Windows service. Keep the terminal running while serving, or use a separately managed service wrapper only if you know how to configure and secure it. Update with `ost update`; see [How to Update OpenStream TV](../maintenance-update/index.md) and [Uninstall OpenStream TV Safely](../maintenance-update-uninstall/index.md).
 
 ## Verify and troubleshoot
 
-Open a new PowerShell window, run `Get-Command jiotv` and `jiotv --help`, then open the selected server address in a browser while the server is running. If Windows cannot find `jiotv`, verify the install folder is on your user `PATH` and reopen PowerShell. If the server cannot bind its port, see [startup errors](../troubleshooting-installation-startup/index.md).
+Open a new PowerShell window, run `Get-Command ost` and `ost --help`, then open the selected server address in a browser while the server is running. If Windows cannot find `ost`, verify the install folder is on your user `PATH` and reopen PowerShell. If the server cannot bind its port, see [startup errors](../troubleshooting-installation-startup/index.md).
 
-Update with `jiotv update` and restart the server. To uninstall, stop it, remove `jiotv.exe` from the install directory, and remove an unneeded `PATH` entry. See [uninstall and saved data](../maintenance-update-uninstall/index.md).
+Update with `ost update` and restart the server. To uninstall, stop it, remove `ost.exe` from the install directory, and remove an unneeded `PATH` entry. See [uninstall and saved data](../maintenance-update-uninstall/index.md).

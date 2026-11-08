@@ -4,6 +4,8 @@
   import CopyField from "../lib/CopyField.svelte";
   import JioTVLogin from "../lib/JioTVLogin.svelte";
   import ExtrasLogin from "../lib/ExtrasLogin.svelte";
+  import FastwayLogin from "../lib/FastwayLogin.svelte";
+  import PlayboxLogin from "../lib/PlayboxLogin.svelte";
   import { plainHttpOrigin } from "../lib/origin.js";
 
   let status = $state(null);
@@ -12,7 +14,15 @@
   let providerBusy = $state("");
 
   const activeProvider = $derived(
-    status?.catalogue?.activeProduct === "extras" ? "jiotv_plus" : "jiotv",
+    status?.catalogue?.activeProduct === "extras"
+      ? "jiotv_plus"
+      : status?.catalogue?.activeProduct === "fastway"
+        ? "fastway"
+        : status?.catalogue?.activeProduct === "playbox"
+          ? "playbox"
+          : status?.catalogue?.activeProduct === "vzy"
+            ? "vzy"
+            : "jiotv",
   );
 
   async function refresh() {
@@ -24,6 +34,11 @@
     }
   }
 
+  function providerChanged() {
+    window.dispatchEvent(new CustomEvent("openstream:provider-changed"));
+    window.dispatchEvent(new CustomEvent("openstream:extras-changed"));
+  }
+
   async function activate(provider) {
     if (providerBusy) return;
     providerBusy = provider;
@@ -31,7 +46,6 @@
     try {
       await api("/api/providers/activate", { method: "POST", body: { provider } });
       await loginChanged();
-      window.dispatchEvent(new CustomEvent("jiotv:extras-changed"));
     } catch (err) {
       error = err.message;
     } finally {
@@ -42,10 +56,18 @@
   async function loginChanged() {
     await refresh();
     loadChannels(true);
+    providerChanged();
   }
 
   async function logout(which) {
-    if (!confirm(`Log out of ${which === "jiotv" ? "JioTV" : "the extra source"}?`)) return;
+    const labels = {
+      jiotv: "JioTV",
+      extras: "JioTV+",
+      fastway: "Fastway",
+      playbox: "PlayboxTV",
+      vzy: "VZY",
+    };
+    if (!confirm(`Log out of ${labels[which] ?? which}?`)) return;
     try {
       await api(`/api/${which}/logout`, { method: "POST" });
       await loginChanged();
@@ -66,8 +88,8 @@
   // Typing the unlock code into the channel search box (Channels.svelte)
   // dispatches this once it succeeds, so this section can appear without a
   // reload.
-  window.addEventListener("jiotv:extras-changed", refresh);
-  onDestroy(() => window.removeEventListener("jiotv:extras-changed", refresh));
+  window.addEventListener("openstream:extras-changed", refresh);
+  onDestroy(() => window.removeEventListener("openstream:extras-changed", refresh));
 
   async function rotateKey() {
     if (!confirm("Make a new access key? Every player using the current playlist URL will stop working until you give it the new one.")) return;
@@ -121,7 +143,7 @@
         {/if}
         {#if !status.logoutDisabled}<button class="btn" onclick={() => logout("jiotv")}>Log out</button>{/if}
       {:else}
-        <p class="muted">Not logged in.{status.extras.connected && activeProvider === "jiotv_plus" ? " JioTV+ is the active provider." : ""}</p>
+        <p class="muted">Log in with a JioTV mobile number.</p>
         <JioTVLogin ondone={loginChanged} />
       {/if}
     </section>
@@ -146,6 +168,71 @@
       </section>
     {/if}
 
+    {#if status.fastway?.enabled}
+      <section class="card">
+        <div class="card-head">
+          <h2>Fastway <span class="pill beta">Beta</span></h2>
+          {#if activeProvider === "fastway"}<span class="pill active">Active</span>{/if}
+        </div>
+        {#if status.fastway.connected}
+          <p class="ok">Connected</p>
+          {#if activeProvider !== "fastway"}
+            <button class="btn" disabled={providerBusy !== ""} onclick={() => activate("fastway")}>Use Fastway</button>
+          {/if}
+          {#if !status.logoutDisabled}<button class="btn" onclick={() => logout("fastway")}>Disconnect</button>{/if}
+        {:else}
+          <p class="muted">Use the Fastway username and password for your subscription.</p>
+          <FastwayLogin ondone={loginChanged} />
+        {/if}
+      </section>
+    {/if}
+
+    {#if status.playbox?.enabled}
+      <section class="card">
+        <div class="card-head">
+          <h2>PlayboxTV <span class="pill beta">Beta</span></h2>
+          {#if activeProvider === "playbox"}<span class="pill active">Active</span>{/if}
+        </div>
+        {#if status.playbox.connected}
+          <p class="ok">Connected</p>
+          {#if activeProvider !== "playbox"}
+            <button class="btn" disabled={providerBusy !== ""} onclick={() => activate("playbox")}>Use PlayboxTV</button>
+          {/if}
+          {#if !status.logoutDisabled}<button class="btn" onclick={() => logout("playbox")}>Disconnect</button>{/if}
+        {:else}
+          <p class="muted">Use the PlayboxTV mobile number.</p>
+          <PlayboxLogin ondone={loginChanged} />
+        {/if}
+      </section>
+    {/if}
+
+    {#if status.vzy?.enabled}
+      <section class="card">
+        <div class="card-head">
+          <h2>VZY <span class="pill beta">Beta</span></h2>
+          {#if activeProvider === "vzy"}<span class="pill active">Active</span>{/if}
+        </div>
+        <p class="muted">Free-tier channels only; no account is required.</p>
+        {#if status.vzy.connected}
+          <p class="ok">Free tier available</p>
+          {#if activeProvider !== "vzy"}
+            <button class="btn" disabled={providerBusy !== ""} onclick={() => activate("vzy")}>Use VZY</button>
+          {/if}
+        {:else}
+          <p class="muted">The anonymous session is not ready. It is retried automatically.</p>
+        {/if}
+      </section>
+    {/if}
+
+    {#if status.tataplay?.enabled}
+      <section class="card">
+        <div class="card-head">
+          <h2>Tata Play <span class="pill beta">Beta</span></h2>
+        </div>
+        <p class="muted">Diagnostic beta only. It is not added to the channel list, playlist, or playback yet.</p>
+      </section>
+    {/if}
+
     <section class="card">
       <h2>Admin password</h2>
       <form onsubmit={changePassword}>
@@ -156,7 +243,7 @@
       </form>
     </section>
   </div>
-  <p class="muted small">JioTV Go {status.version}</p>
+  <p class="muted small">OpenStream TV {status.version}</p>
 {:else if !error}
   <p class="muted">Loading…</p>
 {/if}

@@ -83,8 +83,8 @@ async fn catchup_stream_inner(
             .into_response();
     }
 
-    let encrypted = state.secure.encrypt(&target);
-    let prefix_str = prefix.as_ref().map(|p| p.0.0.clone()).unwrap_or_default();
+    let encrypted = crate::stream::encrypt_root_render_auth(&state, &target, &id);
+    let prefix_str = prefix.as_ref().map(|p| p.0 .0.clone()).unwrap_or_default();
     let mut redirect = format!("{prefix_str}/render.m3u8?auth={encrypted}&channel_key_id={id}");
     if !result.hdnea.is_empty() && !target.contains("hdnea=") && !target.contains("__hdnea__=") {
         redirect.push_str(&format!("&hdnea={}", urlencoding::encode(&result.hdnea)));

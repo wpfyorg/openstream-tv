@@ -1,11 +1,14 @@
 blank_issues_enabled: false
 contact_links:
+  - name: 🛡 Security vulnerability
+    url: https://github.com/wpfyorg/openstream-tv/security/advisories/new
+    about: Report suspected vulnerabilities privately. Do not open a public issue.
   - name: 📃 Documentation
-    url: https://github.com/rabilrbl/jiotv_go/blob/main/README.md#table-of-contents
+    url: https://wpfyorg.github.io/openstream-tv/
     about: Don't know how or where to start? Check out our documentation!
-  - name: 🗨 Telegram Support Group
-    url: https://telegram.me/jiotv_go_chat
-    about: Got a question? Need help? Join our Telegram support group!
+  - name: 🗨 Discord Support & Development
+    url: https://discord.gg/VWDvwqTjY
+    about: Got a question, need help, or want to discuss development? Join the OpenStream TV Discord.
   - name: 🗨 GitHub Discussions
-    url: https://github.com/rabilrbl/jiotv_go/discussions
+    url: https://github.com/wpfyorg/openstream-tv/discussions
     about: Got something you think should change or be added? Search for or start a new discussion!

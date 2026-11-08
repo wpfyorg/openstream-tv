@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::{Context, bail};
+use anyhow::{bail, Context};
 use axum::body::Body;
 use axum::http::Request;
 use hyper::body::Incoming;
@@ -77,7 +77,7 @@ pub fn load_or_create(
                             config,
                             fingerprint,
                             generated: false,
-                        });
+                        })
                     }
                     Err(e) => eprintln!(
                         "Warning: stored TLS certificate in {} is unusable ({e:#}); regenerating",
@@ -94,9 +94,7 @@ pub fn load_or_create(
                 generated: true,
             })
         }
-        _ => bail!(
-            "--tls-cert and --tls-key must be given together (or neither, for a self-signed certificate)"
-        ),
+        _ => bail!("--tls-cert and --tls-key must be given together (or neither, for a self-signed certificate)"),
     }
 }
 
@@ -230,7 +228,7 @@ fn generate_self_signed(cert_path: &Path, key_path: &Path, names: &[String]) -> 
     params.subject_alt_names = sans;
     params
         .distinguished_name
-        .push(DnType::CommonName, "JioTV Go");
+        .push(DnType::CommonName, "OpenStream TV");
     params.extended_key_usages = vec![ExtendedKeyUsagePurpose::ServerAuth];
     let (not_before, not_after) = cert_validity();
     params.not_before = not_before;

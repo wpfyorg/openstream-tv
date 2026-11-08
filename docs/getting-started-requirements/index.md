@@ -1,19 +1,19 @@
 ---
 title: Requirements and Supported Devices
-description: Choose a supported JioTV server and browser before installing.
+description: Choose a supported OpenStream TV server and browser before installing.
 category: Getting Started
 keywords: [requirements, CPU architecture, OpenWrt, Android, Raspberry Pi, browsers, DRM]
 ---
 
 # Requirements and Supported Devices
 
-You need a device that can run the Rust `jiotv` binary, network access to the content service, and a modern web browser or compatible IPTV application. Watching account-restricted streams requires an eligible JioTV or JioTV+ account.
+You need a device that can run the Rust `ost` binary, network access to the content service, and a modern web browser or compatible IPTV application. Watching account-restricted streams requires an eligible JioTV, JioTV+ or Fastway account.
 
 ## Where you can run the server
 
 The repository supplies installers/build or packaging support for Linux, macOS, Windows, OpenWrt, Raspberry Pi and other Linux single-board computers, and Android through **Termux**. It also supplies a Docker image. Exact CPU architecture support varies by release; check the [platform-specific instructions](../installations/index.md) before downloading.
 
-The **full** build serves the browser UI. The **slim** build omits browser assets and is intended for IPTV clients. JioTV+ is a runtime switch (`tv_plus = true` or `JIOTV_TVPLUS=true`), not a separate build.
+The **full** build serves the browser UI. The **slim** build omits browser assets and is intended for IPTV clients. JioTV+ is a runtime switch (`tv_plus = true`, `JIOTV_TVPLUS=true` or `OPENSTREAM_TVPLUS=true`), not a separate build. Fastway is also optional and enabled with `fastway = true` or `OPENSTREAM_FASTWAY=true`.
 
 ## Where you can watch
 
@@ -26,8 +26,8 @@ For some protected playback, the browser needs a secure origin (`https://`), sup
 ## Before you begin
 
 1. Confirm your device architecture and download the matching installer or binary.
-2. Keep a writable directory for JioTV's state and tokens.
+2. Keep a writable directory for OpenStream TV state and tokens.
 3. Know which device will run the server and which device will open the interface.
 4. Have access to your own mobile number and OTP to connect your JioTV account.
 
-Read [What is JioTV?](../getting-started-what-is-jiotv/index.md) or [install for your platform](../installations/index.md).
+Read [What is OpenStream TV?](../getting-started-what-is-openstream-tv/index.md) or [install for your platform](../installations/index.md).

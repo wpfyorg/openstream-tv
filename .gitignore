@@ -5,6 +5,7 @@ Cargo.lock.bak
 # Local store / credentials (never commit real ones)
 store_v4.toml
 jiotv_credentials.json
+.openstream-tv/
 .jiotv_go/
 
 # Playlist .m3u file
@@ -28,6 +29,10 @@ web/node_modules/
 config.json
 config.yml
 config.toml
+openstream.yml
+openstream.yaml
+openstream.toml
+openstream.json
 jiotv.yml
 jiotv.toml
 jiotv.json
@@ -37,6 +42,7 @@ epg.xml.gz
 epg.xml.gz.context.json
 
 # Logs
+openstream*.log
 jiotv*.log
 
 # Local JioTV+ / extra-source notes (never commit)

@@ -121,6 +121,7 @@ impl Tunnel {
         local_port: u16,
     ) -> anyhow::Result<(Tunnel, String)> {
         let mut child = Command::new(cloudflared)
+            .kill_on_drop(true)
             .args([
                 "tunnel",
                 "--no-autoupdate",
@@ -141,9 +142,10 @@ impl Tunnel {
         }
     }
 
-    /// Runs a named tunnel using a token (`--tunnel-token` / `JIOTV_TUNNEL_TOKEN`).
+    /// Runs a named tunnel using a token (`--tunnel-token` / `OPENSTREAM_TUNNEL_TOKEN`).
     pub async fn spawn_named(cloudflared: &Path, token: &str) -> anyhow::Result<Tunnel> {
         let mut child = Command::new(cloudflared)
+            .kill_on_drop(true)
             .args(["tunnel", "run"])
             // Keep connector credentials out of the child command line and
             // process listings. cloudflared reads TUNNEL_TOKEN natively.
@@ -202,8 +204,12 @@ fn extract_trycloudflare_url(line: &str) -> Option<String> {
     let rest = &line[idx..];
     let end = rest.find(char::is_whitespace).unwrap_or(rest.len());
     let candidate = &rest[..end];
-    if candidate.contains("trycloudflare.com") {
-        Some(candidate.trim_end_matches(['.', ',', ')']).to_string())
+    let candidate = candidate.trim_end_matches(['.', ',', ')']);
+    let origin = crate::public_origin::validate(candidate).ok()?;
+    let parsed = url::Url::parse(&origin).ok()?;
+    let host = parsed.host_str()?;
+    if host.ends_with(".trycloudflare.com") {
+        Some(origin)
     } else {
         None
     }
@@ -250,6 +256,44 @@ mod tests {
         };
         assert!(error.to_string().contains("startup"));
         assert!(!error.to_string().contains("secret"));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn dropping_named_tunnel_stops_connector() {
+        let (_dir, path) = stub("exec sleep 30");
+        let tunnel = Tunnel::spawn_named(&path, "test-token").await.unwrap();
+        let pid = tunnel.child.id().unwrap();
+        drop(tunnel);
+        for _ in 0..50 {
+            let alive = std::process::Command::new("kill")
+                .args(["-0", &pid.to_string()])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .unwrap()
+                .success();
+            if !alive {
+                return;
+            }
+            tokio::time::sleep(tokio::time::Duration::from_millis(20)).await;
+        }
+        panic!("dropped tunnel connector remained alive");
+    }
+
+    #[test]
+    fn rejects_unrelated_quick_tunnel_hosts() {
+        for value in [
+            "https://evil-trycloudflare.com",
+            "https://trycloudflare.com.evil.example",
+            "https://evil.example/?next=trycloudflare.com",
+            "https://user@valid.trycloudflare.com",
+        ] {
+            assert!(
+                extract_trycloudflare_url(value).is_none(),
+                "accepted {value}"
+            );
+        }
     }
 
     #[test]

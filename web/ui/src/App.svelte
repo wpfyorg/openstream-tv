@@ -11,37 +11,36 @@
   import VodPlayer from "./views/VodPlayer.svelte";
 
   let auth = $state({ loading: true, passwordSet: false, authenticated: false });
-  let extrasActive = $state(false);
   let activeProduct = $state("");
-  let extrasStatusPromise = null;
+  let providerStatusPromise = null;
 
-  async function refreshExtrasStatus() {
+  const providerLabels = {
+    tv: "JioTV",
+    extras: "JioTV+",
+    fastway: "Fastway",
+    playbox: "PlayboxTV",
+    vzy: "VZY",
+  };
+  const activeProviderLabel = $derived(providerLabels[activeProduct] || "");
+  const alternateActive = $derived(!!activeProduct && activeProduct !== "tv");
+
+  async function refreshProviderStatus() {
     if (!auth.authenticated) {
-      extrasActive = false;
       activeProduct = "";
       return;
     }
-    if (extrasStatusPromise) return extrasStatusPromise;
-    extrasStatusPromise = (async () => {
-      try {
-        const status = await api("/api/extras/status");
-        const next = status?.extras?.activeProduct || "";
-        const changed = !!activeProduct && activeProduct !== next;
-        activeProduct = next;
-        extrasActive =
-          status?.extras?.enabled === true &&
-          status?.extras?.connected === true &&
-          next === "extras";
-        if (changed) window.dispatchEvent(new CustomEvent("jiotv:provider-changed"));
-      } catch {
-        extrasActive = false;
-        activeProduct = "";
-      }
+    if (providerStatusPromise) return providerStatusPromise;
+    providerStatusPromise = (async () => {
+      const status = await api("/api/status").catch(() => null);
+      const next = status?.catalogue?.activeProduct || "";
+      const changed = !!activeProduct && activeProduct !== next;
+      activeProduct = next;
+      if (changed) window.dispatchEvent(new CustomEvent("openstream:provider-changed"));
     })();
     try {
-      await extrasStatusPromise;
+      await providerStatusPromise;
     } finally {
-      extrasStatusPromise = null;
+      providerStatusPromise = null;
     }
   }
 
@@ -49,10 +48,9 @@
     try {
       const s = await api("/api/auth/state");
       auth = { loading: false, ...s };
-      await refreshExtrasStatus();
+      await refreshProviderStatus();
     } catch {
       auth = { loading: false, passwordSet: true, authenticated: false };
-      extrasActive = false;
       activeProduct = "";
     }
   }
@@ -60,7 +58,6 @@
   async function signOut() {
     await api("/api/auth/logout", { method: "POST" }).catch(() => {});
     auth = { ...auth, authenticated: false };
-    extrasActive = false;
     activeProduct = "";
   }
 
@@ -70,22 +67,22 @@
     const scheduleStatusRefresh = () => {
       if (disposed) return;
       statusTimer = window.setTimeout(async () => {
-        await refreshExtrasStatus();
+        await refreshProviderStatus();
         scheduleStatusRefresh();
       }, 15000);
     };
     refreshAuth().finally(scheduleStatusRefresh);
-    window.addEventListener("jiotv:extras-changed", refreshExtrasStatus);
+    window.addEventListener("openstream:extras-changed", refreshProviderStatus);
     const onSignedOut = () => {
       auth = { ...auth, authenticated: false };
-      extrasActive = false;
+      activeProduct = "";
     };
-    window.addEventListener("jiotv:signed-out", onSignedOut);
+    window.addEventListener("openstream:signed-out", onSignedOut);
     return () => {
       disposed = true;
       window.clearTimeout(statusTimer);
-      window.removeEventListener("jiotv:extras-changed", refreshExtrasStatus);
-      window.removeEventListener("jiotv:signed-out", onSignedOut);
+      window.removeEventListener("openstream:extras-changed", refreshProviderStatus);
+      window.removeEventListener("openstream:signed-out", onSignedOut);
     };
   });
 </script>
@@ -97,9 +94,14 @@
 {:else}
   <header class="bar">
     <div class="brand-group">
-      <a class="brand" href="#/">JioTV Go</a>
-      {#if extrasActive}
-        <span class="extras-active" role="img" aria-label="JioTV+ active" title="JioTV+ active">
+      <a class="brand" href="#/">OpenStream TV</a>
+      {#if alternateActive}
+        <span
+          class="provider-active"
+          role="img"
+          aria-label={`${activeProviderLabel} active`}
+          title={`${activeProviderLabel} active`}
+        >
           <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10" /></svg>
         </span>
       {/if}
@@ -146,16 +148,16 @@
   }
   .brand-group { display: flex; flex: 0 0 auto; align-items: center; gap: 6px; }
   .brand { font-weight: 800; font-size: 17px; letter-spacing: -.025em; text-decoration: none; }
-  .extras-active {
+  .provider-active {
     display: grid;
     width: 16px;
     height: 16px;
     place-items: center;
     border-radius: 50%;
-    color: var(--success, #34d399);
+    color: var(--ok);
     background: color-mix(in srgb, currentColor 15%, transparent);
   }
-  .extras-active svg { width: 10px; height: 10px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .provider-active svg { width: 10px; height: 10px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
   nav {
     display: flex;
     min-width: 0;
@@ -187,8 +189,8 @@
     .bar { gap: 10px; padding: 9px 12px; }
     .brand-group { gap: 4px; }
     .brand { font-size: 15px; }
-    .extras-active { width: 14px; height: 14px; }
-    .extras-active svg { width: 9px; height: 9px; }
+    .provider-active { width: 14px; height: 14px; }
+    .provider-active svg { width: 9px; height: 9px; }
     nav a, .link { display: inline-flex; align-items: center; min-height: 40px; padding: 0 8px; font-size: 12px; }
     main { padding: 14px 10px 40px; }
   }

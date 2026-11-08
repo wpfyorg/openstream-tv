@@ -2,107 +2,97 @@
 
 ## Project Overview
 
-JioTV Go is a single Go CLI/server that wraps JioTV Android APIs for live TV, catch-up, EPG, web playback, and IPTV/M3U clients. The server uses Fiber; the web UI is server-rendered HTML with vanilla JavaScript and Tailwind CSS/DaisyUI.
+OpenStream TV is a Rust CLI/server for live TV, catch-up, EPG, IPTV/M3U clients, and supported on-demand playback. It currently integrates JioTV and JioTV+ provider flows and is being generalized for additional providers. The HTTP server uses Axum/Tokio. The full build embeds a Svelte/Vite UI; the slim build omits browser assets.
 
-## Architecture & Data Flow
+## Architecture
 
-- `main.go` is the only executable. Its `urfave/cli/v2` startup hook loads config, logger, persistent store, and URL encryption before command dispatch.
-- `cmd/` owns CLI commands and the Fiber composition root. `cmd/jiotv_go.go:JioTVServer` configures middleware, embedded templates/static files, routes, scheduler, and server listen/TLS.
-- `internal/handlers/` owns HTTP behavior. `pkg/` owns JioTV API access, credentials, persistence, EPG generation, URL encryption, and scheduling.
-- HLS flow: `/live/...` → token refresh → `pkg/television.Television.Live` → encrypted local render URL → manifest rewrite/proxy handlers (`/render.m3u8`, `/render.ts`, `/render.key`).
-- DRM flow: `/play/...` → MPD/license proxy URLs → MPD rewrite → DASH/license proxy handlers. Do not expose or bypass the encrypted upstream-URL flow.
-- Runtime state is intentionally global: `config.Cfg`, `handlers.TV`, `utils.Log`, and `store`. Preserve startup order and update shared state through existing lifecycle helpers; do not construct per-request television clients.
+- `src/main.rs` owns startup, command dispatch, data-directory resolution, server lifecycle, background mode, and migration fallbacks.
+- `src/cli.rs` parses the `ost` CLI.
+- `src/config.rs` owns TOML configuration and environment loading. `OPENSTREAM_*` is primary; legacy `JIOTV_*` names remain compatibility aliases.
+- `src/server.rs` composes Axum routes and serves the embedded UI in full builds.
+- `src/television.rs` and `src/login.rs` contain JioTV provider API behavior.
+- `src/extras.rs` and `src/extras_state.rs` own the optional JioTV+ source.
+- `src/stream.rs`, `src/catchup.rs`, `src/dash.rs`, `src/secureurl.rs`, and related modules own playback proxying and protected local URLs.
+- `src/store.rs` owns persistent runtime state.
+- `src/autostart.rs`, `src/tunnel.rs`, `src/tls.rs`, and `src/update.rs` own service integration, Cloudflare tunnels, TLS, and self-update.
+- `web/ui/` contains the Svelte 5/Vite frontend. `web/ui/dist/` is generated and embedded by the full build.
+- `openwrt/openstream/` contains OpenWrt package/service definitions.
+- `scripts/` contains installers, packaging helpers, docs tooling, and integration tests.
 
-## Key Directories
-
-- `cmd/` — CLI implementations, Fiber setup, login, EPG, background process support.
-- `internal/config/` — `JioTVConfig` schema and file/environment loading.
-- `internal/handlers/` — Fiber handlers for live, catch-up, DRM, EPG, auth, and UI.
-- `internal/middleware/` — custom Fiber middleware.
-- `internal/utils/` — shared handler error, proxy, URL, and cache helpers.
-- `pkg/television/` — concrete `fasthttp` JioTV API client and channel/custom-channel models.
-- `pkg/store/` — mutex-protected TOML runtime store; credentials/device state go here.
-- `pkg/secureurl/`, `pkg/epg/`, `pkg/scheduler/`, `pkg/utils/` — URL protection, EPG jobs, scheduling, and shared auth/HTTP utilities.
-- `web/views/` — embedded Go HTML templates; `web/static/internal/` — browser JS and Tailwind source/output; `web/test/` — Jest tests.
-- `configs/` — example YAML/TOML/JSON config files; pass one explicitly with `--config`.
-- `scripts/` — release/install utilities, not the regular developer task runner.
+Preserve provider-specific JioTV identifiers where they refer to the real upstream API, account, routes, payload fields, or compatibility state. Use OpenStream TV/openstream for application identity, services, packages, release assets, and new configuration. The CLI executable and user-facing commands are ost.
 
 ## Repository Skills
 
-- `.agents/skills/change-configuration/SKILL.md` — use for any `JIOTV_*` or JSON/YAML/TOML configuration change; it defines the required schema, defaults, examples, consumers, and tests to synchronize.
-- `.agents/skills/diagnose-playback/SKILL.md` — use for live, catch-up, HLS, DASH/DRM, browser, or IPTV playback failures; it defines the hop-by-hop evidence and token-scope checks.
+- `.agents/skills/change-configuration/SKILL.md` — use for `OPENSTREAM_*`, legacy `JIOTV_*`, or TOML configuration changes.
+- `.agents/skills/diagnose-playback/SKILL.md` — use for live, catch-up, HLS, DASH/DRM, browser, or IPTV playback failures.
 
 ## Development Commands
 
-Run from repository root unless stated otherwise:
+```sh
+cargo build
+cargo test
+cargo test --no-default-features --features slim
+cargo clippy --all-targets -- -D warnings
+cargo clippy --all-targets --no-default-features --features slim -- -D warnings
 
-```bash
-# Dependencies and backend build
-go mod tidy
-go build -o build/jiotv_go .
-
-# Backend tests
-go test -v ./...
-
-# Frontend dependencies, generated CSS, and tests
-cd web && npm ci
-cd web && npm run build
-cd web && npm test -- --watchAll=false --ci
-
-# Local server; debug enables template reload and stdout logs
-JIOTV_DEBUG=true JIOTV_LOG_TO_STDOUT=true go run main.go serve --host 127.0.0.1 --port 5001
-
-# Built server
-./build/jiotv_go serve --host 127.0.0.1 --port 5001
+cd web/ui
+npm ci
+npm test
+npm run build
 ```
 
-Use `go test ./path/to/package -run '^TestName$'` for focused Go work. Use `cd web && npm run test:coverage` for optional frontend coverage. No Makefile or project-local lint command exists.
+Installer and packaging checks:
 
-## Code Conventions & Common Patterns
+```sh
+sh scripts/tests/install-test.sh
+sh scripts/tests/onboard-test.sh
+sh scripts/tests/onboard-ps1-test.sh
+sh scripts/tests/openstream-token-test.sh
+```
 
-- Format Go with `gofmt`; use package-local `*_test.go` tests named `TestXxx`. Prefer table cases and `t.Run` where existing tests do.
-- Fiber handlers use `func(*fiber.Ctx) error`. Use `internal/utils` JSON error helpers for client errors; propagate/wrap operational errors with `%w` rather than inventing response formats.
-- Reuse `pkg/utils` request helpers and `fasthttp` `Acquire*`/`Release*` pairs. Never retain pooled request/response objects.
-- Configuration is a tagged global schema: add runtime settings to `internal/config.JioTVConfig` with YAML, JSON, TOML, and `JIOTV_*` tags.
-- No dependency-injection/service-interface layer: concrete package types and initialized globals are established patterns. Keep additions consistent unless a real isolation need exists.
-- Shared mutable state requires existing synchronization: mutexes for token/store updates, `singleflight` for duplicate refreshes, `sync.Map` plus TTL for caches, and `RWMutex` for custom channels. Preserve these boundaries.
-- Frontend is vanilla JS. Follow existing `web/static/internal/*.js` module patterns and Tailwind/DaisyUI utility styling; do not introduce a frontend framework.
-- Runtime credentials/data belong under `JIOTV_PATH_PREFIX` (default `$HOME/.jiotv_go`) and must remain untracked. Never commit `.env`, credentials, generated runtime state, or logs.
+Use focused `cargo test <name>` runs while iterating, then run the relevant full matrix before completion.
+
+## Code Conventions
+
+- Format changed Rust files with `rustfmt`; avoid unrelated formatting churn.
+- Prefer existing concrete modules and shared application state over new abstraction layers without a real need.
+- Keep async/network behavior bounded and propagate operational errors with context.
+- Keep tests offline and deterministic where practical.
+- Frontend code follows existing Svelt/Vite patterns; do not add another frontend framework.
+- New public environment variables use `OPENSTREAM_*`. Keep documented legacy `JIOTV_*` fallbacks unless intentionally performing a breaking migration.
+- Runtime credentials/data belong in the resolved OpenStream data directory, normally `$HOME/.openstream-tv` or `/etc/openstream` on OpenWrt. Legacy directories may be read for migration compatibility.
+- Never commit `.env` files, credentials, tokens, generated runtime state, logs, private playlist URLs, or user data.
+
+## Diagnostic Evidence and Sanitization
+
+- Ask for the minimum evidence needed: version/build, OS/architecture, install method, provider/client, exact failure time/timezone, reproduction steps, scope, and a short log excerpt around one fresh reproduction.
+- Never ask users to paste full credential-bearing state or configuration files such as `store_v4.toml`, the OpenStream data directory, `/etc/config/openstream`, `.env` files, generated service environment files, browser profiles/storage, or TLS private keys.
+- Never ask for or expose OTPs, passwords, cookies, authorization headers, access/refresh/SSO/session/tunnel tokens, provider account identifiers, device credentials, private hostnames, or playlist/access-key URLs.
+- When preparing an issue, report, fixture, handoff, or saved diagnostic excerpt, inspect and sanitize it before writing or presenting it. Do not claim a capture is safe unless it was actually inspected.
+- Preserve diagnostic fidelity after redaction: keep timestamps, HTTP status codes, component names, non-secret request paths, stack/error text, and ordering.
+- Use stable typed placeholders so repeated values stay correlatable: the same token becomes `<TOKEN_1>`, the same account ID becomes `<ACCOUNT_ID_1>`, and the same private host becomes `<PRIVATE_HOST_1>`. Strip secret query parameters instead of replacing the entire useful path when possible.
+- If a value may grant access to an account, stream, device, server, or private network and its sensitivity is uncertain, redact it.
+- Do not commit raw logs, HAR captures, packet captures, screenshots with secrets, or copied runtime state. Keep diagnostic artifacts outside the repository unless they are deliberately sanitized test fixtures.
+- The user must enter every OTP themselves. Agents may describe where to enter it but must not request, relay, store, or reuse the OTP.
+- User-facing collection and redaction instructions live in `docs/troubleshooting-reporting-logs/index.md`.
 
 ## Important Files
 
-- `main.go` — CLI entry point and global initialization order.
-- `cmd/jiotv_go.go` — Fiber server composition and route registration.
-- `internal/config/config.go` — configuration schema/loading.
-- `internal/handlers/handlers.go` — handler initialization and HLS/channel behavior.
-- `internal/handlers/auth.go` and `internal/handlers/drm.go` — credential refresh and DRM proxy lifecycle.
-- `pkg/television/television.go` — JioTV upstream client.
-- `pkg/store/store.go` — persistent runtime state.
-- `pkg/secureurl/secureurl.go` — upstream URL protection.
-- `web/package.json` — npm scripts and frontend dependencies.
-- `web/static/internal/input.css` — Tailwind v4/DaisyUI 5 input; `tailwind.css` is its committed generated output.
-- `web/jest.config.js` — Jest/jsdom and frontend coverage scope.
+- `Cargo.toml` — Rust package, executable, feature definitions.
+- `src/main.rs` — application entry point and lifecycle.
+- `src/config.rs` — configuration schema/loading.
+- `src/server.rs` — route composition.
+- `src/television.rs` — JioTV provider client.
+- `src/store.rs` — persistent state.
+- `src/update.rs` — GitHub release self-update.
+- `scripts/install.sh` / `scripts/install.ps1` ― supported installers.
+- `openwrt/openstream/` — OpenWrt package files.
+- `web/ui/package.json` — frontend scripts and dependencies.
 
-## Runtime/Tooling Preferences
+## Testing and Release
 
-- Go module: `github.com/jiotv-go/jiotv_go/v3`.
-- Frontend package manager: npm with lockfile v3. Use `npm ci` for reproducible installs. CI uses Node LTS; no repository Node version pin exists.
-- Frontend stack is Tailwind CSS 4 with `@tailwindcss/cli` and DaisyUI 5. Configuration is CSS-first in `web/static/internal/input.css`; there is no Tailwind/PostCSS config file.
-- `web/static/internal/tailwind.css` is a versioned, minified build artifact. Rebuild and commit it after changing `input.css`, template class usage, or frontend dependencies.
-- Docker is optional local tooling: `docker-compose.yml` uses `dev.Dockerfile`, mounts the checkout, reads `.env`, and runs with `JIOTV_DEBUG=true`. Normal local Go development is simpler.
-- Do not casually run `scripts/build-binaries.sh`, `scripts/increment-version.sh`, or installers; they are release/end-user tooling and may cross-build, alter `VERSION`, or mutate shell setup.
+CI exercises default and slim Rust tests/clippy, shell installer flows, the token-switch helper, and Windows installer parsing/smoke tests. UI source changes also require `npm test` and `npm run build`.
 
-## Testing & QA
+Release assets use the `openstream-*` prefix. The public repository is `wpfyorg/openstream-tv`; GitHub Pages lives at `https://wpfyorg.github.io/openstream-tv/`.
 
-- Backend: standard Go `testing` tests are colocated under `cmd/`, `internal/`, and `pkg/`; Testify `assert` is optional, not required. Keep tests offline and deterministic: use `httptest` or injected clients for upstream APIs, restore mutated globals and caches, and do not run shared-state tests in parallel.
-- Frontend: Jest with jsdom; tests live in `web/test/*.test.js` and use DOM/mocked-browser APIs.
-- CI quality gate: `go mod tidy`, `go test -v ./...`, then `cd web && npm ci && npm test -- --watchAll=false --ci`.
-- Add or update behavior-focused tests for changed contracts. No numeric coverage threshold exists; Jest coverage covers `web/static/internal/**/*.js`, while Go coverage is not configured.
-- No ESLint, Prettier, golangci-lint, Staticcheck, or local `go vet` workflow is declared. `.deepsource.toml` configures external Go, Docker, and shell analysis.
-
-## Contribution & Release Workflow
-
-- The default and PR target branch is `develop`; `main` is the release branch. Open normal feature and fix PRs against `develop`.
-- Follow Conventional Commits using the repository's established types: `feat:`, `fix:`, `docs:`, `test:`, `chore:`, and `refactor:`. Keep each commit to one logical change.
-- Before a PR, run the checks relevant to every changed area. Backend changes require `go test -v ./...`; frontend changes additionally follow `web/AGENTS.md`; configuration and user-facing behavior changes require matching docs/examples.
-- Do not manually bump `VERSION`, create release tags, or run release scripts for a normal change. Pushes to `main` trigger `.github/workflows/release.yml`, which updates `develop`, builds release binaries, and publishes tags/releases.
+Use Conventional Commits. Keep one logical change per commit. Do not manually bump release versions or create tags for normal work. Do not push unless the user has asked for remote publication.

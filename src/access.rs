@@ -94,9 +94,9 @@ impl Access {
             }
         }
         let next = random_hex(16);
-        self.store.set(STORE_KEY_ACCESS, &next)?;
-        *guard = Some(next.clone());
-        Ok(next)
+        let key = self.store.get_or_insert(STORE_KEY_ACCESS, &next)?;
+        *guard = Some(key.clone());
+        Ok(key)
     }
 
     pub fn rotate(&self) -> Result<String, AccessError> {

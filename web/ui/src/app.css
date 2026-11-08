@@ -100,6 +100,9 @@ button, input, select {
   color: var(--muted);
 }
 .badge.extras { color: var(--extras); border-color: color-mix(in srgb, var(--extras) 45%, transparent); }
+.badge.fastway { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, transparent); }
+.badge.playbox { color: #c084fc; border-color: color-mix(in srgb, #c084fc 45%, transparent); }
+.badge.vzy { color: #f472b6; border-color: color-mix(in srgb, #f472b6 45%, transparent); }
 
 .sr-only {
   position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;

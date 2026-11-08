@@ -22,7 +22,7 @@ The OTP request fails, no code arrives, or verification reports an invalid code.
 
 ### Diagnosis
 
-Check the phone number, the visible app error and server output. The CLI flow is `jiotv login otp`; it prompts in the terminal. The web UI has a separate JioTV OTP flow under **Settings**. JioTV+ has its own connection and OTP flow, also under **Settings**. Confirm which account flow you are using.
+Check the phone number, the visible app error and server output. The CLI flow is `ost login otp`; it prompts in the terminal. The web UI has a separate JioTV OTP flow under **Settings**. JioTV+ has its own connection and OTP flow, also under **Settings**. Confirm which account flow you are using.
 
 ### Solution
 
@@ -51,11 +51,11 @@ The web UI repeatedly asks for the admin password, rejects it, or logs out after
 
 ### Diagnosis
 
-Check that you are opening the same host and protocol each time and that the running service uses the expected persistent `JIOTV_PATH_PREFIX`. Compare the service user and data path with the setup command. Do not inspect or share the stored password hash or session secret.
+Check that you are opening the same host and protocol each time and that the running service uses the expected persistent `OPENSTREAM_PATH_PREFIX`. Compare the service user and data path with the setup command. Do not inspect or share the stored password hash or session secret.
 
 ### Solution
 
-Use the admin password set with `jiotv admin password` to enter the web UI. Use JioTV OTP login separately for provider channels. Keep the persistent data directory mounted and consistent across restarts. If you intentionally changed the admin password, sign in again in each browser.
+Use the admin password set with `ost admin password` to enter the web UI. Use JioTV OTP login separately for provider channels. Keep the persistent data directory mounted and consistent across restarts. If you intentionally changed the admin password, sign in again in each browser.
 
 ### Verification
 

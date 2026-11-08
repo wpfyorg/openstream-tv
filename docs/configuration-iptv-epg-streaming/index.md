@@ -17,15 +17,17 @@ By default `epg = false`, so the XMLTV guide is not generated automatically. To 
 epg = true
 ```
 
-You can also start JioTV with the environment variable `JIOTV_EPG=true`. Restart the server after changing the setting. The EPG endpoint is `/epg.xml.gz`; in **Settings**, copy the **EPG** URL shown for your installation. The command `jiotv epg generate` creates a guide, and `jiotv epg delete` removes the generated cache. The programme schedule depends on account access and upstream data.
+You can also start OpenStream TV with the environment variable `OPENSTREAM_EPG=true`. Restart the server after changing the setting. The EPG endpoint is `/epg.xml.gz`; in **Settings**, copy the **EPG** URL shown for your installation. The command `ost epg generate` creates a guide, and `ost epg delete` removes the generated cache. The programme schedule depends on account access and upstream data.
+
+For headless and slim installs, `ost epg on` stores a persistent EPG override in the OpenStream TV data directory; `ost epg off` reverses it. The stored override takes precedence over the config-file or environment default. On managed OpenWrt/systemd installs the command restarts OpenStream TV only when the service is already running; a stopped service stays stopped and uses the setting on its next start. Unmanaged foreground/background servers still need a manual restart. `ost epg on` prints the EPG URL after applying the change. On non-OpenWrt installs, replace `<server-ip>` with the device address and, if shown, `<port>` with the server port. When EPG is enabled, server startup also prints the URL directly below the M3U playlist URL.
 
 For headless and slim installs, `jiotv epg on` stores a persistent EPG override in the JioTV data directory; `jiotv epg off` reverses it. The stored override takes precedence over the config-file or environment default. Restart the service after changing it. When EPG is enabled, server startup prints the EPG URL directly below the M3U playlist URL.
 
 ## M3U playlist and access key
 
-The full web interface shows playlist and EPG links in **Settings**. A protected installation uses an access key in the playlist link. Do not replace the full link with a guessed `/playlist.m3u` URL: its behavior depends on your authentication setup. Use **Copy** for the link supplied by your server.
+The full web interface shows playlist and EPG links in **Settings**. A protected installation uses `/k/<key>/playlist.m3u` and `/k/<key>/epg.xml.gz`. If authentication is deliberately disabled, the paths are `/playlist.m3u` and `/epg.xml.gz` and access-key rotation is unavailable. Do not replace the full link with a guessed path; use **Copy** for the link supplied by your server.
 
-![Settings shows the M3U and EPG locations and warns that the playlist must stay private.](../images/settings-no-account.png)
+![Settings shows the M3U and EPG locations and warns that the playlist must stay private](../images/settings-jiotv-plus.png)
 
 If you choose **Make a new key**, clients with old links stop working. Copy the new URL to every IPTV app. The key belongs only to your local server; it does not change your provider subscription.
 
@@ -33,9 +35,9 @@ If you choose **Make a new key**, clients with old links stop working. Copy the 
 
 | Setting | Default | When to change |
 | --- | --- | --- |
-| `drm` / `JIOTV_DRM` | `true` | Keep enabled for supported protected DASH playback. It does not provide Widevine or a subscription. |
-| `disable_ts_handler` / `JIOTV_DISABLE_TS_HANDLER` | `false` | Advanced HLS testing when troubleshooting a transport/segment proxy problem. |
-| `disable_url_encryption` / `JIOTV_DISABLE_URL_ENCRYPTION` | `false` | Leave off. Enabling this weakens protection of upstream URL parameters. |
-| `proxy` / `JIOTV_PROXY` | empty | Specify an outbound proxy URL only if your network needs one. |
+| `drm` / `OPENSTREAM_DRM` | `true` | Keep enabled for supported protected DASH playback. It does not provide Widevine or a subscription. |
+| `disable_ts_handler` / `OPENSTREAM_DISABLE_TS_HANDLER` | `false` | Advanced HLS testing when troubleshooting a transport/segment proxy problem. |
+| `disable_url_encryption` / `OPENSTREAM_DISABLE_URL_ENCRYPTION` | `false` | Leave off. Enabling this weakens protection of upstream URL parameters. |
+| `proxy` / `OPENSTREAM_PROXY` | empty | Specify an outbound proxy URL only if your network needs one. |
 
 Protected browser playback may need HTTPS and a working Widevine or other supported DRM environment. See [Network and HTTPS](../configuration-network-security/index.md) and [DRM playback errors](../troubleshooting-protected-playback/index.md). For a complete list of settings, see the [configuration reference](../configuration-reference/index.md).

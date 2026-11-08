@@ -12,8 +12,12 @@
   })();
 
   let channels = $state([]);
-  // When every listed channel comes from extras the pill tells the viewer nothing.
-  const mixedSources = $derived(channels.some((c) => c.extras) && channels.some((c) => !c.extras));
+  // When every listed channel comes from one alternate provider the pill tells
+  // the viewer nothing.
+  const mixedSources = $derived(
+    channels.some((c) => c.extras || c.fastway || c.playbox || c.vzy) &&
+      channels.some((c) => !c.extras && !c.fastway && !c.playbox && !c.vzy),
+  );
   let error = $state("");
   let loading = $state(true);
   let query = $state("");
@@ -24,7 +28,10 @@
 
   $effect(() => {
     try {
-      localStorage.setItem("channelFilters", JSON.stringify({ category, language, hdOnly, showUnplayable }));
+      localStorage.setItem(
+        "channelFilters",
+        JSON.stringify({ category, language, hdOnly, showUnplayable }),
+      );
     } catch {}
   });
 
@@ -53,8 +60,12 @@
           // unless the viewer has meanwhile typed something else.
           if (query.trim() === q) query = "";
           triedCode = "";
-          unlockNotice = { connected: !!d?.extras?.connected, active: d?.extras?.activeProduct === "extras" };
-          window.dispatchEvent(new CustomEvent("jiotv:extras-changed"));
+          unlockNotice = {
+            connected: !!d?.extras?.connected,
+            active: d?.extras?.activeProduct === "extras",
+          };
+          window.dispatchEvent(new CustomEvent("openstream:extras-changed"));
+          window.dispatchEvent(new CustomEvent("openstream:provider-changed"));
           const isLatest = loads.start();
           try {
             const list = await loadChannels(true);
@@ -111,9 +122,9 @@
     }
   });
 
-  // The server exposes one provider at a time; when another tab or the
-  // Android app switches it, replace the cached list instead of showing the
-  // previous provider's channels.
+  // The server exposes one provider at a time; when another tab, the Android
+  // app or Settings switches it, replace the cached list instead of showing
+  // the previous provider's channels.
   onMount(() => {
     const reload = () => {
       const isLatest = loads.start();
@@ -130,8 +141,8 @@
           loading = false;
         });
     };
-    window.addEventListener("jiotv:provider-changed", reload);
-    return () => window.removeEventListener("jiotv:provider-changed", reload);
+    window.addEventListener("openstream:provider-changed", reload);
+    return () => window.removeEventListener("openstream:provider-changed", reload);
   });
 </script>
 
@@ -179,7 +190,7 @@
   {#if nonePlayable}
     <p class="availability-note">
       Nothing in this catalogue is currently available to play. Showing the channels so the catalogue stays visible.
-      Check <a href="#/settings">Settings</a> to connect JioTV or JioTV+.
+      Check <a href="#/settings">Settings</a> to connect a provider.
     </p>
   {/if}
   <p class="muted count">{visible.length} of {channels.length} channels</p>
@@ -189,9 +200,12 @@
         <a class="tile" class:off={!c.playable} href={"#/watch/" + encodeURIComponent(c.id)} title={c.playable ? c.name : c.name + " (unavailable for the current account)"}>
           <span class="logo">
             <img src={c.logo} alt="" loading="lazy" decoding="async" />
-            {#if (mixedSources && c.extras) || c.requiresSubscription}
+            {#if (mixedSources && (c.extras || c.fastway || c.playbox || c.vzy)) || c.requiresSubscription}
               <span class="flags">
                 {#if mixedSources && c.extras}<span class="flag flag-extras">TV+</span>{/if}
+                {#if mixedSources && c.fastway}<span class="flag flag-fastway">Fastway</span>{/if}
+                {#if mixedSources && c.playbox}<span class="flag flag-playbox">Playbox</span>{/if}
+                {#if mixedSources && c.vzy}<span class="flag flag-vzy">VZY</span>{/if}
                 {#if c.requiresSubscription}<span class="flag flag-premium">Subscription required</span>{/if}
               </span>
             {/if}
@@ -300,5 +314,8 @@
   .flags { position: absolute; top: 6px; right: 6px; display: flex; flex-direction: column; align-items: flex-end; gap: 3px; max-width: calc(100% - 12px); }
   .flag { padding: 1px 6px; border-radius: 999px; font-size: 10px; font-weight: 700; line-height: 1.4; letter-spacing: 0.02em; white-space: nowrap; }
   .flag-extras { background: #7ea3ff; color: #0b1020; }
+  .flag-fastway { background: var(--ok); color: #062015; }
+  .flag-playbox { background: #c084fc; color: #1c0b2e; }
+  .flag-vzy { background: #f472b6; color: #2b0a1a; }
   .flag-premium { background: #f4b740; color: #2a1c00; }
 </style>

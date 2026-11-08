@@ -7,7 +7,7 @@
 use crate::state::AppState;
 use axum::body::Body;
 use axum::extract::{Path, State};
-use axum::http::{StatusCode, header};
+use axum::http::{header, StatusCode};
 use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -22,9 +22,14 @@ pub const EPG_POSTER_URL: &str = "https://jiotv.catchup.cdn.jio.com/dare_images/
 const CACHE_METADATA_VERSION: u32 = 1;
 const CACHE_MAX_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 pub const STORE_KEY_ENABLED: &str = "epg_enabled";
+pub const COMPANION_APP_ENV: &str = "OPENSTREAM_COMPANION_APP";
 
-pub fn enabled_with_override(config_enabled: bool, stored: Option<&str>) -> bool {
-    if cfg!(feature = "android-epg") {
+pub fn enabled_with_override(
+    config_enabled: bool,
+    stored: Option<&str>,
+    force_enabled: bool,
+) -> bool {
+    if force_enabled {
         return true;
     }
     match stored {
@@ -101,6 +106,17 @@ fn snapshot_fingerprint(
         crate::state::ActiveProduct::Extras => {
             hash_field(&mut hasher, &state.extras.account_fingerprint());
             hash_field(&mut hasher, &state.extras.entitlement_fingerprint());
+        }
+        crate::state::ActiveProduct::Fastway => {
+            hash_field(&mut hasher, &state.fastway.account_fingerprint());
+        }
+        crate::state::ActiveProduct::Playbox => {
+            hash_field(&mut hasher, &state.playbox.account_fingerprint());
+            hash_field(&mut hasher, "playbox-epg:unavailable");
+        }
+        crate::state::ActiveProduct::Vzy => {
+            hash_field(&mut hasher, &state.vzy.account_fingerprint());
+            hash_field(&mut hasher, "vzy-free-tier");
         }
     }
 
@@ -350,6 +366,21 @@ async fn generate_xml_from_sources(
     Ok(xml)
 }
 
+/// XMLTV with channel entries but no programmes, used for a product whose
+/// real programme timing is not understood.
+fn generate_channels_only_xml_gz(channels: Vec<(String, String)>) -> anyhow::Result<Vec<u8>> {
+    let mut xml = String::from(r#"<tv version="" encoding="">"#);
+    for (id, display) in &channels {
+        xml.push_str(&format!(
+            "<channel id=\"{}\"><display-name>{}</display-name></channel>",
+            xml_escape(id),
+            xml_escape(display)
+        ));
+    }
+    xml.push_str("</tv>");
+    gzip_xml(&xml)
+}
+
 async fn generate_xml_gz_from_sources(
     client: &reqwest::Client,
     tv_sources: Vec<(String, String)>,
@@ -436,6 +467,28 @@ pub async fn regenerate_for_state(state: &Arc<AppState>) -> anyhow::Result<()> {
             let (extra_sources, extra_programmes) = state.extras.epg_source(&state.tv).await?;
             generate_xml_gz_from_sources(&state.http, Vec::new(), extra_sources, extra_programmes)
                 .await?
+        }
+        crate::state::ActiveProduct::Fastway => {
+            let (sources, programmes) = state.fastway.epg_source(&state.store).await?;
+            generate_xml_gz_from_sources(&state.http, Vec::new(), sources, programmes).await?
+        }
+        // PlayboxTV's EPG response has no programme stop time, so only the
+        // channel list is published; no programme is invented.
+        crate::state::ActiveProduct::Playbox => {
+            let channels = snapshot
+                .channels
+                .iter()
+                .map(|ch| (ch.id.clone(), ch.name.clone()))
+                .collect();
+            generate_channels_only_xml_gz(channels)?
+        }
+        crate::state::ActiveProduct::Vzy => {
+            let (sources, programmes) = state.vzy.epg_source(&state.store).await?;
+            if programmes.is_empty() {
+                generate_channels_only_xml_gz(sources)?
+            } else {
+                generate_xml_gz_from_sources(&state.http, Vec::new(), sources, programmes).await?
+            }
         }
     };
 
@@ -588,12 +641,28 @@ pub async fn web_epg_handler(
     Path((channel_id, offset)): Path<(String, String)>,
     State(state): State<Arc<AppState>>,
 ) -> Response {
+    // A constant answer, checked before the account-scoped catalogue so the
+    // gap is reported even when PlayboxTV is not the active product.
+    if crate::playbox::is_playbox_channel(&channel_id) {
+        return (
+            StatusCode::NOT_IMPLEMENTED,
+            "playbox EPG is unavailable: the client's weekly_epg response has no \
+             programme end time and its startTime is display-only",
+        )
+            .into_response();
+    }
     if !state.channel_allowed(&channel_id).await {
         return (
             StatusCode::NOT_FOUND,
             "channel is not available for the active account",
         )
             .into_response();
+    }
+    if let Some(content_id) = crate::fastway::content_id(&channel_id) {
+        return fastway_web_epg(&state, content_id, &offset).await;
+    }
+    if crate::vzy::is_vzy_channel(&channel_id) {
+        return vzy_web_epg(&state, &channel_id, &offset).await;
     }
     if let Some(content_id) = crate::extras::content_id::content_id(&channel_id) {
         return extras_web_epg(&state, content_id, &offset).await;
@@ -629,6 +698,89 @@ pub async fn web_epg_handler(
         .header(header::CONTENT_TYPE, "application/json")
         .body(Body::from(body))
         .unwrap()
+}
+
+/// The web guide for a Fastway channel, in the same shape as JioTV's. Fastway
+/// EPG epochs are seconds; the UI expects milliseconds.
+async fn fastway_web_epg(state: &AppState, content_id: &str, offset: &str) -> Response {
+    let offset = match offset.parse::<i64>() {
+        Ok(o) if o >= 0 => o,
+        _ => return (StatusCode::BAD_REQUEST, "Invalid offset").into_response(),
+    };
+    let programmes = match state
+        .fastway
+        .web_epg(content_id, offset, &state.store)
+        .await
+    {
+        Ok(p) => p,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    };
+    let entries: Vec<serde_json::Value> = programmes
+        .iter()
+        .map(|p| {
+            serde_json::json!({
+                "showname": p.title,
+                "description": p.description,
+                "startEpoch": p.start_epoch.saturating_mul(1000),
+                "endEpoch": p.end_epoch.saturating_mul(1000),
+                "episodePoster": "",
+            })
+        })
+        .collect();
+    axum::Json(serde_json::json!({ "epg": entries })).into_response()
+}
+
+/// VZY browser guide normalized to the same shape as JioTV/Fastway.
+async fn vzy_web_epg(state: &AppState, channel_id: &str, offset: &str) -> Response {
+    let Some(content_id) = crate::vzy::parse_channel_id(channel_id) else {
+        return (StatusCode::BAD_REQUEST, "Invalid channel ID").into_response();
+    };
+    let offset = match offset.parse::<i64>() {
+        Ok(o) if o >= 0 => o,
+        _ => return (StatusCode::BAD_REQUEST, "Invalid offset").into_response(),
+    };
+    if !state.vzy.ensure_catalogue(&state.store).await {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "vzy catalogue is unavailable",
+        )
+            .into_response();
+    }
+    let Some(client) = state.vzy.client() else {
+        return (StatusCode::NOT_FOUND, "vzy is not enabled").into_response();
+    };
+    let date =
+        crate::vzy::midnight_utc(SystemTime::now()).saturating_add(offset.saturating_mul(86_400));
+    let guide = match client
+        .epg(
+            &state.store,
+            &[content_id],
+            date,
+            crate::vzy::local_offset_minutes(),
+        )
+        .await
+    {
+        Ok(guide) => guide,
+        Err(e) => return (StatusCode::BAD_GATEWAY, e.to_string()).into_response(),
+    };
+    let entries: Vec<serde_json::Value> = guide
+        .get(&content_id.to_string())
+        .map(|programmes| {
+            programmes
+                .iter()
+                .map(|p| {
+                    serde_json::json!({
+                        "showname": p.name,
+                        "description": p.description,
+                        "startEpoch": if p.start_date.abs() < 10_000_000_000 { p.start_date.saturating_mul(1000) } else { p.start_date },
+                        "endEpoch": if p.end_date.abs() < 10_000_000_000 { p.end_date.saturating_mul(1000) } else { p.end_date },
+                        "episodePoster": "",
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    axum::Json(serde_json::json!({ "epg": entries })).into_response()
 }
 
 /// The web guide for a extras channel, in the same shape as JioTV's.
@@ -712,23 +864,142 @@ pub async fn poster_handler(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn playbox_web_epg_reports_the_missing_stop_time() {
+        let dir = tempfile::tempdir().unwrap();
+        let store =
+            std::sync::Arc::new(crate::store::Store::open(dir.path().to_str().unwrap()).unwrap());
+        std::mem::forget(dir);
+        let state = std::sync::Arc::new(AppState {
+            config: crate::config::Config::default(),
+            path_prefix: String::new(),
+            access: std::sync::Arc::new(crate::access::Access::new(store.clone())),
+            store,
+            tv: std::sync::Arc::new(crate::television::Television::new(reqwest::Client::new())),
+            secure: std::sync::Arc::new(crate::secureurl::SecureUrl::new(false)),
+            http: reqwest::Client::new(),
+            drm_channels: Default::default(),
+            custom_channels: std::sync::Arc::new(crate::custom_channels::CustomChannels::new()),
+            render_caches: Default::default(),
+            dash_state: Default::default(),
+            epg_state: Default::default(),
+            extras: std::sync::Arc::new(crate::extras_state::ExtrasState::new(false, None)),
+            fastway: std::sync::Arc::new(crate::fastway_state::FastwayState::new(false)),
+            playbox: std::sync::Arc::new(crate::playbox_state::PlayboxState::new(false)),
+            vzy: std::sync::Arc::new(crate::vzy_state::VzyState::new(false)),
+            vod_state: Default::default(),
+            public_ip: std::sync::Arc::new(crate::unlock::PublicIp::new(reqwest::Client::new())),
+            unlock_limiter: std::sync::Arc::new(crate::unlock::AttemptLimiter::default()),
+            listen: Default::default(),
+            tunnel_origin: Default::default(),
+        });
+        let resp = web_epg_handler(Path(("pb_ch1".into(), "0".into())), State(state)).await;
+        assert_eq!(resp.status(), StatusCode::NOT_IMPLEMENTED);
+    }
+
+    #[tokio::test]
+    async fn vzy_web_epg_uses_shared_browser_route_shape() {
+        use wiremock::matchers::{header as match_header, method, path, path_regex};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/ottuser/action/anonymousLogin"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "result": {"ks": "anon-ks", "expiry": 9999999999u64}
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/asset/action/list"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "result": {"totalCount": 1, "objects": [
+                    {"id": 1, "name": "Free One", "metas": {"EntitlementType": {"value": "Free"}}}
+                ]}
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path_regex(
+                r"^/api_v3/service/epg/action/get/date/\d+/slots/all$",
+            ))
+            .and(match_header("Authorization", "Bearer anon-ks"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "epgChunk": {
+                    "1": [{
+                        "id": 9,
+                        "name": "Show",
+                        "description": "Desc",
+                        "startDate": 1793923200,
+                        "endDate": 1793926800,
+                        "linearAssetId": 1
+                    }]
+                }
+            })))
+            .mount(&server)
+            .await;
+
+        let dir = tempfile::tempdir().unwrap();
+        let store =
+            std::sync::Arc::new(crate::store::Store::open(dir.path().to_str().unwrap()).unwrap());
+        let http = reqwest::Client::new();
+        let mut client = crate::vzy::Client::new(http.clone(), crate::vzy::Device::new());
+        client.set_bases_for_test(&server.uri(), &format!("{}/api_v3", server.uri()));
+        let vzy = std::sync::Arc::new(crate::vzy_state::VzyState::new(true));
+        vzy.set_client_for_test(std::sync::Arc::new(client));
+        let state = std::sync::Arc::new(AppState {
+            config: crate::config::Config::default(),
+            path_prefix: String::new(),
+            access: std::sync::Arc::new(crate::access::Access::new(store.clone())),
+            store,
+            tv: std::sync::Arc::new(crate::television::Television::new(http.clone())),
+            secure: std::sync::Arc::new(crate::secureurl::SecureUrl::new(false)),
+            http: http.clone(),
+            drm_channels: Default::default(),
+            custom_channels: std::sync::Arc::new(crate::custom_channels::CustomChannels::new()),
+            render_caches: Default::default(),
+            dash_state: Default::default(),
+            epg_state: Default::default(),
+            extras: std::sync::Arc::new(crate::extras_state::ExtrasState::new(false, None)),
+            fastway: std::sync::Arc::new(crate::fastway_state::FastwayState::new(false)),
+            playbox: std::sync::Arc::new(crate::playbox_state::PlayboxState::new(false)),
+            vzy,
+            vod_state: Default::default(),
+            public_ip: std::sync::Arc::new(crate::unlock::PublicIp::new(http)),
+            unlock_limiter: std::sync::Arc::new(crate::unlock::AttemptLimiter::default()),
+            listen: Default::default(),
+            tunnel_origin: Default::default(),
+        });
+
+        let resp = web_epg_handler(Path(("vzy_1".into(), "0".into())), State(state)).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["epg"][0]["showname"], "Show");
+        assert_eq!(json["epg"][0]["description"], "Desc");
+        assert_eq!(json["epg"][0]["startEpoch"], 1793923200000i64);
+        assert_eq!(json["epg"][0]["endEpoch"], 1793926800000i64);
+    }
     use http_body_util::BodyExt;
     use std::collections::HashMap;
 
     #[test]
-    #[cfg(not(feature = "android-epg"))]
-    fn stored_enabled_override_wins_over_config() {
-        assert!(enabled_with_override(false, Some("true")));
-        assert!(!enabled_with_override(true, Some("false")));
-        assert!(enabled_with_override(true, None));
-        assert!(!enabled_with_override(false, Some("invalid")));
+    fn companion_app_forces_epg_on_regardless_of_config_or_persisted_override() {
+        assert!(enabled_with_override(false, Some("false"), true));
+        assert!(enabled_with_override(false, Some("invalid"), true));
+        assert!(enabled_with_override(false, None, true));
     }
 
-    #[cfg(feature = "android-epg")]
     #[test]
-    fn android_epg_feature_ignores_disabled_config_and_store() {
-        assert!(enabled_with_override(false, Some("false")));
-        assert!(enabled_with_override(false, None));
+    fn stored_override_takes_precedence_when_epg_is_not_forced() {
+        assert!(!enabled_with_override(true, Some("false"), false));
+        assert!(enabled_with_override(false, Some("true"), false));
+        assert!(enabled_with_override(true, Some("invalid"), false));
+        assert!(enabled_with_override(true, None, false));
+        assert!(!enabled_with_override(false, Some("false"), false));
+        assert!(!enabled_with_override(false, Some("invalid"), false));
+        assert!(!enabled_with_override(false, None, false));
     }
 
     fn tv_channel(id: &str, name: &str) -> crate::television::Channel {
@@ -812,6 +1083,9 @@ mod tests {
             dash_state: Default::default(),
             epg_state: Default::default(),
             extras: extras_state,
+            fastway: Arc::new(crate::fastway_state::FastwayState::new(false)),
+            playbox: Arc::new(crate::playbox_state::PlayboxState::new(false)),
+            vzy: Arc::new(crate::vzy_state::VzyState::new(false)),
             vod_state: Default::default(),
             public_ip: Arc::new(crate::unlock::PublicIp::new(http)),
             unlock_limiter: Arc::new(crate::unlock::AttemptLimiter::default()),
@@ -1026,10 +1300,13 @@ mod tests {
         assert!(!prepare_cache_for_state(&state).await.unwrap());
         let current = publish_test_guide(&state, "account-b-guide").await;
 
-        assert!(
-            !publish_cache_if_current(&state, old_epoch, &old_snapshot.fingerprint, &old_bytes)
-                .unwrap()
-        );
+        assert!(!publish_cache_if_current(
+            &state,
+            old_epoch,
+            &old_snapshot.fingerprint,
+            &old_bytes
+        )
+        .unwrap());
         let response = epg_handler(State(state)).await;
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(response_bytes(response).await, current);

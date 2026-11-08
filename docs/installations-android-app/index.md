@@ -1,13 +1,13 @@
 ---
 title: Install the Android TV and phone app
-description: Run the slim JioTV IPTV server directly on Android TV or a phone and use its local playlist in another IPTV app.
+description: Run the slim OpenStream TV IPTV server directly on Android TV or a phone and use its local playlist in another IPTV app.
 category: Installation
 keywords: [Android TV, Android, APK, slim, IPTV, local playlist, import config]
 ---
 
 # Android TV and phone app
 
-The Android app bundles the **slim** JioTV server. It provides controls for starting and stopping the local server, a playlist URL for IPTV players on the same Android device, and an option to import an existing JioTV **TOML configuration file**. It has no browser TV player; use an installed IPTV player to watch.
+The Android app bundles the **slim** OpenStream TV server. It provides controls for starting and stopping the local server, a playlist URL for IPTV players on the same Android device, and options to import or export a **TOML configuration file**. It has no browser TV player; use an installed IPTV player to watch.
 
 ## Build and install
 
@@ -17,7 +17,7 @@ Install the APK on an Android phone, tablet or Android TV device that permits si
 
 ## Use the local IPTV URL
 
-Start the server in the app. It shows a URL shaped like:
+Start the server in the app. It binds only to `127.0.0.1`, using port `5001` by default or the first free port through `5010` when another app already owns it. It then shows a URL shaped like:
 
 `http://127.0.0.1:5001/k/<unique-key>/playlist.m3u`
 
@@ -27,13 +27,13 @@ The key in the playlist URL grants access to the stream endpoints. Treat it as p
 
 ## Import configuration and sign in
 
-Use **Import TOML config** to select a previously saved `.toml` configuration using Android's file picker. This imports server settings; it does **not** by itself transfer an authenticated JioTV account, tokens or the private runtime store. Sign in with your own JioTV account in the app if the account has not been connected. Restart the local server for new settings to take effect.
+Use **Import TOML config** to select a previously saved `.toml` configuration using Android's file picker. This imports server settings; it does **not** by itself transfer an authenticated provider account, tokens or the private runtime store. Sign in with your own provider account in the app if it has not been connected. Restart the local server for new settings to take effect.
 
-Choose **JioTV** or **JioTV+** (Beta) in the app's provider row. Only one provider is active at a time, and the playlist and channel list follow the active provider. JioTV+ also needs its own eligible JioFiber or AirFiber login.
+Choose **JioTV** or **JioTV+** in the app's provider row. Only one provider is active at a time, and the playlist and channel list follow the active provider. JioTV+ also needs its own eligible JioFiber or AirFiber login. The bundled server also enables Fastway, PlayboxTV and VZY (Beta); connect and activate those from the web Settings after enabling the required configuration.
 
 Use **Export TOML config** to save server settings through Android’s file picker. Login credentials are kept in the separate runtime store and are not added to the configuration export.
 
-Use **Import login store backup** separately to restore a `store_v4.toml` backup. The app validates it before replacing its private login store. This backup contains credentials; keep it private. Provider support depends on the bundled server: Fastway is currently unavailable in this build.
+Use **Import login store backup** separately to restore a `store_v4.toml` backup. The app validates it before replacing its private login store. This backup contains credentials; keep it private. Provider support depends on the bundled server and the configuration flags enabled for it.
 
 Only import configuration files you trust. The app's local data and the server's private store are kept in Android application storage, and the application must remain installed to retain that data.
 
@@ -41,7 +41,7 @@ Only import configuration files you trust. The app's local data and the server's
 
 Start the server once to enable automatic startup after boot and unlock. The server runs as a foreground service with a persistent notification. Stop disables future boot startup; Start enables it again.
 
-On Android 10+, use **Enable startup screen** and grant the system “display over other apps” permission to let the app screen open at boot. Alternatively, with an authorized ADB connection: `adb shell appops set org.jiotvgo.android SYSTEM_ALERT_WINDOW allow`. This permission does not require displaying an overlay; it permits the background activity launch. Without it, the server can still start and its notification opens the screen. Device battery or vendor startup restrictions may also apply.
+On Android 10+, use **Enable startup screen** and grant the system “display over other apps” permission to let the app screen open at boot. Alternatively, with an authorized ADB connection: `adb shell appops set org.opebstreamstv.android SYSTEM_ALERT_WINDOW allow`. This permission does not require displaying an overlay; it permits the background activity launch. Without it, the server can still start and its notification opens the screen. Device battery or vendor startup restrictions may also apply.
 
 ## TV remote navigation
 
@@ -49,6 +49,6 @@ Use the D-pad to move between controls and OK to activate them. Select a number 
 
 ## Troubleshooting
 
-If the IPTV player cannot load the playlist, confirm that the app's server status is **running**, paste the complete keyed URL, and check that the player runs on the same Android device. An empty playlist may mean the JioTV account is not yet connected. If Android stops the server after a period of inactivity, check its background activity and battery restrictions. Playback support for DRM-protected channels still depends on the IPTV player.
+If the IPTV player cannot load the playlist, confirm that the app's server status is **running**, paste the complete keyed URL, and check that the player runs on the same Android device. An empty playlist may mean the active provider account is not yet connected. If Android stops the server after a period of inactivity, check its background activity and battery restrictions. Playback support for DRM-protected channels still depends on the IPTV player.
 
 For an Android installation with full terminal access instead, see [Install on Android with Termux](../installations-termux/index.md).

@@ -1,38 +1,56 @@
 ---
-title: Update and Uninstall
-description: Update JioTV safely and remove binaries or services while preserving data unless requested.
+title: Uninstall OpenStream TV Safely
+description: Remove OpenStream TV binaries, services or containers while preserving saved data unless you choose to erase it.
 category: Maintenance
-keywords: [update, upgrade, uninstall, remove, binary, version]
+keywords: [uninstall, remove, binary, service, Docker, OpenWrt, saved data]
 ---
 
-# Update and uninstall
+# Uninstall OpenStream TV Safely
 
-Choose the update method that matches how JioTV was installed. Before updating, make a private backup of the data directory; see [Backup and restore](../maintenance-backup-restore/index.md).
+This page covers removal. For upgrades, use [How to Update OpenStream TV](../maintenance-update/index.md).
 
-## Update a standalone binary
+Before uninstalling, decide whether to keep the OpenStream TV data directory. It contains saved provider sessions, the admin password hash, the access key and TLS files. Make a private [backup](../maintenance-backup-restore/index.md) if you may reinstall later.
 
-Run:
+## Linux, macOS and other standalone binaries
+
+1. Stop the running OpenStream TV process.
+2. If you installed autostart on Linux or Termux, remove it with `ost autostart remove` using the same operating-system user that created it.
+3. Delete only the `ost` executable from the directory where you installed it, such as `/usr/local/bin/ost` or `$HOME/.local/bin/ost`.
+4. Keep the data directory unless you deliberately want to remove saved accounts and server secrets.
+
+If a systemd service was created for OpenStream TV, `ost autostart remove` removes the service definition installed by OpenStream TV. Run it with the same privilege level used during setup.
+
+## Windows
+
+1. Stop the server window or process.
+2. Delete `ost.exe` from its install directory. The PowerShell installer defaults to `%LOCALAPPDATA%\Programs\OpenStream TV` unless you selected another location.
+3. Remove that directory from your user `PATH` if it is no longer needed.
+4. Keep the data directory if you may reinstall.
+
+The project does not install a native Windows background service, so remove any third-party service wrapper separately if you configured one yourself.
+
+## Termux
+
+Run `ost autostart remove` if you enabled Termux autostart, stop the server, then delete the `ost` executable from `$PREFIX/bin`. Android may keep Termux files after the app closes; remove the OpenStream TV data directory separately only if you want to erase saved state.
+
+## OpenWrt
+
+Remove the installed package with the package manager used by the router:
 
 ```sh
-jiotv update
+apk del openstream
+# or
+opkg remove openstream
 ```
 
-To select a release, use `jiotv update --version v1.3.3` (replace with the desired version). The updater selects the same build variant and target as the running binary and checks the release checksum. Restart a systemd service after the update:
+Use `openstream-slim` instead if that is the installed package. Package removal preserves `/etc/openstream` and `/etc/config/openstream`; back them up or delete them separately only when you intend to erase the configuration and saved account state. See [OpenWrt maintenance](../maintenance-openwrt/index.md).
 
-```sh
-sudo systemctl restart jiotv
-```
+## Docker or Compose
 
-For a user service, use `systemctl --user restart jiotv`. The updater cannot replace a package-managed OpenWrt binary; update that installation through the package installer instead.
+Stop and remove the container, then remove its image if desired. Keep the persistent volume if you want to preserve configuration and account state. Delete the volume only when you intend to erase that data. See [Docker maintenance](../maintenance-docker/index.md) for the matching commands.
 
-## Update Docker
+## Verify removal
 
-Pull the image and recreate the container with the same options and persistent volume. See [Docker maintenance](../maintenance-docker/index.md) for commands.
+After removal, `ost --help` should no longer resolve from the removed install location, and the previous OpenStream TV server ports should no longer be listening unless another copy is running. If the command still resolves, check `command -v ost` on Unix-like systems or `Get-Command ost` in PowerShell for another installation.
 
-## Uninstall
-
-First stop and remove the service. For systemd, run `jiotv autostart remove` as the same user (or root) that installed it. For OpenWrt, remove the package with `apk del jiotv` or `opkg remove jiotv`; for Termux, remove the shell startup entry with `jiotv autostart remove`.
-
-Then delete the `jiotv` executable from its installation directory. On Windows, remove `jiotv.exe` from the install directory and remove that directory from your user `PATH` if you no longer use it. For Docker, remove the container; remove its image if desired.
-
-The data directory is separate from the executable and contains saved login state, password hash, access key and TLS files. Keep it if you may reinstall. Delete it only when you intend to permanently remove those settings and credentials. Docker data is in the named volume, and OpenWrt package removal preserves `/etc/jiotv` and `/etc/config/jiotv`.
+Removing the executable does not automatically erase OpenStream TV data. Review [data, backups and logs](../configuration-storage-logs/index.md) before deleting any saved state.

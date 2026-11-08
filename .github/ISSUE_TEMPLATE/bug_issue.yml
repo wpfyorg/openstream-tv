@@ -6,9 +6,9 @@ body:
   - type: markdown
     attributes:
       value: |
-        # JioTV Go Bug report
+        # OpenStream TV Bug report
 
-        Important to note that your issue may have already been reported before. Please check for existing issues [here](https://github.com/jiotv-go/jiotv_go/labels/bug).
+        Important to note that your issue may have already been reported before. Please check for existing issues [here](https://github.com/wpfyorg/openstream-tv/labels/bug).
 
   - type: textarea
     attributes:
@@ -27,10 +27,11 @@ body:
     attributes:
       label: Relevant log output
       description: |
-        Please copy and paste any relevant log output. 
-        This will be automatically formatted into code, so no need for backticks. 
-        Copy from terminal or log file and paste here. 
-        If there is no log output, please write "n/a"
+        Reproduce the problem once, then paste only the short log excerpt around the failure time.
+        Sanitize it first: remove tokens, cookies, Authorization values, passwords, OTPs, account/device IDs, tunnel/private hosts, and playlist URLs or access keys.
+        Never upload store_v4.toml, the OpenStream data directory, /etc/config/openstream, .env files, browser storage/profile data, or TLS private keys.
+        Follow https://wpfyorg.github.io/openstream-tv/troubleshooting-reporting-logs/ for collection commands and redaction examples.
+        This field is automatically formatted as code, so no backticks are needed. If there is no log output, write "n/a".
       render: shell
     validations:
       required: true
@@ -64,4 +65,6 @@ body:
         - label: I have written a short but informative title.
           required: true
         - label: I filled out all of the requested information in this issue properly.
+          required: true
+        - label: I checked all logs, screenshots and attachments and removed credentials, tokens, cookies, OTPs, playlist access keys and other private data.
           required: true

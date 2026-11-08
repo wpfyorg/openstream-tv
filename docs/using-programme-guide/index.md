@@ -1,13 +1,15 @@
 ---
 title: Read the Programme Guide
 description: See the current and next TV programmes and understand when catch-up is unavailable.
-category: Using JioTV
+category: Using OpenStream TV
 keywords: [programme guide, program guide, EPG, schedule, now playing, upcoming, catch-up]
 ---
 
 # Read the Programme Guide
 
-JioTV shows programme information for a channel when the provider returns a schedule. You can check what is on now and what comes next without leaving the live player.
+OpenStream TV shows programme information for a channel when the active provider returns a schedule. You can check what is on now and what comes next without leaving the live player.
+
+![Programme guide beside the live player for a JioTV+ channel](../images/player-guide-jiotv-plus.png)
 
 1. Open **Channels** and select an available channel.
 2. Find the **Program guide** section beside or below the player, depending on your screen size.
@@ -23,4 +25,4 @@ The current Svelte interface does **not** offer a catch-up browser or a button t
 
 ## Guide in a separate IPTV player
 
-Enable EPG on the JioTV server, then copy the **EPG** URL from **Settings** to your IPTV app. See [Set up IPTV/XMLTV](../using-iptv-playlists/index.md) and [Configure EPG](../configuration-iptv-epg-streaming/index.md). For incorrect times or missing shows, see [Fix guide and playlist problems](../troubleshooting-epg-and-playlists/index.md).
+Enable EPG on the OpenStream TV server, then copy the **EPG** URL from **Settings** to your IPTV app. See [Set up IPTV/XMLTV](../using-iptv-playlists/index.md) and [Configure EPG](../configuration-iptv-epg-streaming/index.md). For incorrect times or missing shows, see [Fix guide and playlist problems](../troubleshooting-epg-and-playlists/index.md).

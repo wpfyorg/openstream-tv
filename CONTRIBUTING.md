@@ -1,97 +1,57 @@
-# Contributing Guidelines
+# Contributing to OpenStream TV
 
-## Welcome to the JioTV Go Project
+Thanks for helping improve OpenStream TV. Bug reports, documentation fixes, provider work, and code contributions are welcome.
 
-We're thrilled that you're considering contributing to our project. Before you get started, please take a moment to review the following guidelines to help make your contribution process as smooth as possible.
+Please follow the [Code of Conduct](CODE_OF_CONDUCT.md). For support and development discussion, join the [OpenStream TV Discord](https://discord.gg/VWDvwqTjY).
 
-## Table of Contents
+## Development setup
 
-- [Contributing Guidelines](#contributing-guidelines)
-  - [Welcome to the JioTV Go Project](#welcome-to-the-jiotv-go-project)
-  - [Table of Contents](#table-of-contents)
-  - [Code of Conduct](#code-of-conduct)
-  - [How Can I Contribute?](#how-can-i-contribute)
-    - [Reporting Bugs](#reporting-bugs)
-    - [Suggesting Enhancements](#suggesting-enhancements)
-    - [Code Contribution](#code-contribution)
-    - [Documentation](#documentation)
-  - [Pull Request Process](#pull-request-process)
-  - [Community](#community)
+You need a stable Rust toolchain, Node.js LTS with npm, and Git.
 
-## Code of Conduct
+```sh
+git clone https://github.com/YOUR_USERNAME/openstream-tv.git
+cd openstream-tv
 
-Please review our [Code of Conduct](CODE_OF_CONDUCT.md) to understand the standards of behavior expected in our community.
+cargo build
+cargo test
+cargo test --no-default-features --features slim
 
-## How Can I Contribute?
-
-### Development Setup
-
-Before contributing code, make sure you have the required tools installed:
-
-1. **Go** (version specified in go.mod) - [Download here](https://golang.org/dl/)
-2. **Node.js** (16+) - [Download here](https://nodejs.org/)
-3. **Git** - For version control
-
-**Quick Setup:**
-```bash
-# Clone your fork
-git clone https://github.com/YOUR_USERNAME/jiotv_go.git
-cd jiotv_go
-
-# Install dependencies
-go mod tidy
-cd web && npm ci && cd ..
-
-# Build the project
-go build -o build/jiotv_go .
-cd web && npm run build && cd ..
-
-# Run tests
-go test ./...
-cd web && npm test && cd ..
+cd web/ui
+npm ci
+npm test
+npm run build
 ```
 
-### Reporting Bugs
+The primary executable is `ost`. The default build includes the Svelte UI; the slim build omits it.
 
-If you encounter a bug while using our project, please open an issue on our [issue tracker](https://github.com/jiotv-go/jiotv_go/issues/) with a detailed description of the problem, steps to reproduce, and your system information.
+For installer-related changes, also run:
 
-### Suggesting Enhancements
+```sh
+sh scripts/tests/install-test.sh
+sh scripts/tests/onboard-test.sh
+sh scripts/tests/onboard-ps1-test.sh
+sh scripts/tests/openstream-token-test.sh
+```
 
-If you have an idea for an enhancement or a new feature, feel free to open an issue on our [issue tracker](https://github.com/jiotv-go/jiotv_go/issues/). Be sure to provide a clear description of your proposal and why it would be valuable.
+`onboard-ps1-test.sh` requires `pwsh`; outside CI it skips when PowerShell is unavailable.
 
-### Code Contribution
+## Reporting bugs and proposing features
 
-1. Fork the project repository.
-2. Create a new branch for your feature or bug fix: `git checkout -b feature/my-new-feature` or `git checkout -b bugfix/issue-description`.
-3. Make your changes and test them thoroughly.
-4. Commit your changes with clear, concise commit messages following [conventional commit format](https://www.conventionalcommits.org/):
-   - `feat:` for new features
-   - `fix:` for bug fixes
-   - `docs:` for documentation updates
-   - `test:` for adding or updating tests
-   - `chore:` for maintenance tasks
-5. Push your changes to your forked repository.
-6. Open a pull request against our main repository's `develop` branch.
+Open an issue in the [OpenStream TV issue tracker](https://github.com/wpfyorg/openstream-tv/issues). Include the OpenStream TV version, platform, relevant configuration with secrets removed, expected behavior, and the smallest reproducible steps.
 
-### Documentation
+Keep provider names precise. **OpenStream TV** is the application. **JioTV**, **JioTV+**, Fastway, and future sources are providers or account types. Do not rename provider-specific API paths, payload fields, or compatibility identifiers merely because they contain `jiotv`.
 
-Improvements to project documentation are also welcome. If you see any areas that could be clarified or extended, please submit a pull request with your changes.
+## Pull requests
 
-## Pull Request Process
+Create a focused branch, keep each commit to one logical change, and use Conventional Commits such as `feat:`, `fix:`, `docs:`, `test:`, `chore:`, or `refactor:`.
 
-Before submitting a pull request, ensure the following:
+Before opening a pull request:
 
-- Your code follows our coding guidelines and existing patterns.
-- Your commit messages are clear and follow our guidelines.
-- You have added or updated tests where necessary.
-- All existing tests pass (`go test ./...` for backend, `npm test` for frontend).
-- The documentation is updated if needed.
-- For frontend changes, ensure CSS is built with `npm run build`.
+- Run the Rust tests relevant to both full and slim builds.
+- Run `cargo clippy --all-targets -- -D warnings` and the slim equivalent when Rust code changes.
+- Run `npm test` and `npm run build` in `web/ui` when the web UI changes.
+- Run installer tests when packaging, installation, service, or release behavior changes.
+- Update documentation and examples with any user-facing configuration or command change.
+- Never commit credentials, tokens, runtime state, logs, or private playlist URLs.
 
-Our team will review your pull request, and once approved, it will be merged. Thank you for your contribution!
-
-## Community
-
-Join our community on [Community Platform/Chat Room](https://telegram.me/jiotv_go_chat) to discuss ideas, ask questions, or get help.
-
-We appreciate your interest in contributing to the JioTV Go project.
+Normal changes target the repository's active development branch. Release tags and version bumps are handled by the release workflow rather than by ordinary feature commits.

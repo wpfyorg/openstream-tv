@@ -23,7 +23,7 @@ Channels do not appear, the list is empty, or only some categories/languages are
 
 ### Diagnosis
 
-Check **Settings** for JioTV and JioTV+ status and which provider is **Active**. Clear the search field and reset category and language filters in Channels. Reload once, then check server output. Compare the UI list with the account's available content; do not assume every provider channel is available to every account.
+Check **Settings** for each enabled provider's status and which provider is **Active**. Clear the search field and reset category and language filters in Channels. Reload once, then check server output. Compare the UI list with the account's available content; do not assume every provider channel is available to every account.
 
 ### Solution
 
@@ -104,7 +104,7 @@ The UI identifies a subscription requirement or playback is rejected by the prov
 ### Possible causes
 
 - The selected channel/content needs an entitlement absent from the active account.
-- JioTV and JioTV+ accounts differ; a channel belongs to the other source.
+- JioTV, JioTV+, Fastway, PlayboxTV and VZY accounts are separate; a channel belongs to whichever provider is active.
 - Provider access was denied or the provider returned an account-specific refusal.
 
 ### Diagnosis

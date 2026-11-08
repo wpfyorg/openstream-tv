@@ -1,16 +1,16 @@
-//! `jiotv update`: replaces this binary with a release from GitHub.
+//! `ost update`: replaces this binary with a release from GitHub.
 //!
-//! Releases come from `JIOTV_UPDATE_REPO` (default below). Each release
+//! Releases come from `OPENSTREAM_UPDATE_REPO` (default below). Each release
 //! carries one binary per build and target, named
-//! `jiotv-<full|slim>-<target triple>`, plus a `SHA256SUMS` file. A private
-//! repository needs a token in `JIOTV_UPDATE_TOKEN` (or `GITHUB_TOKEN`) with
+//! `openstream-<full|slim>-<target triple>`, plus a `SHA256SUMS` file. A private
+//! repository needs a token in `OPENSTREAM_UPDATE_TOKEN` (or `GITHUB_TOKEN`) with
 //! read access to its contents.
 
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::time::Duration;
 
-const DEFAULT_REPO: &str = "wpfyorg/better-jiotv-go";
+const DEFAULT_REPO: &str = "wpfyorg/openstream-tv";
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -35,19 +35,24 @@ struct Asset {
 }
 
 fn repo() -> String {
-    std::env::var("JIOTV_UPDATE_REPO")
+    std::env::var("OPENSTREAM_UPDATE_REPO")
+        .or_else(|_| std::env::var("JIOTV_UPDATE_REPO"))
         .ok()
         .filter(|r| !r.is_empty())
         .unwrap_or_else(|| DEFAULT_REPO.to_string())
 }
 
 fn token() -> Option<String> {
-    ["JIOTV_UPDATE_TOKEN", "GITHUB_TOKEN"]
-        .iter()
-        .find_map(|k| std::env::var(k).ok().filter(|t| !t.is_empty()))
+    [
+        "OPENSTREAM_UPDATE_TOKEN",
+        "JIOTV_UPDATE_TOKEN",
+        "GITHUB_TOKEN",
+    ]
+    .iter()
+    .find_map(|k| std::env::var(k).ok().filter(|t| !t.is_empty()))
 }
 
-/// The asset name for this binary, e.g. `jiotv-slim-aarch64-unknown-linux-musl`.
+/// The asset name for this binary, e.g. `openstream-slim-aarch64-unknown-linux-musl`.
 pub fn asset_name() -> String {
     asset_for(VARIANT, target_triple(), cfg!(target_os = "windows"))
 }
@@ -76,33 +81,94 @@ fn target_for(arch: &str, os: &str) -> &'static str {
 
 fn asset_for(variant: &str, target: &str, windows: bool) -> String {
     format!(
-        "jiotv-{variant}-{target}{}",
+        "openstream-{variant}-{target}{}",
         if windows { ".exe" } else { "" }
     )
 }
 
-/// Parses "v1.2.3" or "1.2.3" into comparable numbers.
-fn parse_version(v: &str) -> Option<(u64, u64, u64)> {
+#[derive(Debug, PartialEq, Eq)]
+struct Version {
+    core: (u64, u64, u64),
+    pre: Option<Vec<PreId>>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum PreId {
+    Numeric(u64),
+    Text(String),
+}
+
+impl PreId {
+    fn cmp_semver(&self, other: &Self) -> std::cmp::Ordering {
+        use std::cmp::Ordering;
+        match (self, other) {
+            (PreId::Numeric(a), PreId::Numeric(b)) => a.cmp(b),
+            (PreId::Numeric(_), PreId::Text(_)) => Ordering::Less,
+            (PreId::Text(_), PreId::Numeric(_)) => Ordering::Greater,
+            (PreId::Text(a), PreId::Text(b)) => a.cmp(b),
+        }
+    }
+}
+
+/// Parses "v1.2.3", "1.2.3-beta.1" or "1.2.3+build" into a comparable
+/// version. A missing patch is treated as zero, matching the tags this
+/// project has published.
+fn parse_version(v: &str) -> Option<Version> {
     let v = v.trim().trim_start_matches('v');
-    let v = v.split(['-', '+']).next()?;
-    let mut parts = v.split('.').map(|p| p.parse::<u64>().ok());
-    Some((
+    let v = v.split('+').next()?;
+    let (core, pre) = match v.split_once('-') {
+        Some((core, pre)) => (core, (!pre.is_empty()).then_some(pre)),
+        None => (v, None),
+    };
+    let mut parts = core.split('.').map(|p| p.parse::<u64>().ok());
+    let core = (
         parts.next()??,
         parts.next().flatten().unwrap_or(0),
         parts.next().flatten().unwrap_or(0),
-    ))
+    );
+    let pre = pre.map(|pre| {
+        pre.split('.')
+            .map(|id| match id.parse::<u64>() {
+                Ok(n) => PreId::Numeric(n),
+                Err(_) => PreId::Text(id.to_string()),
+            })
+            .collect()
+    });
+    Some(Version { core, pre })
+}
+
+fn compare_pre(a: &[PreId], b: &[PreId]) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    for (left, right) in a.iter().zip(b) {
+        match left.cmp_semver(right) {
+            Ordering::Equal => {}
+            other => return other,
+        }
+    }
+    a.len().cmp(&b.len())
 }
 
 fn is_newer(tag: &str, current: &str) -> bool {
-    match (parse_version(tag), parse_version(current)) {
-        (Some(t), Some(c)) => t > c,
-        _ => false,
+    let (Some(tag), Some(current)) = (parse_version(tag), parse_version(current)) else {
+        return false;
+    };
+    match tag.core.cmp(&current.core) {
+        std::cmp::Ordering::Greater => true,
+        std::cmp::Ordering::Less => false,
+        std::cmp::Ordering::Equal => match (&tag.pre, &current.pre) {
+            (None, None) => false,
+            (None, Some(_)) => true,
+            (Some(_), None) => false,
+            (Some(tag_pre), Some(current_pre)) => {
+                compare_pre(tag_pre, current_pre) == std::cmp::Ordering::Greater
+            }
+        },
     }
 }
 
 fn client() -> anyhow::Result<reqwest::Client> {
     Ok(reqwest::Client::builder()
-        .user_agent(format!("jiotv/{VERSION}"))
+        .user_agent(format!("openstream/{VERSION}"))
         .timeout(Duration::from_secs(120))
         .build()?)
 }
@@ -138,11 +204,11 @@ async fn fetch_release(client: &reqwest::Client, version: Option<&str>) -> anyho
     match resp.status().as_u16() {
         200 => Ok(resp.json().await?),
         404 if token().is_none() => anyhow::bail!(
-            "no release found in {repo}. If the repository is private, set JIOTV_UPDATE_TOKEN"
+            "no release found in {repo}. If the repository is private, set OPENSTREAM_UPDATE_TOKEN"
         ),
         404 => anyhow::bail!("no release found in {repo}"),
         401 | 403 => anyhow::bail!(
-            "GitHub refused the request ({}). Check JIOTV_UPDATE_TOKEN",
+            "GitHub refused the request ({}). Check OPENSTREAM_UPDATE_TOKEN",
             resp.status()
         ),
         _ => anyhow::bail!("GitHub answered {}", resp.status()),
@@ -190,7 +256,9 @@ fn replace_executable(data: &[u8]) -> anyhow::Result<std::path::PathBuf> {
         .ok_or_else(|| anyhow::anyhow!("cannot find the binary's directory"))?;
     let tmp = dir.join(format!(
         ".{}.update",
-        exe.file_name().and_then(|n| n.to_str()).unwrap_or("jiotv")
+        exe.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("ost")
     ));
     std::fs::write(&tmp, data).map_err(|e| {
         anyhow::anyhow!(
@@ -206,7 +274,7 @@ fn replace_executable(data: &[u8]) -> anyhow::Result<std::path::PathBuf> {
     #[cfg(windows)]
     {
         let pid = std::process::id();
-        let script = dir.join(format!(".jiotv-update-{pid}.ps1"));
+        let script = dir.join(format!(".openstream-update-{pid}.ps1"));
         std::fs::write(&script, windows_replacement_script_bytes(pid, &tmp, &exe))?;
         if let Err(e) = std::process::Command::new("powershell.exe")
             .args([
@@ -253,12 +321,11 @@ fn windows_replacement_script(pid: u32, staged: &std::path::Path, exe: &std::pat
     }
     format!(
         "$ErrorActionPreference = 'Stop'\n$pidToWait = {pid}\n$staged = {}\n$exe = {}\n$script = $MyInvocation.MyCommand.Path\ntry {{\n  while (Get-Process -Id $pidToWait -ErrorAction SilentlyContinue) {{ Start-Sleep -Milliseconds 250 }}\n  Move-Item -LiteralPath $staged -Destination $exe -Force\n}} finally {{\n  Remove-Item -LiteralPath $script -Force -ErrorAction SilentlyContinue\n  Remove-Item -LiteralPath $staged -Force -ErrorAction SilentlyContinue\n}}\n",
-        quote(staged),
-        quote(exe)
+        quote(staged), quote(exe)
     )
 }
 
-/// `jiotv update [--version vX.Y.Z]`.
+/// `ost update [--version vX.Y.Z]`.
 pub async fn run(version: Option<&str>) -> anyhow::Result<()> {
     if target_triple() == "unsupported" {
         anyhow::bail!(
@@ -271,7 +338,7 @@ pub async fn run(version: Option<&str>) -> anyhow::Result<()> {
     let release = fetch_release(&client, version).await?;
     if version.is_none() && !is_newer(&release.tag_name, VERSION) {
         println!(
-            "jiotv {VERSION} is up to date (latest release: {}).",
+            "ost {VERSION} is up to date (latest release: {}).",
             release.tag_name
         );
         return Ok(());
@@ -317,7 +384,7 @@ pub async fn run(version: Option<&str>) -> anyhow::Result<()> {
             crate::autostart::restart_hint()
         );
     } else {
-        println!("Restart jiotv to use it.");
+        println!("Restart ost to use it.");
     }
     Ok(())
 }
@@ -326,7 +393,7 @@ pub async fn run(version: Option<&str>) -> anyhow::Result<()> {
 /// server without internet access or a token starts as usual.
 pub async fn check_quietly() {
     let Ok(client) = reqwest::Client::builder()
-        .user_agent(format!("jiotv/{VERSION}"))
+        .user_agent(format!("openstream/{VERSION}"))
         .timeout(Duration::from_secs(5))
         .build()
     else {
@@ -335,7 +402,7 @@ pub async fn check_quietly() {
     if let Ok(release) = fetch_release(&client, None).await {
         if is_newer(&release.tag_name, VERSION) {
             println!(
-                "Update available: {} (you have {VERSION}). Run `jiotv update`.",
+                "Update available: {} (you have {VERSION}). Run `ost update`.",
                 release.tag_name
             );
         }
@@ -356,14 +423,25 @@ mod tests {
     }
 
     #[test]
+    fn prerelease_versions_order_before_the_stable_release() {
+        assert!(is_newer("v1.5.0", "1.5.0-beta.1"));
+        assert!(!is_newer("v1.5.0-beta.1", "1.5.0"));
+        assert!(is_newer("v1.5.0-beta.2", "1.5.0-beta.1"));
+        assert!(is_newer("v1.5.0-beta.10", "1.5.0-beta.2"));
+        assert!(!is_newer("v1.5.0-beta.1", "1.5.0-beta.2"));
+        assert!(is_newer("v1.5.0-rc.1", "1.5.0-beta.2"));
+        assert!(!is_newer("v1.5.0-beta.2", "1.5.0-rc.1"));
+    }
+
+    #[test]
     fn reads_sha256sums() {
-        let sums = "abc123  jiotv-full-x86_64-unknown-linux-musl\nDEF456 *jiotv-slim-aarch64-unknown-linux-musl\n";
+        let sums = "abc123  openstream-full-x86_64-unknown-linux-musl\nDEF456 *openstream-slim-aarch64-unknown-linux-musl\n";
         assert_eq!(
-            checksum_for(sums, "jiotv-slim-aarch64-unknown-linux-musl").as_deref(),
+            checksum_for(sums, "openstream-slim-aarch64-unknown-linux-musl").as_deref(),
             Some("def456")
         );
         assert_eq!(
-            checksum_for(sums, "jiotv-full-aarch64-unknown-linux-musl"),
+            checksum_for(sums, "openstream-full-aarch64-unknown-linux-musl"),
             None
         );
     }
@@ -401,19 +479,19 @@ mod tests {
     fn asset_names_keep_variant_and_windows_extension() {
         assert_eq!(
             asset_for("slim", "i686-pc-windows-msvc", true),
-            "jiotv-slim-i686-pc-windows-msvc.exe"
+            "openstream-slim-i686-pc-windows-msvc.exe"
         );
         assert_eq!(
             asset_for("full", "aarch64-linux-android", false),
-            "jiotv-full-aarch64-linux-android"
+            "openstream-full-aarch64-linux-android"
         );
     }
 
     #[cfg(windows)]
     #[test]
     fn staged_windows_replacement_waits_and_cleans_up() {
-        let staged = std::path::Path::new(r"C:\Apps\JioTV\.jiotv.exe.update");
-        let exe = std::path::Path::new(r"C:\Apps\JioTV\jiotv.exe");
+        let staged = std::path::Path::new(r"C:\Apps\OpenStreamTV\.ost.exe.update");
+        let exe = std::path::Path::new(r"C:\Apps\OpenStreamTV\ost.exe");
         let script = windows_replacement_script(123, staged, exe);
         let encoded = windows_replacement_script_bytes(123, staged, exe);
         assert!(encoded.starts_with(b"\xEF\xBB\xBF"));

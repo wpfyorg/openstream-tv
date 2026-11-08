@@ -2,8 +2,8 @@
 //! Only an explicitly configured origin or one obtained from the local tunnel
 //! lifecycle may override the listener scheme. Forwarded headers are ignored.
 
-use anyhow::{Result, bail};
-use axum::http::{HeaderMap, header, uri::Authority};
+use anyhow::{bail, Result};
+use axum::http::{header, uri::Authority, HeaderMap};
 use url::Url;
 
 /// Accept only a complete HTTPS origin, without credentials or URL components
