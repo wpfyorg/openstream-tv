@@ -565,14 +565,14 @@ pub async fn providers_activate(
             format!("{} is not enabled", product.store_name()),
         );
     }
-    let changed = state.active_product() != product;
+    let before = state.active_product();
     if let Err(e) = state.set_active_product(product) {
         return err(
             StatusCode::INTERNAL_SERVER_ERROR,
             format!("cannot save the provider: {e}"),
         );
     }
-    if changed {
+    if state.active_product() != before {
         state.invalidate_context();
         crate::epg::trigger_regeneration(&state);
     }
@@ -1525,6 +1525,7 @@ mod tests {
                 fastway
             },
         );
+        let before = s.secure.current_epoch();
         let resp = providers_activate(
             State(s.clone()),
             Json(ActivateProviderBody {
@@ -1538,6 +1539,9 @@ mod tests {
             s.preferred_product(),
             Some(crate::state::ActiveProduct::Fastway)
         );
+        // The effective provider did not change, so existing playback URLs and
+        // the EPG cache must stay valid.
+        assert_eq!(s.secure.current_epoch(), before);
     }
 
     #[tokio::test]
