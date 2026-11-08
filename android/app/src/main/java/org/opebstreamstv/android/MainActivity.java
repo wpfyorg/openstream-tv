@@ -391,6 +391,7 @@ public final class MainActivity extends Activity {
         tvPlaylistViews.add(copyButton); tvPlaylistViews.add(saveM3uButton); tvPlaylistViews.add(openButton);
         settingsButton = tvAction("Provider settings", 70, 711, 840, 40, false);
         settingsButton.setOnClickListener(v -> openSettings());
+        tvConfigViews.add(settingsButton);
 
         tvConfigViews.add(tvLabel("Configuration & backup", 70, 757, 810, 39, 32, TV_TEXT, true));
         tvConfigViews.add(tvLabel("Import or export configuration files on this device", 70, 796, 840, 33, 20, TV_MUTED, false));
