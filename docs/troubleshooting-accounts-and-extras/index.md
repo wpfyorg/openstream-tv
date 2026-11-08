@@ -114,11 +114,11 @@ In **Settings**, check whether JioTV+ is enabled and connected. If the page offe
 
 ### Solution
 
-Enable JioTV+ in the supported configuration or unlock it in Settings, then complete the JioTV+ OTP flow separately from JioTV login. Choose the intended connection when prompted. Connecting JioTV+ makes it the active provider. If the UI says the account lacks a plan, check the subscription with the provider; do not try to bypass the entitlement.
+Enable JioTV+ in the supported configuration or unlock it in Settings. If JioTV+ is already connected but another provider is active, select **Use JioTV+** in Settings to activate it. Complete the JioTV+ OTP flow only when JioTV+ is disconnected; choose the intended connection when prompted. If the UI says the account lacks a plan, check the subscription with the provider; do not try to bypass the entitlement.
 
 ### Verification
 
-Confirm **Settings** reports JioTV+ connected and active, refresh Channels, and try an item your account is entitled to. Test a regular JioTV channel to distinguish the two sources.
+Confirm **Settings** reports JioTV+ connected and active, refresh Channels, and try an item your account is entitled to. Select **Use JioTV** before testing a regular JioTV channel, because regular JioTV channels are not listed while JioTV+ is active.
 
 ### Further help
 

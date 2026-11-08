@@ -69,7 +69,7 @@ The channel list is empty, contains fewer channels than expected, or JioTV/JioTV
 
 1. Check **Settings → Fastway** is connected.
 2. Clear category, language, HD and search filters before judging the catalogue, and confirm Fastway is the **Active** provider in Settings.
-3. Remember that connected Fastway replaces the JioTV/JioTV+ provider catalogue; local custom channels remain.
+3. Remember that only the active provider's catalogue is listed. A connected Fastway account does not replace another active provider's catalogue; select **Use Fastway** to activate it. Local custom channels remain.
 4. Disconnect Fastway to verify that OpenStream falls back to the next available provider.
 
 **Verify:** the expected active provider's channels appear after a refresh. Do not treat a visible channel as proof that the provider will authorize playback.

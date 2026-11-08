@@ -32,6 +32,8 @@
     if (providerStatusPromise) return providerStatusPromise;
     providerStatusPromise = (async () => {
       const status = await api("/api/status").catch(() => null);
+      // A failed status request must not clear or change the current provider.
+      if (!status) return;
       const next = status?.catalogue?.activeProduct || "";
       const changed = !!activeProduct && activeProduct !== next;
       activeProduct = next;

@@ -337,7 +337,7 @@
           return;
         }
         if (!status?.playbox?.enabled) {
-          setPlayerState("playbox-status", "PlayboxTV", "PlayboxTV is not enabled", "Enable PlayboxTV in account settings, then return here to start playback.");
+          setPlayerState("playbox-status", "PlayboxTV", "PlayboxTV is not enabled", "Enable PlayboxTV with the playbox server setting, then return here to start playback.");
           return;
         }
         if (!status?.playbox?.connected) {

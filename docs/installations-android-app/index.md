@@ -29,7 +29,7 @@ The key in the playlist URL grants access to the stream endpoints. Treat it as p
 
 Use **Import TOML config** to select a previously saved `.toml` configuration using Android's file picker. This imports server settings; it does **not** by itself transfer an authenticated provider account, tokens or the private runtime store. Sign in with your own provider account in the app if it has not been connected. Restart the local server for new settings to take effect.
 
-Choose **JioTV** or **JioTV+** in the app's provider row. Only one provider is active at a time, and the playlist and channel list follow the active provider. JioTV+ also needs its own eligible JioFiber or AirFiber login. The bundled server also enables Fastway, PlayboxTV and VZY; connect and activate those from the web Settings after enabling the required configuration.
+Choose **JioTV** or **JioTV+** in the app's provider row. Only one provider is active at a time, and the playlist and channel list follow the active provider. JioTV+ also needs its own eligible JioFiber or AirFiber login. The slim Android build does not serve the web Settings UI, so Fastway, PlayboxTV, VZY and the Tata Play diagnostic tools are configured on a full server build instead.
 
 Use **Export TOML config** to save server settings through Android’s file picker. Login credentials are kept in the separate runtime store and are not added to the configuration export.
 
@@ -39,7 +39,7 @@ Only import configuration files you trust. The app's local data and the server's
 
 ## Start at device boot
 
-Start the server once to enable automatic startup after boot and unlock. The server runs as a foreground service with a persistent notification. Stop disables future boot startup; Start enables it again.
+Auto-start is enabled by default. Starting and stopping the server manually does not change this preference. Use **Disable auto-start** to turn it off, and **Enable auto-start** (shown as **Enable startup screen** when the overlay permission is needed) to turn it back on. The server runs as a foreground service with a persistent notification.
 
 On Android 10+, use **Enable startup screen** and grant the system “display over other apps” permission to let the app screen open at boot. Alternatively, with an authorized ADB connection: `adb shell appops set org.opebstreamstv.android SYSTEM_ALERT_WINDOW allow`. This permission does not require displaying an overlay; it permits the background activity launch. Without it, the server can still start and its notification opens the screen. Device battery or vendor startup restrictions may also apply.
 

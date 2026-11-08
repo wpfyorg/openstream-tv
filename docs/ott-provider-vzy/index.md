@@ -7,8 +7,7 @@ keywords: [VZY, beta, provider, Kaltura, free tier, EPG]
 
 # Beta OTT provider: VZY (`com.vzy.one.atv` 1.0.253)
 
-Evidence record for `/Users/arnab/Downloads/VZY.zip`, a Dish/Watcho
-white-label OTT app.
+Evidence record for `VZY.zip`, a Dish/Watcho white-label OTT app.
 
 ## 1. Artifact identity (observed fact)
 

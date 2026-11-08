@@ -23,7 +23,7 @@ Channels do not appear, the list is empty, or only some categories/languages are
 
 ### Diagnosis
 
-Check **Settings** for each enabled provider's status and which provider is **Active**. Clear the search field and reset category and language filters in Channels. Reload once, then check server output. Compare the UI list with the account's available content; do not assume every provider channel is available to every account.
+Check **Settings** for each enabled provider's status and which provider is **Active**. In Channels, clear the search field, reset the category, language and HD filters, and enable **Show unavailable**, then reload and check server output. Compare the UI list with the account's available content; do not assume every provider channel is available to every account.
 
 ### Solution
 

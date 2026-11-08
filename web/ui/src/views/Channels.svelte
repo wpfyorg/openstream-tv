@@ -65,7 +65,6 @@
             active: d?.extras?.activeProduct === "extras",
           };
           window.dispatchEvent(new CustomEvent("openstream:extras-changed"));
-          window.dispatchEvent(new CustomEvent("openstream:provider-changed"));
           const isLatest = loads.start();
           try {
             const list = await loadChannels(true);

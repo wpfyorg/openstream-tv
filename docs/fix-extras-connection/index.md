@@ -16,7 +16,7 @@ JioTV+ integration is disabled (its default), no separate JioTV+ session is conn
 ## Diagnosis
 1. Check **Settings** for the JioTV+ enabled/connected status and the JioTV account status separately.
 2. Verify whether the server was started with `OPENSTREAM_TVPLUS=true` or `tv_plus = true` in TOML.
-3. In **Channels**, clear filters such as **Show unavailable** and confirm JioTV+ is the **Active** provider in Settings.
+3. In **Channels**, clear the search, category, language and HD filters and enable **Show unavailable**, then confirm JioTV+ is the **Active** provider in Settings.
 4. Check the exact error and server logs without exposing account credentials.
 
 ## Solution

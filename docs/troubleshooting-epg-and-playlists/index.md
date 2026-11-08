@@ -111,7 +111,7 @@ Check **Settings** connection states and which provider is **Active**, plus the 
 
 ### Solution
 
-Confirm the intended account is connected and JioTV+ is enabled/unlocked if required. Refresh Channels, then refresh the M3U and XMLTV data in each IPTV client. If the change is unexpected, restart only after checking logs and persistent state.
+Confirm the intended account is connected and JioTV+ is enabled/unlocked if required. Refresh Channels, then refresh the M3U and XMLTV data in each IPTV client. When PlayboxTV is active, regeneration creates channel entries without programmes, so refreshing will not restore programme listings until a different provider is active. If the change is unexpected, restart only after checking logs and persistent state.
 
 ### Verification
 

@@ -162,7 +162,7 @@ impl AppState {
     /// Whether a provider can currently supply its catalogue.
     pub fn provider_available(&self, product: ActiveProduct) -> bool {
         match product {
-            ActiveProduct::Tv => true,
+            ActiveProduct::Tv => self.tv.logged_in(),
             ActiveProduct::Extras => self.extras.connected(),
             ActiveProduct::Fastway => self.fastway.connected(),
             ActiveProduct::Playbox => self.playbox.connected(),
@@ -171,8 +171,8 @@ impl AppState {
     }
 
     /// Used when the stored choice is unavailable or absent: prefer an
-    /// authenticated alternate provider in the historical order, otherwise
-    /// the JioTV catalogue.
+    /// authenticated alternate provider in the historical order, then a
+    /// connected JioTV account, and only then the anonymous VZY free tier.
     fn default_product(&self) -> ActiveProduct {
         if self.fastway.connected() {
             ActiveProduct::Fastway
@@ -180,6 +180,8 @@ impl AppState {
             ActiveProduct::Extras
         } else if self.playbox.connected() {
             ActiveProduct::Playbox
+        } else if self.tv.logged_in() {
+            ActiveProduct::Tv
         } else if self.vzy.connected() {
             ActiveProduct::Vzy
         } else {
@@ -530,7 +532,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn explicit_provider_choice_outranks_the_automatic_priority() {
+    async fn logged_out_jiotv_preference_falls_back_to_the_automatic_priority() {
         let server = wiremock::MockServer::start().await;
         let s = state_with_providers(
             empty_store(),
@@ -540,7 +542,9 @@ mod tests {
         assert_eq!(s.active_product(), ActiveProduct::Playbox);
         s.set_active_product(ActiveProduct::Tv).unwrap();
         assert_eq!(s.preferred_product(), Some(ActiveProduct::Tv));
-        assert_eq!(s.active_product(), ActiveProduct::Tv);
+        // JioTV has no credentials in this test, so the stored JioTV choice is
+        // unavailable and the connected PlayboxTV catalogue stays active.
+        assert_eq!(s.active_product(), ActiveProduct::Playbox);
     }
 
     #[test]
