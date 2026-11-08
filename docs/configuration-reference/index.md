@@ -77,6 +77,4 @@ When more than one source is connected, catalogue precedence is **Fastway > JioT
 
 `tataplay` / `OPENSTREAM_TATAPLAY` (legacy alias `JIOTV_TATAPLAY`) enables a deliberately isolated **beta** built from the recovered `com.tataplay.livetv` Retrofit contracts. Its routes live under `/api/tataplay/*`: OTP send/verify, refresh, catalogue seed, EPG, entitlement and sanitized access-control. The beta preserves Tata Play's own entitlement decision. Shared catalogue selection, `/live`, DRM/license proxying and session heartbeat remain disabled until runtime testers prove those flows.
 
-The supplied older `com.vzy.one.apk` is the Uptodown app store rather than a TV service; the real VZY build is `com.vzy.one.atv`.
-
 For runtime listening options, see [CLI commands](../configuration-cli/index.md); for protection see [Network and HTTPS](../configuration-network-security/index.md); for storage see [Data and logs](../configuration-storage-logs/index.md).

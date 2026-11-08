@@ -230,7 +230,6 @@ pub async fn status(State(state): State<SharedState>) -> Response {
                 "sha256": crate::vzy::ARTIFACT_SHA256,
             }
         },
-        "vzyone": crate::vzyone::status(),
         "catalogue": {
             "activeProduct": state.active_product().as_str(),
             "preferredProduct": state
@@ -1243,11 +1242,6 @@ pub async fn tataplay_play(
     }
 }
 
-/// `GET /api/vzyone/status` — provenance record for the mislabelled artifact.
-pub async fn vzyone_status() -> Response {
-    Json(json!({"status": true, "vzyone": crate::vzyone::status()})).into_response()
-}
-
 /// `GET /api/live/play/:id?q=` — resolves a live channel to what the
 /// in-app player needs, the same shape `/api/ott/play/:id` gives plus an
 /// optional HLS alternative, so `Watch.svelte` can use
@@ -2029,16 +2023,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn status_reports_all_three_providers() {
+    async fn status_reports_optional_providers() {
         let json = response_json(status(State(state())).await).await;
         assert!(json.get("playbox").is_some());
         assert!(json.get("tataplay").is_some());
-        assert!(json.get("vzyone").is_some());
+        assert!(json.get("vzy").is_some());
         assert_eq!(json["playbox"]["connected"], false);
         assert_eq!(json["tataplay"]["enabled"], false);
         assert_eq!(json["tataplay"]["sharedPlayback"], false);
-        assert_eq!(json["vzyone"]["provider"], false);
-        assert_eq!(json["vzyone"]["package"], "com.uptodown");
+        assert_eq!(json["vzy"]["connected"], false);
     }
 
     #[tokio::test]
@@ -2275,13 +2268,6 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
         let resp = vzy_play(Path("vzy_1".into()), State(s)).await;
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
-    }
-
-    #[tokio::test]
-    async fn vzyone_status_is_an_identity_record_only() {
-        let json = response_json(vzyone_status().await).await;
-        assert_eq!(json["vzyone"]["package"], "com.uptodown");
-        assert_eq!(json["vzyone"]["provider"], false);
     }
 
     #[tokio::test]

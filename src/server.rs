@@ -140,7 +140,6 @@ fn api_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
             get(crate::api::tataplay_entitlement),
         )
         .route("/api/tataplay/play/:id", get(crate::api::tataplay_play))
-        .route("/api/vzyone/status", get(crate::api::vzyone_status))
         .route("/api/ott/search", get(crate::vod::api_ott_search))
         .route("/api/ott/screen/:id", get(crate::vod::api_ott_screen))
         .route("/api/ott/show/:id", get(crate::vod::api_ott_episodes))

@@ -347,16 +347,6 @@ mod tests {
     }
 
     #[test]
-    fn removed_vzyone_switch_is_not_configuration() {
-        let _guard = ENV_LOCK.lock().unwrap();
-        std::env::set_var("JIOTV_VZYONE", "true");
-        let cfg = Config::load(None).unwrap();
-        assert!(!cfg.playbox);
-        assert!(!cfg.tataplay);
-        std::env::remove_var("JIOTV_VZYONE");
-    }
-
-    #[test]
     fn public_origin_is_validated_from_env_and_toml() {
         let _guard = ENV_LOCK.lock().unwrap();
         let dir = tempfile::tempdir().unwrap();

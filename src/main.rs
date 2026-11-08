@@ -33,7 +33,6 @@ mod update;
 mod vod;
 mod vzy;
 mod vzy_state;
-mod vzyone;
 
 #[cfg(feature = "full")]
 mod ui_assets;
