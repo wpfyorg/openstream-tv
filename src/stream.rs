@@ -327,6 +327,9 @@ pub(crate) async fn fetch_live(
     if crate::vzy::is_vzy_channel(channel_id) {
         return state.vzy.live(channel_id, &state.store).await;
     }
+    if crate::airtel::is_airtel_channel(channel_id) {
+        return state.airtel.live(channel_id, &state.store).await;
+    }
     let is_custom = state.custom_channels.contains(channel_id);
     if let Some(content_id) = state.fastway.route(channel_id) {
         return state.fastway.live(&content_id).await;
@@ -415,6 +418,10 @@ pub(crate) async fn fetch_media(
             .tv
             .render_with_headers(url, token, &[("User-Agent".into(), "okhttp/4.12.0".into())])
             .await;
+    }
+    if crate::airtel::is_airtel_channel(channel_id) {
+        let headers = state.airtel.media_headers(&state.store, channel_id).await;
+        return state.tv.render_with_headers(url, "", &headers).await;
     }
     state.tv.render(url, token).await
 }
@@ -1477,6 +1484,10 @@ async fn proxy_segment(
         req = req
             .header(header::USER_AGENT, "okhttp/4.12.0")
             .header(header::ACCEPT, "*/*");
+    } else if crate::airtel::is_airtel_channel(channel_id) {
+        for (name, value) in state.airtel.media_headers(&state.store, channel_id).await {
+            req = req.header(name.as_str(), value.as_str());
+        }
     } else {
         let ua = url::Url::parse(url)
             .ok()
@@ -1545,6 +1556,13 @@ pub async fn render_key_handler(
         req = req
             .header(header::USER_AGENT, "okhttp/4.12.0")
             .header(header::ACCEPT, "*/*");
+    } else if crate::airtel::is_airtel_channel(&channel_id) {
+        for (name, value) in state.airtel.media_headers(&state.store, &channel_id).await {
+            req = req.header(name.as_str(), value.as_str());
+        }
+        if let Some(t) = &hdnea {
+            req = req.header(header::COOKIE, format!("__hdnea__={t}"));
+        }
     } else {
         req = req.header(header::USER_AGENT, television::PLAYER_USER_AGENT);
         if let Some(t) = &hdnea {
@@ -1876,6 +1894,7 @@ mod tests {
             fastway: Arc::new(crate::fastway_state::FastwayState::new(false)),
             playbox: Arc::new(crate::playbox_state::PlayboxState::new(false)),
             vzy: Arc::new(crate::vzy_state::VzyState::new(false)),
+            airtel: Arc::new(crate::airtel_state::AirtelState::new(false)),
             vod_state: Default::default(),
             public_ip: Arc::new(crate::unlock::PublicIp::new(reqwest::Client::new())),
             unlock_limiter: Arc::new(crate::unlock::AttemptLimiter::default()),
@@ -2428,6 +2447,7 @@ mod tests {
             fastway: Arc::new(crate::fastway_state::FastwayState::new(false)),
             playbox: Arc::new(crate::playbox_state::PlayboxState::new(false)),
             vzy: Arc::new(crate::vzy_state::VzyState::new(false)),
+            airtel: Arc::new(crate::airtel_state::AirtelState::new(false)),
             vod_state: Default::default(),
             public_ip: Arc::new(crate::unlock::PublicIp::new(reqwest::Client::new())),
             unlock_limiter: Arc::new(crate::unlock::AttemptLimiter::default()),
@@ -2494,6 +2514,7 @@ mod tests {
             fastway: std::sync::Arc::new(crate::fastway_state::FastwayState::new(false)),
             playbox,
             vzy: std::sync::Arc::new(crate::vzy_state::VzyState::new(false)),
+            airtel: std::sync::Arc::new(crate::airtel_state::AirtelState::new(false)),
             vod_state: Default::default(),
             public_ip: std::sync::Arc::new(crate::unlock::PublicIp::new(reqwest::Client::new())),
             unlock_limiter: std::sync::Arc::new(crate::unlock::AttemptLimiter::default()),

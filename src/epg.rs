@@ -118,6 +118,10 @@ fn snapshot_fingerprint(
             hash_field(&mut hasher, &state.vzy.account_fingerprint());
             hash_field(&mut hasher, "vzy-free-tier");
         }
+        crate::state::ActiveProduct::Airtel => {
+            hash_field(&mut hasher, &state.airtel.account_fingerprint());
+            hash_field(&mut hasher, "airtel-live-epg");
+        }
     }
 
     // XMLTV currently contains only upstream channels. Sorting makes this a
@@ -490,6 +494,14 @@ pub async fn regenerate_for_state(state: &Arc<AppState>) -> anyhow::Result<()> {
                 generate_xml_gz_from_sources(&state.http, Vec::new(), sources, programmes).await?
             }
         }
+        crate::state::ActiveProduct::Airtel => {
+            let (sources, programmes) = state.airtel.epg_source(&state.store).await?;
+            if programmes.is_empty() {
+                generate_channels_only_xml_gz(sources)?
+            } else {
+                generate_xml_gz_from_sources(&state.http, Vec::new(), sources, programmes).await?
+            }
+        }
     };
 
     // Entitlement/catalogue state can change while network EPG requests are
@@ -664,6 +676,9 @@ pub async fn web_epg_handler(
     if crate::vzy::is_vzy_channel(&channel_id) {
         return vzy_web_epg(&state, &channel_id, &offset).await;
     }
+    if crate::airtel::is_airtel_channel(&channel_id) {
+        return airtel_web_epg(&state, &channel_id, &offset).await;
+    }
     if let Some(content_id) = crate::extras::content_id::content_id(&channel_id) {
         return extras_web_epg(&state, content_id, &offset).await;
     }
@@ -723,6 +738,35 @@ async fn fastway_web_epg(state: &AppState, content_id: &str, offset: &str) -> Re
                 "description": p.description,
                 "startEpoch": p.start_epoch.saturating_mul(1000),
                 "endEpoch": p.end_epoch.saturating_mul(1000),
+                "episodePoster": "",
+            })
+        })
+        .collect();
+    axum::Json(serde_json::json!({ "epg": entries })).into_response()
+}
+
+/// Airtel Xstream guide normalized to the same shape as JioTV/Fastway. The
+/// middleware returns epoch millis already.
+async fn airtel_web_epg(state: &AppState, channel_id: &str, offset: &str) -> Response {
+    if crate::airtel::parse_channel_id(channel_id).is_none() {
+        return (StatusCode::BAD_REQUEST, "Invalid channel ID").into_response();
+    }
+    let offset = match offset.parse::<i64>() {
+        Ok(o) if o >= 0 => o,
+        _ => return (StatusCode::BAD_REQUEST, "Invalid offset").into_response(),
+    };
+    let programmes = match state.airtel.web_epg(&state.store, channel_id, offset).await {
+        Ok(p) => p,
+        Err(e) => return (StatusCode::BAD_GATEWAY, e.to_string()).into_response(),
+    };
+    let entries: Vec<serde_json::Value> = programmes
+        .iter()
+        .map(|p| {
+            serde_json::json!({
+                "showname": p.title,
+                "description": p.subtitle,
+                "startEpoch": p.start_millis(),
+                "endEpoch": p.end_millis(),
                 "episodePoster": "",
             })
         })
@@ -888,6 +932,7 @@ mod tests {
             fastway: std::sync::Arc::new(crate::fastway_state::FastwayState::new(false)),
             playbox: std::sync::Arc::new(crate::playbox_state::PlayboxState::new(false)),
             vzy: std::sync::Arc::new(crate::vzy_state::VzyState::new(false)),
+            airtel: std::sync::Arc::new(crate::airtel_state::AirtelState::new(false)),
             vod_state: Default::default(),
             public_ip: std::sync::Arc::new(crate::unlock::PublicIp::new(reqwest::Client::new())),
             unlock_limiter: std::sync::Arc::new(crate::unlock::AttemptLimiter::default()),
@@ -965,6 +1010,7 @@ mod tests {
             fastway: std::sync::Arc::new(crate::fastway_state::FastwayState::new(false)),
             playbox: std::sync::Arc::new(crate::playbox_state::PlayboxState::new(false)),
             vzy,
+            airtel: std::sync::Arc::new(crate::airtel_state::AirtelState::new(false)),
             vod_state: Default::default(),
             public_ip: std::sync::Arc::new(crate::unlock::PublicIp::new(http)),
             unlock_limiter: std::sync::Arc::new(crate::unlock::AttemptLimiter::default()),
@@ -1086,6 +1132,7 @@ mod tests {
             fastway: Arc::new(crate::fastway_state::FastwayState::new(false)),
             playbox: Arc::new(crate::playbox_state::PlayboxState::new(false)),
             vzy: Arc::new(crate::vzy_state::VzyState::new(false)),
+            airtel: Arc::new(crate::airtel_state::AirtelState::new(false)),
             vod_state: Default::default(),
             public_ip: Arc::new(crate::unlock::PublicIp::new(http)),
             unlock_limiter: Arc::new(crate::unlock::AttemptLimiter::default()),

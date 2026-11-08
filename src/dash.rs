@@ -499,6 +499,27 @@ async fn drm_license_impl(
         return send_license_request(req, body).await;
     }
 
+    // Airtel Xstream's Widevine endpoint authenticates with the headers the
+    // playback response shipped, and speaks the app's JSON envelope unless
+    // `licensePayloadKey` is `default`.
+    if crate::airtel::is_airtel_channel(&channel_id) {
+        let Some(license) = state.airtel.license(&state.store, &channel_id).await else {
+            return (
+                StatusCode::NOT_FOUND,
+                "airtel: the channel has no license endpoint",
+            )
+                .into_response();
+        };
+        let mut req = state
+            .http
+            .request(method, &decoded_url)
+            .header(header::USER_AGENT, crate::airtel::PLAYER_USER_AGENT);
+        for (k, v) in &license.headers {
+            req = req.header(k.as_str(), v.as_str());
+        }
+        return send_airtel_license_request(req, body, &license).await;
+    }
+
     // A HEAD request to the (still-encrypted-in-the-URL) channel manifest
     // harvests any auth cookie the CDN wants forwarded onto the license
     // request, mirroring DRMKeyHandler's cookie relay.
@@ -553,6 +574,44 @@ async fn drm_license_impl(
     let _ = &headers;
 
     send_license_request(req, body).await
+}
+
+/// Sends an Airtel Widevine challenge in whichever envelope the provider
+/// declared (`PlayerDRMCallback.c`/`.b`), and unwraps the base64 answer back
+/// to raw license bytes.
+async fn send_airtel_license_request(
+    req: reqwest::RequestBuilder,
+    body: Bytes,
+    license: &crate::airtel::License,
+) -> Response {
+    let wrapped = license.payload_key != "default" && !license.payload_key.is_empty();
+    let body = crate::airtel::license_request_body(license, &body);
+    let req = req.header(
+        header::CONTENT_TYPE,
+        if wrapped {
+            "application/json"
+        } else {
+            "application/octet-stream"
+        },
+    );
+    match req.body(body).send().await {
+        Ok(resp) => {
+            let status =
+                StatusCode::from_u16(resp.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
+            let bytes = resp.bytes().await.map(|b| b.to_vec()).unwrap_or_default();
+            if !status.is_success() {
+                return (status, "airtel: the license server refused the challenge")
+                    .into_response();
+            }
+            let decoded = crate::airtel::license_response_body(license, bytes);
+            Response::builder()
+                .status(status)
+                .header(header::CONTENT_TYPE, "application/octet-stream")
+                .body(Body::from(decoded))
+                .unwrap()
+        }
+        Err(_) => (StatusCode::BAD_GATEWAY, "airtel: license request failed").into_response(),
+    }
 }
 
 async fn send_license_request(req: reqwest::RequestBuilder, body: Bytes) -> Response {
@@ -827,6 +886,10 @@ async fn proxy_mpd(state: &AppState, channel_id: &str, url: &str) -> (u16, Vec<u
         if !has_user_agent {
             req = req.header(header::USER_AGENT, television::PLAYER_USER_AGENT);
         }
+    } else if crate::airtel::is_airtel_channel(channel_id) {
+        for (name, value) in state.airtel.media_headers(&state.store, channel_id).await {
+            req = req.header(name.as_str(), value.as_str());
+        }
     } else {
         req = req.header(header::USER_AGENT, player_user_agent_for(state, url));
     }
@@ -979,6 +1042,13 @@ async fn proxy_dash_segment(
         if !has_user_agent {
             req = req.header(header::USER_AGENT, television::PLAYER_USER_AGENT);
         }
+    } else if crate::airtel::is_airtel_channel(channel_id) {
+        for (name, value) in state.airtel.media_headers(&state.store, channel_id).await {
+            req = req.header(name.as_str(), value.as_str());
+        }
+        if let Some(t) = hdnea {
+            req = req.header(header::COOKIE, format!("__hdnea__={t}"));
+        }
     } else {
         req = req.header(header::USER_AGENT, player_user_agent_for(state, url));
         if let Some(t) = hdnea {
@@ -1061,6 +1131,7 @@ mod tests {
             fastway,
             playbox: Arc::new(crate::playbox_state::PlayboxState::new(false)),
             vzy: Arc::new(crate::vzy_state::VzyState::new(false)),
+            airtel: Arc::new(crate::airtel_state::AirtelState::new(false)),
             vod_state: Default::default(),
             public_ip: Arc::new(crate::unlock::PublicIp::new(http)),
             unlock_limiter: Arc::new(crate::unlock::AttemptLimiter::default()),
@@ -1189,6 +1260,7 @@ mod tests {
             fastway: Arc::new(crate::fastway_state::FastwayState::new(false)),
             playbox,
             vzy: Arc::new(crate::vzy_state::VzyState::new(false)),
+            airtel: Arc::new(crate::airtel_state::AirtelState::new(false)),
             vod_state: Default::default(),
             public_ip: Arc::new(crate::unlock::PublicIp::new(reqwest::Client::new())),
             unlock_limiter: Arc::new(crate::unlock::AttemptLimiter::default()),

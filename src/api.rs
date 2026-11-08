@@ -941,6 +941,212 @@ pub async fn vzy_epg(Path(id): Path<String>, State(state): State<SharedState>) -
     }
 }
 
+/// `GET /api/airtel/status`
+pub async fn airtel_status(State(state): State<SharedState>) -> Response {
+    Json(json!({
+        "status": true,
+        "airtel": {
+            "enabled": state.airtel.enabled(),
+            "connected": state.airtel.connected(),
+            "tier": "live",
+            "artifact": {
+                "package": crate::airtel::PACKAGE,
+                "version": crate::airtel::VERSION_NAME,
+                "versionCode": crate::airtel::VERSION_CODE,
+                "sha256": crate::airtel::ARTIFACT_SHA256,
+            }
+        }
+    }))
+    .into_response()
+}
+
+/// `POST /api/airtel/login/sendOTP`. Airtel only accepts an Indian mobile
+/// number, so the handler normalises `+91` before calling the app's own
+/// `generateOtp` route.
+pub async fn airtel_send_otp(
+    State(state): State<SharedState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    Json(body): Json<ProviderSendOtpBody>,
+) -> Response {
+    if let Some(response) = airtel_enabled(&state) {
+        return response;
+    }
+    let attempt_key = match playbox_otp_attempt("airtel-send", addr) {
+        Some(key) => key,
+        None => {
+            return err(
+                StatusCode::TOO_MANY_REQUESTS,
+                "too many Airtel OTP attempts, try again later",
+            )
+        }
+    };
+    let Some(msisdn) = crate::airtel::normalize_msisdn(&body.number) else {
+        return err(
+            StatusCode::BAD_REQUEST,
+            "enter a 10-digit Indian mobile number",
+        );
+    };
+    let Some(client) = state.airtel.client() else {
+        return err(StatusCode::BAD_REQUEST, "airtel is not enabled");
+    };
+    match client.send_otp(&msisdn).await {
+        Ok(message) => {
+            playbox_otp_limiter().record_success(&attempt_key);
+            Json(json!({"status": true, "message": message})).into_response()
+        }
+        Err(e) => err(StatusCode::BAD_REQUEST, e.to_string()),
+    }
+}
+
+/// `POST /api/airtel/login/verifyOTP`. Airtel keeps a single device slot per
+/// number; logging in rotates the whole context so no previous account's
+/// catalogue, manifests or license URLs survive.
+pub async fn airtel_verify_otp(
+    State(state): State<SharedState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    Json(body): Json<ProviderVerifyOtpBody>,
+) -> Response {
+    if let Some(response) = airtel_enabled(&state) {
+        return response;
+    }
+    let attempt_key = match playbox_otp_attempt("airtel-verify", addr) {
+        Some(key) => key,
+        None => {
+            return err(
+                StatusCode::TOO_MANY_REQUESTS,
+                "too many Airtel OTP attempts, try again later",
+            )
+        }
+    };
+    let Some(msisdn) = crate::airtel::normalize_msisdn(&body.number) else {
+        return err(
+            StatusCode::BAD_REQUEST,
+            "enter a 10-digit Indian mobile number",
+        );
+    };
+    let Some(client) = state.airtel.client() else {
+        return err(StatusCode::BAD_REQUEST, "airtel is not enabled");
+    };
+    state.invalidate_context();
+    match client
+        .verify_otp(&state.store, &msisdn, body.otp.trim())
+        .await
+    {
+        Ok(_) => {
+            playbox_otp_limiter().record_success(&attempt_key);
+            state.invalidate_context();
+            state.airtel.ensure_catalogue(&state.store).await;
+            crate::epg::trigger_regeneration(&state);
+            Json(json!({"status": true, "airtel": airtel_summary(&state)})).into_response()
+        }
+        Err(e) => err(StatusCode::BAD_REQUEST, e.to_string()),
+    }
+}
+
+/// `POST /api/airtel/logout`
+pub async fn airtel_logout(State(state): State<SharedState>) -> Response {
+    if state.config.disable_logout {
+        return err(StatusCode::FORBIDDEN, "logout is disabled");
+    }
+    state.invalidate_context();
+    match state.airtel.logout(&state.store) {
+        Ok(()) => {
+            state.invalidate_context();
+            crate::epg::trigger_regeneration(&state);
+            Json(json!({"status": true})).into_response()
+        }
+        Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    }
+}
+
+/// `GET /api/airtel/channels`
+pub async fn airtel_channels(State(state): State<SharedState>) -> Response {
+    if let Some(response) = airtel_enabled(&state) {
+        return response;
+    }
+    if !state.airtel.connected() {
+        return err(StatusCode::UNAUTHORIZED, "airtel is not logged in");
+    }
+    if !state.airtel.ensure_catalogue(&state.store).await {
+        return err(
+            StatusCode::BAD_GATEWAY,
+            "airtel: the channel catalogue could not be loaded",
+        );
+    }
+    let channels: Vec<_> = state
+        .airtel
+        .channels()
+        .into_iter()
+        .map(|ch| json!({"id": ch.id, "name": ch.name, "logo": ch.logo_url, "hd": ch.is_hd}))
+        .collect();
+    Json(json!({"status": true, "channels": channels})).into_response()
+}
+
+/// `GET /api/airtel/play/:id`
+pub async fn airtel_play(Path(id): Path<String>, State(state): State<SharedState>) -> Response {
+    if let Some(response) = airtel_enabled(&state) {
+        return response;
+    }
+    if crate::airtel::parse_channel_id(&id).is_none() {
+        return err(StatusCode::NOT_FOUND, "not an airtel channel");
+    }
+    if !state.channel_allowed(&id).await {
+        return err(
+            StatusCode::NOT_FOUND,
+            format!("Channel {id} is not available for the active account"),
+        );
+    }
+    match state.airtel.live(&id, &state.store).await {
+        Ok(out) => {
+            let dash = !out.mpd.auto.is_empty();
+            Json(json!({"status": true, "dash": dash, "license": out.is_drm})).into_response()
+        }
+        Err(e) => err(StatusCode::BAD_GATEWAY, e.to_string()),
+    }
+}
+
+/// `GET /api/airtel/epg/:id` — today's programmes for one channel.
+pub async fn airtel_epg(Path(id): Path<String>, State(state): State<SharedState>) -> Response {
+    if let Some(response) = airtel_enabled(&state) {
+        return response;
+    }
+    if crate::airtel::parse_channel_id(&id).is_none() {
+        return err(StatusCode::NOT_FOUND, "not an airtel channel");
+    }
+    match state.airtel.web_epg(&state.store, &id, 0).await {
+        Ok(programmes) => {
+            let rows: Vec<_> = programmes
+                .into_iter()
+                .map(|p| {
+                    json!({
+                        "start": crate::epg::format_xmltv_time(p.start_millis()),
+                        "stop": crate::epg::format_xmltv_time(p.end_millis()),
+                        "title": p.title,
+                        "desc": p.subtitle,
+                    })
+                })
+                .collect();
+            Json(json!({"status": true, "programmes": rows})).into_response()
+        }
+        Err(e) => err(StatusCode::BAD_GATEWAY, e.to_string()),
+    }
+}
+
+fn airtel_enabled(state: &AppState) -> Option<Response> {
+    if state.airtel.enabled() {
+        None
+    } else {
+        Some(err(StatusCode::BAD_REQUEST, "airtel is not enabled"))
+    }
+}
+
+fn airtel_summary(state: &AppState) -> serde_json::Value {
+    json!({
+        "enabled": state.airtel.enabled(),
+        "connected": state.airtel.connected(),
+    })
+}
+
 /// Tata Play Smart beta status. The provider is deliberately excluded from
 /// shared catalogue selection and the /live pipeline.
 pub async fn tataplay_status(State(state): State<SharedState>) -> Response {
@@ -1315,6 +1521,7 @@ mod tests {
             fastway,
             playbox: Arc::new(crate::playbox_state::PlayboxState::new(false)),
             vzy: Arc::new(crate::vzy_state::VzyState::new(false)),
+            airtel: Arc::new(crate::airtel_state::AirtelState::new(false)),
             vod_state: Default::default(),
             public_ip: Arc::new(crate::unlock::PublicIp::new(reqwest::Client::new())),
             unlock_limiter: Arc::new(crate::unlock::AttemptLimiter::default()),
@@ -1941,6 +2148,7 @@ mod tests {
             fastway: Arc::new(crate::fastway_state::FastwayState::new(false)),
             playbox: Arc::new(state),
             vzy: Arc::new(crate::vzy_state::VzyState::new(false)),
+            airtel: Arc::new(crate::airtel_state::AirtelState::new(false)),
             vod_state: Default::default(),
             public_ip: Arc::new(crate::unlock::PublicIp::new(reqwest::Client::new())),
             unlock_limiter: Arc::new(crate::unlock::AttemptLimiter::default()),
@@ -2076,6 +2284,7 @@ mod tests {
             fastway: Arc::new(crate::fastway_state::FastwayState::new(false)),
             playbox: Arc::new(crate::playbox_state::PlayboxState::new(true)),
             vzy: Arc::new(crate::vzy_state::VzyState::new(false)),
+            airtel: Arc::new(crate::airtel_state::AirtelState::new(false)),
             vod_state: Default::default(),
             public_ip: Arc::new(crate::unlock::PublicIp::new(reqwest::Client::new())),
             unlock_limiter: Arc::new(crate::unlock::AttemptLimiter::default()),
