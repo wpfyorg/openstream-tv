@@ -1,0 +1,61 @@
+name: Android TV and mobile app
+
+on:
+  pull_request:
+    paths:
+      - "android/**"
+      - "src/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/android-app.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v4
+      - name: Install SDK and NDK
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: android-slim
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-ndk
+      - name: Package slim server executables
+        shell: bash
+        run: ./android/scripts/build-rust-binaries.sh
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.10.2"
+      - name: Build sideloadable debug APK
+        working-directory: android
+        run: gradle --no-daemon testDebugUnitTest assembleDebug
+      - name: Check packaged ABIs
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk="android/app/build/outputs/apk/debug/app-debug.apk"
+          test -s "$apk"
+          for abi in arm64-v8a armeabi-v7a x86_64; do
+            unzip -Z1 "$apk" | grep -Fx "lib/$abi/libjiotv_exec.so"
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jiotv-slim-android-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 7

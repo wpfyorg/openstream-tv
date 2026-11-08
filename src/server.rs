@@ -67,6 +67,10 @@ fn api_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/api/auth/login", post(crate::api::auth_login))
         .route("/api/auth/logout", post(crate::api::auth_logout))
         .route("/api/status", get(crate::api::status))
+        .route(
+            "/api/providers/activate",
+            post(crate::api::providers_activate),
+        )
         .route("/api/extras/status", get(crate::api::extras_status_get))
         .route("/api/channels", get(crate::api::channels))
         .route("/api/account/password", post(crate::api::account_password))

@@ -12,20 +12,30 @@
 
   let auth = $state({ loading: true, passwordSet: false, authenticated: false });
   let extrasActive = $state(false);
+  let activeProduct = $state("");
   let extrasStatusPromise = null;
 
   async function refreshExtrasStatus() {
     if (!auth.authenticated) {
       extrasActive = false;
+      activeProduct = "";
       return;
     }
     if (extrasStatusPromise) return extrasStatusPromise;
     extrasStatusPromise = (async () => {
       try {
         const status = await api("/api/extras/status");
-        extrasActive = status?.extras?.enabled === true && status?.extras?.connected === true;
+        const next = status?.extras?.activeProduct || "";
+        const changed = !!activeProduct && activeProduct !== next;
+        activeProduct = next;
+        extrasActive =
+          status?.extras?.enabled === true &&
+          status?.extras?.connected === true &&
+          next === "extras";
+        if (changed) window.dispatchEvent(new CustomEvent("jiotv:provider-changed"));
       } catch {
         extrasActive = false;
+        activeProduct = "";
       }
     })();
     try {
@@ -43,6 +53,7 @@
     } catch {
       auth = { loading: false, passwordSet: true, authenticated: false };
       extrasActive = false;
+      activeProduct = "";
     }
   }
 
@@ -50,6 +61,7 @@
     await api("/api/auth/logout", { method: "POST" }).catch(() => {});
     auth = { ...auth, authenticated: false };
     extrasActive = false;
+    activeProduct = "";
   }
 
   onMount(() => {
@@ -87,7 +99,7 @@
     <div class="brand-group">
       <a class="brand" href="#/">JioTV Go</a>
       {#if extrasActive}
-        <span class="extras-active" role="img" aria-label="JioTV+ connected" title="JioTV+ connected">
+        <span class="extras-active" role="img" aria-label="JioTV+ active" title="JioTV+ active">
           <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10" /></svg>
         </span>
       {/if}

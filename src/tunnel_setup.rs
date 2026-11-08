@@ -2,11 +2,11 @@
 //! The API token stays in the process environment; only the connector token
 //! is saved locally, outside the tracked repository.
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use reqwest::{Client, Method};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::io::Write;
 use std::path::Path;
 use std::time::Duration;
@@ -355,8 +355,8 @@ async fn provision(
 mod tests {
     use super::*;
     use wiremock::{
-        matchers::{method, path, query_param},
         Mock, MockServer, ResponseTemplate,
+        matchers::{method, path, query_param},
     };
 
     fn ok(result: Value) -> ResponseTemplate {
@@ -433,20 +433,23 @@ mod tests {
             );
         }
         let received = api.received_requests().await.unwrap();
-        assert!(received.iter().all(|r| r
-            .headers
-            .get("authorization")
-            .map(|v| v.to_str().unwrap())
-            == Some("Bearer scoped-secret")));
-        assert!(received
-            .iter()
-            .any(|r| r.url.path().ends_with("/configurations")
-                && String::from_utf8_lossy(&r.body).contains("http://127.0.0.1:5001")));
-        assert!(received
-            .iter()
-            .any(|r| r.url.path().ends_with("/dns_records")
-                && r.method == "POST"
-                && String::from_utf8_lossy(&r.body).contains("uuid123.cfargotunnel.com")));
+        assert!(received.iter().all(
+            |r| r.headers.get("authorization").map(|v| v.to_str().unwrap())
+                == Some("Bearer scoped-secret")
+        ));
+        assert!(
+            received
+                .iter()
+                .any(|r| r.url.path().ends_with("/configurations")
+                    && String::from_utf8_lossy(&r.body).contains("http://127.0.0.1:5001"))
+        );
+        assert!(
+            received
+                .iter()
+                .any(|r| r.url.path().ends_with("/dns_records")
+                    && r.method == "POST"
+                    && String::from_utf8_lossy(&r.body).contains("uuid123.cfargotunnel.com"))
+        );
     }
 
     #[tokio::test]
@@ -461,25 +464,28 @@ mod tests {
             .respond_with(ok(json!([{"type": "A"}])))
             .mount(&api)
             .await;
-        assert!(provision(
-            &Client::new(),
-            &api.uri(),
-            "secret",
-            "example.com",
-            "tv",
-            5001,
-            dir.path().to_str().unwrap()
-        )
-        .await
-        .unwrap_err()
-        .to_string()
-        .contains("already exists"));
-        assert!(api
-            .received_requests()
+        assert!(
+            provision(
+                &Client::new(),
+                &api.uri(),
+                "secret",
+                "example.com",
+                "tv",
+                5001,
+                dir.path().to_str().unwrap()
+            )
             .await
-            .unwrap()
-            .iter()
-            .all(|r| r.method == "GET"));
+            .unwrap_err()
+            .to_string()
+            .contains("already exists")
+        );
+        assert!(
+            api.received_requests()
+                .await
+                .unwrap()
+                .iter()
+                .all(|r| r.method == "GET")
+        );
         assert!(load_token(dir.path().to_str().unwrap()).unwrap().is_none());
         assert!(load_origin(dir.path().to_str().unwrap()).unwrap().is_none());
     }

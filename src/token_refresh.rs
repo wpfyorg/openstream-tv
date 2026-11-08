@@ -34,7 +34,13 @@ fn jwt_exp(token: &str) -> Option<u64> {
 /// Mirrors `shouldRefreshToken`: a JWT is refreshed shortly before its
 /// `exp`; any other token once `fallback_ttl - fallback_lead` has passed
 /// since it was last refreshed (or when that time is unknown).
-fn should_refresh(token: &str, last_refresh: Option<u64>, fallback_ttl: u64, fallback_lead: u64, now: u64) -> bool {
+fn should_refresh(
+    token: &str,
+    last_refresh: Option<u64>,
+    fallback_ttl: u64,
+    fallback_lead: u64,
+    now: u64,
+) -> bool {
     if token.is_empty() {
         return true;
     }
@@ -52,18 +58,36 @@ fn should_refresh(token: &str, last_refresh: Option<u64>, fallback_ttl: u64, fal
 /// the tokens it has.
 pub async fn ensure_fresh(state: &AppState) {
     let _guard = state.tv.refresh_lock.lock().await;
-    let Some(mut creds) = state.tv.creds.read().unwrap().clone() else { return };
-    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+    let Some(mut creds) = state.tv.creds.read().unwrap().clone() else {
+        return;
+    };
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
     let client = crate::login::LoginClient::new(state.http.clone());
     let device_id = state.tv.device_id.clone();
 
     let access_due = !creds.refresh_token.is_empty()
-        && should_refresh(&creds.access_token, crate::login::last_refresh(&state.store, false), ACCESS_FALLBACK_TTL, ACCESS_FALLBACK_LEAD, now);
+        && should_refresh(
+            &creds.access_token,
+            crate::login::last_refresh(&state.store, false),
+            ACCESS_FALLBACK_TTL,
+            ACCESS_FALLBACK_LEAD,
+            now,
+        );
     if access_due {
         match client.refresh(&creds, &device_id).await {
             Ok(refreshed) => {
                 creds = refreshed;
-                let _ = crate::login::save(&state.store, &creds, crate::login::Touch { access: true, sso: false });
+                let _ = crate::login::save(
+                    &state.store,
+                    &creds,
+                    crate::login::Touch {
+                        access: true,
+                        sso: false,
+                    },
+                );
                 state.tv.set_credentials(creds.clone());
             }
             Err(e) => tracing::warn!("JioTV access token refresh failed: {e}"),
@@ -71,11 +95,24 @@ pub async fn ensure_fresh(state: &AppState) {
     }
 
     let sso_due = !creds.sso_token.is_empty()
-        && should_refresh(&creds.sso_token, crate::login::last_refresh(&state.store, true), SSO_FALLBACK_TTL, SSO_FALLBACK_LEAD, now);
+        && should_refresh(
+            &creds.sso_token,
+            crate::login::last_refresh(&state.store, true),
+            SSO_FALLBACK_TTL,
+            SSO_FALLBACK_LEAD,
+            now,
+        );
     if sso_due {
         match client.refresh_sso(&creds, &device_id).await {
             Ok(refreshed) => {
-                let _ = crate::login::save(&state.store, &refreshed, crate::login::Touch { access: false, sso: true });
+                let _ = crate::login::save(
+                    &state.store,
+                    &refreshed,
+                    crate::login::Touch {
+                        access: false,
+                        sso: true,
+                    },
+                );
                 state.tv.set_credentials(refreshed);
             }
             Err(e) => tracing::warn!("JioTV SSO token refresh failed: {e}"),
@@ -91,7 +128,8 @@ mod tests {
     fn decodes_exp_from_a_jwt() {
         // header.payload.signature, payload = {"exp":1700000000}, unsigned
         // (a signature isn't needed since this only reads the claim).
-        let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(br#"{"exp":1700000000}"#);
+        let payload =
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(br#"{"exp":1700000000}"#);
         let token = format!("eyJhbGciOiJIUzI1NiJ9.{payload}.sig");
         assert_eq!(jwt_exp(&token), Some(1700000000));
     }

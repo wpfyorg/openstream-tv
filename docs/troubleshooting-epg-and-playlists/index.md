@@ -101,13 +101,13 @@ Channels or EPG entries disappear or change after JioTV login/logout, JioTV+ log
 
 ### Possible causes
 
-- The active source catalogue changed with the account or JioTV+ state.
+- The active provider changed, so the previous provider's catalogue is no longer served.
 - The IPTV playlist or guide has not been refreshed.
-- The selected filter hides the newly active set.
+- A search or category filter hides the newly active set.
 
 ### Diagnosis
 
-Check **Settings** connection states and the Channels filters. The app combines available sources according to current login/configuration; switching an account invalidates account-specific cached data and triggers EPG regeneration when EPG is enabled.
+Check **Settings** connection states and which provider is **Active**, plus the Channels filters. The app serves only the active provider's catalogue; switching an account or provider invalidates account-specific cached data and triggers EPG regeneration when EPG is enabled.
 
 ### Solution
 

@@ -13,7 +13,7 @@ use crate::state::AppState;
 use crate::television::{self, LiveUrlOutput};
 use axum::body::{Body, Bytes};
 use axum::extract::{Query, State};
-use axum::http::{header, Method, StatusCode};
+use axum::http::{Method, StatusCode, header};
 use axum::response::{IntoResponse, Redirect, Response};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -323,7 +323,7 @@ async fn live_mpd_inner(
         _ => {
             // No DRM/DASH stream available; fall back to this server's own
             // HLS route rather than the Go version's HTML fallback player.
-            let prefix_str = prefix.as_ref().map(|p| p.0 .0.clone()).unwrap_or_default();
+            let prefix_str = prefix.as_ref().map(|p| p.0.0.clone()).unwrap_or_default();
             let hls_path = format!(
                 "{prefix_str}{}",
                 crate::extras_state::ExtrasState::live_hls_path(&channel_id, &quality)
@@ -566,7 +566,9 @@ async fn render_mpd_inner(state: Arc<AppState>, q: RenderMpdQuery) -> Response {
             let enc = state
                 .secure
                 .encrypt_deterministic(&format!("__hdnea__={h}"));
-            dash_base = format!("/render.dash/channel/{encoded_channel}/host/{enc_host}/path/{enc_path}/hdnea/{enc}");
+            dash_base = format!(
+                "/render.dash/channel/{encoded_channel}/host/{enc_host}/path/{enc_path}/hdnea/{enc}"
+            );
         }
     }
 
@@ -1123,7 +1125,9 @@ mod tests {
         // "index_video_7_0_init.mp4?m=1773052885" against our rewritten
         // BaseURL ("/render.dash/channel/<id>/host/<enc>/path/<enc>/dash/") into this
         // request.
-        let request_path = format!("/render.dash/channel/ex_151/host/{enc_host}/path/{enc_path}/dash/index_video_7_0_init.mp4");
+        let request_path = format!(
+            "/render.dash/channel/ex_151/host/{enc_host}/path/{enc_path}/dash/index_video_7_0_init.mp4"
+        );
         let (channel_id, got_enc_host, got_enc_path, got_hdnea, segment_path) =
             split_dash_path(&request_path).unwrap();
         assert_eq!(channel_id, "ex_151");

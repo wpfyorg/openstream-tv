@@ -4,10 +4,10 @@
 //! build, which does not compile this module in at all.
 
 use crate::state::AppState;
-use axum::extract::{ConnectInfo, Path, Query, State};
-use axum::http::{header, StatusCode};
-use axum::response::{IntoResponse, Response};
 use axum::Json;
+use axum::extract::{ConnectInfo, Path, Query, State};
+use axum::http::{StatusCode, header};
+use axum::response::{IntoResponse, Response};
 use serde::Deserialize;
 use serde_json::json;
 use std::collections::HashMap;
@@ -69,7 +69,7 @@ pub async fn auth_state(
             &state,
             headers.get(header::COOKIE).and_then(|v| v.to_str().ok()),
         );
-    let key_presented = prefix.map(|p| !p.0 .0.is_empty()).unwrap_or(false);
+    let key_presented = prefix.map(|p| !p.0.0.is_empty()).unwrap_or(false);
     Json(json!({
         "passwordSet": state.access.has_password(),
         "authenticated": authed,
@@ -91,7 +91,7 @@ pub async fn auth_setup(
     if state.access.has_password() {
         return err(StatusCode::CONFLICT, "a password is already set");
     }
-    let has_prefix = prefix.map(|p| !p.0 .0.is_empty()).unwrap_or(false);
+    let has_prefix = prefix.map(|p| !p.0.0.is_empty()).unwrap_or(false);
     if !has_prefix && !state.config.disable_auth {
         return err(
             StatusCode::FORBIDDEN,
@@ -205,6 +205,10 @@ pub async fn status(State(state): State<SharedState>) -> Response {
         "extras": {"enabled": state.extras.enabled(), "connected": state.extras.connected()},
         "catalogue": {
             "activeProduct": state.active_product().as_str(),
+            "preferredProduct": state
+                .preferred_product()
+                .map(|product| product.store_name())
+                .unwrap_or_else(|| state.active_product().store_name()),
             "extrasEntitlementsAvailable": state.extras.entitlements_available(),
             "extrasEntitlementsApplied": state.extras.entitlements_applied(),
             "extrasEntitlementStatus": state.extras.entitlement_status().as_str(),
@@ -335,6 +339,10 @@ pub async fn jiotv_verify_otp(
     if crate::login::save(&state.store, &creds, crate::login::TOUCH_ALL).is_err() {
         return err(StatusCode::INTERNAL_SERVER_ERROR, "cannot save the login");
     }
+    // Signing in to a provider makes it the one the catalogue is drawn from.
+    if let Err(e) = state.set_active_product(crate::state::ActiveProduct::Tv) {
+        tracing::warn!("cannot save the active provider: {e}");
+    }
     state.invalidate_context();
     state.tv.set_credentials(creds);
     state.extras.invalidate_account_context();
@@ -441,6 +449,12 @@ pub async fn extras_verify_otp(
     // generation, and URL-minting handlers re-check the epoch).
     // Always finish the cleanup if the install hook ran, even when the final
     // credentials equal the previous ones (a re-verify of the same account).
+    if matches!(&result, Ok(true)) {
+        // Completing the JioTV+ sign-in makes it the active provider.
+        if let Err(e) = state.set_active_product(crate::state::ActiveProduct::Extras) {
+            tracing::warn!("cannot save the active provider: {e}");
+        }
+    }
     if installed.load(std::sync::atomic::Ordering::SeqCst)
         || state.extras.credentials_marker() != before
     {
@@ -476,11 +490,55 @@ pub struct UnlockBody {
 }
 
 fn extras_status(state: &AppState) -> serde_json::Value {
-    json!({"enabled": state.extras.enabled(), "connected": state.extras.connected()})
+    json!({
+        "enabled": state.extras.enabled(),
+        "connected": state.extras.connected(),
+        "activeProduct": state.active_product().as_str(),
+    })
 }
 
 pub async fn extras_status_get(State(state): State<SharedState>) -> Response {
     Json(json!({"status": true, "extras": extras_status(&state)})).into_response()
+}
+
+#[derive(Deserialize)]
+pub struct ActivateProviderBody {
+    provider: String,
+}
+
+/// `POST /api/providers/activate`: chooses the single provider whose
+/// catalogue the UI, playlist and playback routes expose. The selection is
+/// persisted; JioTV+ stays dormant until it is enabled and connected.
+pub async fn providers_activate(
+    State(state): State<SharedState>,
+    Json(body): Json<ActivateProviderBody>,
+) -> Response {
+    let Some(product) = crate::state::ActiveProduct::from_name(body.provider.trim()) else {
+        return err(
+            StatusCode::BAD_REQUEST,
+            "provider must be jiotv or jiotv_plus",
+        );
+    };
+    if product == crate::state::ActiveProduct::Extras && !state.extras.enabled() {
+        return err(StatusCode::BAD_REQUEST, "JioTV+ is not enabled");
+    }
+    let changed = state.active_product() != product;
+    if let Err(e) = state.set_active_product(product) {
+        return err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("cannot save the provider: {e}"),
+        );
+    }
+    if changed {
+        state.invalidate_context();
+        crate::epg::trigger_regeneration(&state);
+    }
+    Json(json!({
+        "status": true,
+        "provider": product.store_name(),
+        "activeProduct": state.active_product().as_str(),
+    }))
+    .into_response()
 }
 
 /// `POST /api/extras/unlock`. Only reached when the channel search box's
@@ -860,6 +918,78 @@ mod tests {
         .await;
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
         assert_eq!(s.secure.current_epoch(), before);
+    }
+
+    #[tokio::test]
+    async fn provider_activation_keeps_exactly_one_catalogue_active() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(Store::open(dir.path().to_str().unwrap()).unwrap());
+        std::mem::forget(dir);
+        let extras = Arc::new(crate::extras_state::ExtrasState::new(true, None));
+        extras.init(&reqwest::Client::new(), &store);
+        extras.prime_for_test(
+            crate::extras::Credentials {
+                number: "9876543210".into(),
+                sso_token: "redacted-sso".into(),
+                auth_token: "redacted-at".into(),
+                ..Default::default()
+            },
+            Vec::new(),
+            None,
+        );
+        let s = state_with(store, extras);
+        assert_eq!(s.active_product(), crate::state::ActiveProduct::Extras);
+
+        let resp = providers_activate(
+            State(s.clone()),
+            Json(ActivateProviderBody {
+                provider: "jiotv".into(),
+            }),
+        )
+        .await;
+        let body = response_json(resp).await;
+        assert_eq!(body["status"], true);
+        assert_eq!(body["provider"], "jiotv");
+        assert_eq!(body["activeProduct"], "tv");
+        assert_eq!(s.active_product(), crate::state::ActiveProduct::Tv);
+
+        let resp = providers_activate(
+            State(s.clone()),
+            Json(ActivateProviderBody {
+                provider: "jiotv_plus".into(),
+            }),
+        )
+        .await;
+        let body = response_json(resp).await;
+        assert_eq!(body["activeProduct"], "extras");
+        assert_eq!(s.active_product(), crate::state::ActiveProduct::Extras);
+    }
+
+    #[tokio::test]
+    async fn activating_jiotv_plus_when_it_is_disabled_is_rejected() {
+        let s = state();
+        let resp = providers_activate(
+            State(s.clone()),
+            Json(ActivateProviderBody {
+                provider: "jiotv_plus".into(),
+            }),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(s.preferred_product(), None);
+    }
+
+    #[tokio::test]
+    async fn unknown_provider_names_are_rejected() {
+        let s = state();
+        let resp = providers_activate(
+            State(s.clone()),
+            Json(ActivateProviderBody {
+                provider: "fastway".into(),
+            }),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     }
 
     #[test]

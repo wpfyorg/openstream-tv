@@ -9,6 +9,11 @@
   let status = $state(null);
   let error = $state("");
   let pw = $state({ current: "", next: "", message: "", ok: false });
+  let providerBusy = $state("");
+
+  const activeProvider = $derived(
+    status?.catalogue?.activeProduct === "extras" ? "jiotv_plus" : "jiotv",
+  );
 
   async function refresh() {
     try {
@@ -16,6 +21,21 @@
       error = "";
     } catch (err) {
       error = err.message;
+    }
+  }
+
+  async function activate(provider) {
+    if (providerBusy) return;
+    providerBusy = provider;
+    error = "";
+    try {
+      await api("/api/providers/activate", { method: "POST", body: { provider } });
+      await loginChanged();
+      window.dispatchEvent(new CustomEvent("jiotv:extras-changed"));
+    } catch (err) {
+      error = err.message;
+    } finally {
+      providerBusy = "";
     }
   }
 
@@ -90,21 +110,33 @@
     </section>
 
     <section class="card">
-      <h2>JioTV</h2>
+      <div class="card-head">
+        <h2>JioTV</h2>
+        {#if activeProvider === "jiotv"}<span class="pill active">Active</span>{/if}
+      </div>
       {#if status.jiotv.loggedIn}
         <p class="ok">Logged in</p>
+        {#if activeProvider !== "jiotv"}
+          <button class="btn" disabled={providerBusy !== ""} onclick={() => activate("jiotv")}>Use JioTV</button>
+        {/if}
         {#if !status.logoutDisabled}<button class="btn" onclick={() => logout("jiotv")}>Log out</button>{/if}
       {:else}
-        <p class="muted">Not logged in. {status.extras.connected ? "Channels the extra source carries play through it." : ""}</p>
+        <p class="muted">Not logged in.{status.extras.connected && activeProvider === "jiotv_plus" ? " JioTV+ is the active provider." : ""}</p>
         <JioTVLogin ondone={loginChanged} />
       {/if}
     </section>
 
     {#if status.extras.enabled}
       <section class="card">
-        <h2>JioTV+</h2>
+        <div class="card-head">
+          <h2>JioTV+ <span class="pill beta">Beta</span></h2>
+          {#if activeProvider === "jiotv_plus"}<span class="pill active">Active</span>{/if}
+        </div>
         {#if status.extras.connected}
           <p class="ok">Connected</p>
+          {#if activeProvider !== "jiotv_plus"}
+            <button class="btn" disabled={providerBusy !== ""} onclick={() => activate("jiotv_plus")}>Use JioTV+</button>
+          {/if}
           {#if !status.logoutDisabled}<button class="btn" onclick={() => logout("extras")}>Disconnect</button>{/if}
         {:else}
           <p class="muted">Use the JioFiber or AirFiber mobile number.</p>
@@ -133,7 +165,25 @@
   .cols { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); align-items: start; }
   section { display: flex; flex-direction: column; gap: 12px; align-items: flex-start; }
   section > :global(*) { max-width: 100%; }
+  .card-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
   h2 { margin: 0; font-size: 17px; }
+  .pill {
+    padding: 1px 8px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--muted);
+    font-size: 10px;
+    font-weight: 750;
+    letter-spacing: 0.04em;
+    line-height: 1.6;
+    text-transform: uppercase;
+  }
+  .pill.active { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, transparent); }
+  .pill.beta {
+    color: var(--extras);
+    border-color: color-mix(in srgb, var(--extras) 45%, transparent);
+    background: color-mix(in srgb, var(--extras) 12%, transparent);
+  }
   p { margin: 0; }
   form { display: flex; flex-direction: column; gap: 10px; width: 100%; align-items: flex-start; }
   .small { font-size: 13px; margin-top: 16px; }

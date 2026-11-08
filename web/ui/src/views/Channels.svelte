@@ -19,13 +19,12 @@
   let query = $state("");
   let category = $state(saved.category ?? "");
   let language = $state(saved.language ?? "");
-  let extrasOnly = $state(saved.extrasOnly ?? false);
   let hdOnly = $state(saved.hdOnly ?? false);
   let showUnplayable = $state(saved.showUnplayable ?? false);
 
   $effect(() => {
     try {
-      localStorage.setItem("channelFilters", JSON.stringify({ category, language, extrasOnly, hdOnly, showUnplayable }));
+      localStorage.setItem("channelFilters", JSON.stringify({ category, language, hdOnly, showUnplayable }));
     } catch {}
   });
 
@@ -54,7 +53,7 @@
           // unless the viewer has meanwhile typed something else.
           if (query.trim() === q) query = "";
           triedCode = "";
-          unlockNotice = { connected: !!d?.extras?.connected };
+          unlockNotice = { connected: !!d?.extras?.connected, active: d?.extras?.activeProduct === "extras" };
           window.dispatchEvent(new CustomEvent("jiotv:extras-changed"));
           const isLatest = loads.start();
           try {
@@ -92,7 +91,6 @@
     return channels.filter(
       (c) =>
         (showUnplayable || nonePlayable || c.playable) &&
-        (!extrasOnly || c.extras) &&
         (!hdOnly || c.hd) &&
         (!category || c.category === category) &&
         (!language || c.language === language) &&
@@ -112,6 +110,29 @@
       if (isLatest()) loading = false;
     }
   });
+
+  // The server exposes one provider at a time; when another tab or the
+  // Android app switches it, replace the cached list instead of showing the
+  // previous provider's channels.
+  onMount(() => {
+    const reload = () => {
+      const isLatest = loads.start();
+      loadChannels(true)
+        .then((list) => {
+          if (!isLatest()) return;
+          channels = list;
+          error = "";
+          loading = false;
+        })
+        .catch((err) => {
+          if (!isLatest()) return;
+          error = err.message;
+          loading = false;
+        });
+    };
+    window.addEventListener("jiotv:provider-changed", reload);
+    return () => window.removeEventListener("jiotv:provider-changed", reload);
+  });
 </script>
 
 {#if unlockNotice}
@@ -121,9 +142,11 @@
       <strong>JioTV+ unlocked</strong>
       <span>
         {#if unlockNotice.refreshFailed}
-          The channel list could not be refreshed. Reload the page to see the JioTV+ channels.
+          The channel list could not be refreshed. Reload the page to see the active provider's channels.
+        {:else if unlockNotice.connected && unlockNotice.active}
+          JioTV+ is connected and active; its channels are listed below.
         {:else if unlockNotice.connected}
-          JioTV+ is connected; its channels are listed below.
+          JioTV+ is connected. Make it the active provider in Settings to see its channels.
         {:else}
           Sign in with a number that has JioTV+ access in Settings to play its channels.
         {/if}
@@ -145,7 +168,6 @@
     {#each languages as l}<option>{l}</option>{/each}
   </select>
   <label class="toggle"><input type="checkbox" bind:checked={hdOnly} /> HD</label>
-  <label class="toggle"><input type="checkbox" bind:checked={extrasOnly} /> JioTV+ only</label>
   <label class="toggle"><input type="checkbox" bind:checked={showUnplayable} /> Show unavailable</label>
 </section>
 

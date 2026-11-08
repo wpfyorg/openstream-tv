@@ -370,11 +370,13 @@ mod tests {
             .mount(&server)
             .await;
         let client = LoginClient::with_base(reqwest::Client::new(), &server.uri());
-        assert!(client
-            .verify_otp("+91XXXXXXXXXX", "1111", "dev")
-            .await
-            .unwrap()
-            .is_none());
+        assert!(
+            client
+                .verify_otp("+91XXXXXXXXXX", "1111", "dev")
+                .await
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[tokio::test]

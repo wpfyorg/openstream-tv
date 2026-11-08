@@ -41,3 +41,6 @@ jiotv*.log
 
 # Local JioTV+ / extra-source notes (never commit)
 extra.md
+
+# Local reverse-engineering app packages (never commit)
+/reverse-engineering/apps/

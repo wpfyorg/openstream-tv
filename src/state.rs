@@ -15,11 +15,32 @@ pub enum ActiveProduct {
     Extras,
 }
 
+/// Store key holding the provider the user last activated. Exactly one value
+/// is kept, so the two catalogues can never be active together.
+pub const STORE_KEY_ACTIVE_PROVIDER: &str = "active_provider";
+
 impl ActiveProduct {
     pub fn as_str(self) -> &'static str {
         match self {
             ActiveProduct::Tv => "tv",
             ActiveProduct::Extras => "extras",
+        }
+    }
+
+    /// The provider names accepted by the UI/API. The older `tv`/`extras`
+    /// spellings are still accepted so an existing store keeps working.
+    pub fn from_name(name: &str) -> Option<ActiveProduct> {
+        match name {
+            "jiotv" | "tv" => Some(ActiveProduct::Tv),
+            "jiotv_plus" | "jiotv-plus" | "extras" => Some(ActiveProduct::Extras),
+            _ => None,
+        }
+    }
+
+    pub fn store_name(self) -> &'static str {
+        match self {
+            ActiveProduct::Tv => "jiotv",
+            ActiveProduct::Extras => "jiotv_plus",
         }
     }
 }
@@ -106,15 +127,38 @@ impl AppState {
         self.vod_state.clear();
     }
 
-    /// Product selection follows the authenticated session that can actually
-    /// supply the alternate catalogue. Locking or logging out of extras
-    /// immediately falls back to the TV catalogue.
+    /// Product selection follows the provider the user activated, but a
+    /// JioTV+ selection only takes effect while that source is enabled and
+    /// connected. Locking or logging out of extras immediately falls back to
+    /// the TV catalogue; the stored preference survives so reconnecting
+    /// JioTV+ makes it active again.
+    pub fn preferred_product(&self) -> Option<ActiveProduct> {
+        self.store
+            .get_opt(STORE_KEY_ACTIVE_PROVIDER)
+            .as_deref()
+            .and_then(ActiveProduct::from_name)
+    }
+
     pub fn active_product(&self) -> ActiveProduct {
-        if self.extras.connected() {
-            ActiveProduct::Extras
-        } else {
-            ActiveProduct::Tv
+        let extras_available = self.extras.connected();
+        match self.preferred_product() {
+            Some(ActiveProduct::Extras) if extras_available => ActiveProduct::Extras,
+            Some(ActiveProduct::Tv) => ActiveProduct::Tv,
+            // No usable selection: keep the previous behaviour of preferring
+            // a connected JioTV+ source.
+            _ if extras_available => ActiveProduct::Extras,
+            _ => ActiveProduct::Tv,
         }
+    }
+
+    /// Persists the provider the user activated. Only one value is stored, so
+    /// activating one provider deactivates the other.
+    pub fn set_active_product(
+        &self,
+        product: ActiveProduct,
+    ) -> Result<(), crate::store::StoreError> {
+        self.store
+            .set(STORE_KEY_ACTIVE_PROVIDER, product.store_name())
     }
 
     /// Returns only channels from the active upstream product. Custom
@@ -205,7 +249,7 @@ mod tests {
     use super::*;
     use axum::response::IntoResponse;
 
-    fn state() -> Arc<AppState> {
+    fn state_with_extras(extras: Arc<ExtrasState>) -> Arc<AppState> {
         let dir = tempfile::tempdir().unwrap();
         let store = Arc::new(Store::open(dir.path().to_str().unwrap()).unwrap());
         std::mem::forget(dir);
@@ -222,13 +266,66 @@ mod tests {
             render_caches: Default::default(),
             dash_state: Default::default(),
             epg_state: Default::default(),
-            extras: Arc::new(ExtrasState::new(false, None)),
+            extras,
             vod_state: Default::default(),
             public_ip: Arc::new(crate::unlock::PublicIp::new(reqwest::Client::new())),
             unlock_limiter: Arc::new(crate::unlock::AttemptLimiter::default()),
             listen: Default::default(),
             tunnel_origin: Default::default(),
         })
+    }
+
+    fn state() -> Arc<AppState> {
+        state_with_extras(Arc::new(ExtrasState::new(false, None)))
+    }
+
+    fn connected_extras_state() -> Arc<AppState> {
+        let s = state_with_extras(Arc::new(ExtrasState::new(true, None)));
+        s.extras.init(&s.http, &s.store);
+        s.extras.prime_for_test(
+            crate::extras::Credentials {
+                number: "redacted".into(),
+                sso_token: "redacted-sso".into(),
+                auth_token: "redacted-at".into(),
+                ..Default::default()
+            },
+            Vec::new(),
+            None,
+        );
+        s
+    }
+
+    #[test]
+    fn active_provider_defaults_to_a_connected_jiotv_plus_source() {
+        let s = connected_extras_state();
+        assert_eq!(s.preferred_product(), None);
+        assert_eq!(s.active_product(), ActiveProduct::Extras);
+    }
+
+    #[test]
+    fn activating_jiotv_outranks_a_connected_jiotv_plus_source() {
+        let s = connected_extras_state();
+        s.set_active_product(ActiveProduct::Tv).unwrap();
+        assert_eq!(s.preferred_product(), Some(ActiveProduct::Tv));
+        assert_eq!(s.active_product(), ActiveProduct::Tv);
+    }
+
+    #[test]
+    fn a_disconnected_jiotv_plus_selection_falls_back_to_jiotv() {
+        let s = state_with_extras(Arc::new(ExtrasState::new(false, None)));
+        s.set_active_product(ActiveProduct::Extras).unwrap();
+        assert_eq!(s.preferred_product(), Some(ActiveProduct::Extras));
+        assert_eq!(s.active_product(), ActiveProduct::Tv);
+    }
+
+    #[test]
+    fn store_name_round_trips() {
+        for product in [ActiveProduct::Tv, ActiveProduct::Extras] {
+            assert_eq!(
+                ActiveProduct::from_name(product.store_name()),
+                Some(product)
+            );
+        }
     }
 
     #[test]

@@ -18,7 +18,9 @@ impl KeyedLocks {
     pub async fn lock(&self, key: &str) -> tokio::sync::OwnedMutexGuard<()> {
         let m = {
             let mut map = self.map.lock().unwrap();
-            map.entry(key.to_string()).or_insert_with(|| Arc::new(tokio::sync::Mutex::new(()))).clone()
+            map.entry(key.to_string())
+                .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+                .clone()
         };
         m.lock_owned().await
     }

@@ -121,7 +121,9 @@ pub fn looks_like_code(input: &str) -> bool {
 }
 
 fn candidate_codes(ip: Ipv4Addr, now: SystemTime) -> Vec<String> {
-    let today = time::OffsetDateTime::from(now).to_offset(local_offset()).date();
+    let today = time::OffsetDateTime::from(now)
+        .to_offset(local_offset())
+        .date();
     let dates = [today.previous_day(), Some(today), today.next_day()];
     let o = ip.octets();
     let mut out = Vec::new();
@@ -166,7 +168,10 @@ pub struct PublicIp {
 
 impl PublicIp {
     pub fn new(http: reqwest::Client) -> PublicIp {
-        PublicIp { http, cached: Mutex::new(None) }
+        PublicIp {
+            http,
+            cached: Mutex::new(None),
+        }
     }
 
     pub async fn get(&self) -> Option<Ipv4Addr> {
@@ -184,7 +189,11 @@ impl PublicIp {
 }
 
 async fn fetch(http: &reqwest::Client) -> Option<Ipv4Addr> {
-    let resp = http.get("https://cloudflare.com/cdn-cgi/trace").send().await.ok()?;
+    let resp = http
+        .get("https://cloudflare.com/cdn-cgi/trace")
+        .send()
+        .await
+        .ok()?;
     let text = resp.text().await.ok()?;
     for line in text.lines() {
         if let Some(rest) = line.strip_prefix("ip=") {
@@ -208,7 +217,12 @@ impl AttemptLimiter {
         let mut map = self.failures.lock().unwrap();
         let kept: Vec<SystemTime> = map
             .get(ip)
-            .map(|v| v.iter().copied().filter(|t| now.duration_since(*t).unwrap_or_default() < FAILURE_WINDOW).collect())
+            .map(|v| {
+                v.iter()
+                    .copied()
+                    .filter(|t| now.duration_since(*t).unwrap_or_default() < FAILURE_WINDOW)
+                    .collect()
+            })
             .unwrap_or_default();
         map.insert(ip.to_string(), kept.clone());
         kept.len() < MAX_FAILURES

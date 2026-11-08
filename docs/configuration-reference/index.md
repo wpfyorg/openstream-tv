@@ -41,7 +41,7 @@ Save, start with `jiotv --config ./jiotv_go.toml serve`, then open `http://local
 | `disable_ts_handler` | `JIOTV_DISABLE_TS_HANDLER` | `false` | Boolean. Avoid local TS/AAC segment proxying when supported; change only when diagnosing HLS. |
 | `disable_logout` | `JIOTV_DISABLE_LOGOUT` | `false` | Boolean. Hide/disable JioTV logout when true. |
 | `drm` | `JIOTV_DRM` | `true` | Boolean. Allow the protected DASH pathway; does not bypass DRM. |
-| `tv_plus` | `JIOTV_TVPLUS` | `false` | Boolean. Enable the optional JioTV+ account. Needs a JioFiber or AirFiber login. |
+| `tv_plus` | `JIOTV_TVPLUS` | `false` | Boolean. Make the optional JioTV+ (Beta) account available. Needs a JioFiber or AirFiber login. The active provider is selected in Settings; only one is active at a time. |
 | `disable_auth` | `JIOTV_DISABLE_AUTH` | `false` | Boolean. Disable app access checks. Dangerous on reachable networks; use only with a trusted external access control. |
 | `title` | `JIOTV_TITLE` | `"JioTV Go"` | Display title; any TOML string. |
 | `disable_url_encryption` | `JIOTV_DISABLE_URL_ENCRYPTION` | `false` | Boolean. Disable encryption of local proxy parameters. Leave false. |

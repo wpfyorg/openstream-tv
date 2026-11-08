@@ -15,7 +15,7 @@ This example has no provider account connected. Your account status and private 
 
 ## Accounts
 
-The **JioTV** card shows whether the provider account is logged in. The optional **JioTV+** card appears when JioTV+ is enabled and shows whether it is connected. Use each card's login or disconnect controls to manage that provider account. See [JioTV account sign-in](../account-connect-jiotv/index.md) and [JioTV+ channels](../account-extras/index.md).
+The **JioTV** card shows whether the provider account is logged in. The optional **JioTV+** card, marked **Beta**, appears when JioTV+ is enabled and shows whether it is connected. Only one provider can be active at a time: signing in makes that provider active, and connected cards offer a **Use JioTV** or **Use JioTV+** control to switch. See [JioTV account sign-in](../account-connect-jiotv/index.md) and [JioTV+ channels](../account-extras/index.md).
 
 You can [switch JioTV accounts](../account-switch-jiotv/index.md) by logging out and signing in with another number; an administrator can hide provider logout controls with a server configuration option.
 

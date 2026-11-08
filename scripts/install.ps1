@@ -22,7 +22,7 @@ if ($Provider -in @('tv+', 'tvplus')) { $Provider = 'extras' }
 if ($Provider -notin @('', 'jiotv', 'extras', 'fastway')) { throw 'JIOTV_PROVIDER must be jiotv, tv+ or fastway' }
 $PublicHost = if ($env:JIOTV_PUBLIC_HOST) { $env:JIOTV_PUBLIC_HOST } else { '' }
 $Tunnel = if ($env:JIOTV_TUNNEL) { $env:JIOTV_TUNNEL } else { '' }
-if ($Tunnel -notin @('', 'none', 'temp', 'named')) { throw 'JIOTV_TUNNEL must be none, temp, or named' }
+if ($Tunnel -notin @('', 'none', 'temp', 'named', 'api')) { throw 'JIOTV_TUNNEL must be none, temp, named, or api' }
 $TunnelToken = if ($env:JIOTV_TUNNEL_TOKEN) { $env:JIOTV_TUNNEL_TOKEN } else { '' }
 
 # Same rule as the shell installer: only a real console drives the flow, so
@@ -431,7 +431,8 @@ try {
             $Tunnel = Select-Option 'Open JioTV up beyond your LAN?' @(
                 @{ Value = 'none'; Label = 'No, LAN only' },
                 @{ Value = 'temp'; Label = 'Temporary Cloudflare URL, new address every start' },
-                @{ Value = 'named'; Label = 'Permanent Cloudflare tunnel, needs a tunnel token' }
+                @{ Value = 'named'; Label = 'Permanent Cloudflare tunnel, use existing token' },
+                @{ Value = 'api'; Label = 'Set up permanent Cloudflare tunnel with an API token' }
             )
         }
         if ($Tunnel -eq 'named') {
@@ -448,7 +449,33 @@ try {
         elseif ($Tunnel -eq 'temp') {
             Write-Warn2 'Anyone with the address can reach the sign-in page. Keep the admin password strong.'
         }
+        elseif ($Tunnel -eq 'api') {
+            Write-Step 'Create a Cloudflare tunnel'
+            Write-Host '  Create a scoped Cloudflare API token with Zone Read, DNS Edit and Account Cloudflare Tunnel Edit.'
+            Write-Warn2 'The hostname will expose the sign-in page; protect it with a strong admin password.'
+            $cfDomain = if ($env:JIOTV_CF_DOMAIN) { $env:JIOTV_CF_DOMAIN } else { Read-Text 'Domain already on Cloudflare (example.com)' }
+            $cfSubdomain = if ($env:JIOTV_CF_SUBDOMAIN) { $env:JIOTV_CF_SUBDOMAIN } else { Read-Text 'Subdomain (tv.example.com -> tv)' 'tv' }
+            $oldCfToken = $env:CLOUDFLARE_API_TOKEN
+            try {
+                $env:CLOUDFLARE_API_TOKEN = Read-Secret 'Cloudflare API token (used once, never saved)'
+                if ([string]::IsNullOrWhiteSpace($env:CLOUDFLARE_API_TOKEN)) { throw 'Cloudflare API token is empty' }
+                $setupOutput = & $jiotv tunnel setup --domain $cfDomain --subdomain $cfSubdomain 2>&1
+                if ($LASTEXITCODE -ne 0) { throw ($setupOutput | Out-String) }
+                Write-Ok "Permanent Cloudflare hostname configured: https://$cfSubdomain.$cfDomain"
+            }
+            catch {
+                Write-Fail 'Cloudflare setup failed; remote access stays off'
+                Write-Warn2 $_.Exception.Message
+                $Tunnel = 'none'
+            }
+            finally {
+                if ($null -eq $oldCfToken) { Remove-Item Env:CLOUDFLARE_API_TOKEN -ErrorAction SilentlyContinue }
+                else { $env:CLOUDFLARE_API_TOKEN = $oldCfToken }
+            }
+        }
         if ($Tunnel -ne 'none') { $serveLine += ' --tunnel' }
+        if ($Tunnel -eq 'temp') { $serveLine += ' --tunnel-quick' }
+        if ($Tunnel -eq 'api') { $serveLine += ' --tunnel-saved' }
 
         $tvPlusEnabled = if ($Provider -eq 'extras') { 'true' } else { 'false' }
         $fastwayEnabled = if ($Provider -eq 'fastway') { 'true' } else { 'false' }

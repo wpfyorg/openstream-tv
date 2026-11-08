@@ -1582,10 +1582,7 @@ mod tests {
 
         Mock::given(method("POST"))
             .and(path("/apis/v3.2/stbotplogin/sendotp"))
-            .and(header(
-                "content-type",
-                "application/x-www-form-urlencoded",
-            ))
+            .and(header("content-type", "application/x-www-form-urlencoded"))
             .and(body_string(""))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
                 "code": 0, "message": "ok", "identifier": "redacted-identifier", "fttxIds": []

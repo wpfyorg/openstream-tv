@@ -16,7 +16,7 @@ The server can hold three accounts. Your network decides which one you have:
 | **Fastway** | A Fastway subscription, or an ACT connection | Live TV from Fastway |
 
 - **JioTV** is the one to start with. It is the only account that works on any network, so it is enough for a new installation.
-- **JioTV+** is the optional second source. It is off until `tv_plus = true` (or `JIOTV_TVPLUS=true`) is set, and it needs its own sign-in with the JioFiber or AirFiber number, separate from JioTV.
+- **JioTV+** is the optional second source, marked **Beta**. It is off until `tv_plus = true` (or `JIOTV_TVPLUS=true`) is set, and it needs its own sign-in with the JioFiber or AirFiber number, separate from JioTV.
 - **Fastway** is only offered when the installed release supports it.
 
 The installers list only the accounts the downloaded release supports and print this same hint above the account menu. The older name **Extras** may still appear in older guides and error messages. `jiotv extras login` remains a command alias; `jiotv tv+ login` is the current spelling.
@@ -24,9 +24,9 @@ The installers list only the accounts the downloaded release supports and print 
 ## Check which source is active
 
 1. Open **Settings** in the web interface.
-2. Find the **JioTV** card. If it says **Not logged in**, use **Send OTP** to connect.
-3. If the server has JioTV+ enabled, the **JioTV+** card shows whether that account is connected. A connected account adds content and a small active icon in the header.
-4. Open **Channels**. Use **JioTV+ only** if you want to inspect the optional source. If JioTV+ is disconnected, its content might be unavailable.
+2. Each provider card shows whether it is logged in or connected and whether it is the **Active** provider.
+3. Only one provider can be active at a time. Signing in to a provider makes it active; use **Use JioTV** or **Use JioTV+** on a connected card to switch. JioTV+ is marked **Beta**.
+4. Open **Channels**. The list, IPTV playlist and programme guide show only the active provider's catalogue.
 
 ![Real Settings screen showing a disconnected JioTV account. JioTV+ is disabled in this example.](../images/settings-no-account.png)
 

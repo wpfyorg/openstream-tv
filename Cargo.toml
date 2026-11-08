@@ -19,6 +19,8 @@ slim = []
 # support (off by default even in the full build; gated at runtime by the
 # `tv_plus` config key too). The feature name is historical: nothing reads it.
 extras = []
+# android-epg: keep EPG enabled in Android builds, regardless of config/store overrides.
+android-epg = []
 
 [dependencies]
 axum = { version = "0.7", default-features = false, features = ["http1", "tokio", "query", "json"] }

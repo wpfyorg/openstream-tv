@@ -294,6 +294,10 @@
           setPlayerState("extras-signin", "JioTV+", "Connect JioTV+ to play", "This channel comes from JioTV+. Connect the JioTV+ account, then return here to start playback.");
           return;
         }
+        if (status?.extras?.activeProduct !== "extras") {
+          setPlayerState("extras-status", "JioTV+", "JioTV+ is not the active provider", "Switch to JioTV+ in account settings, then return here to start playback.");
+          return;
+        }
       }
 
       const source = await api(`/api/live/play/${encodeURIComponent(channelID)}?q=${q}`);

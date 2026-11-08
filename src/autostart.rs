@@ -37,7 +37,9 @@ fn has_systemd() -> bool {
 }
 
 fn is_termux() -> bool {
-    std::env::var("PREFIX").map(|p| p.contains("com.termux")).unwrap_or(false)
+    std::env::var("PREFIX")
+        .map(|p| p.contains("com.termux"))
+        .unwrap_or(false)
 }
 
 fn paths() -> anyhow::Result<Paths> {
@@ -71,16 +73,28 @@ pub fn restart_hint() -> String {
 
 /// Quotes one ExecStart argument for systemd.
 fn quote(arg: &str) -> String {
-    if !arg.is_empty() && arg.chars().all(|c| c.is_ascii_alphanumeric() || "-_./:=@,+".contains(c)) {
+    if !arg.is_empty()
+        && arg
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "-_./:=@,+".contains(c))
+    {
         return arg.to_string();
     }
-    let escaped = arg.replace('\\', "\\\\").replace('"', "\\\"").replace('%', "%%").replace('$', "$$");
+    let escaped = arg
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('%', "%%")
+        .replace('$', "$$");
     format!("\"{escaped}\"")
 }
 
 fn unit_file(exec: &[String], env_file: &Path, working_dir: &Path, user: bool) -> String {
     let exec_line = exec.iter().map(|a| quote(a)).collect::<Vec<_>>().join(" ");
-    let wanted_by = if user { "default.target" } else { "multi-user.target" };
+    let wanted_by = if user {
+        "default.target"
+    } else {
+        "multi-user.target"
+    };
     format!(
         "[Unit]\n\
          Description=JioTV Go\n\
@@ -104,7 +118,9 @@ fn unit_file(exec: &[String], env_file: &Path, working_dir: &Path, user: bool) -
 /// The JIOTV_* variables to keep, with the store path pinned so the service
 /// finds the same logins whatever its HOME is.
 fn env_file(path_prefix: &str) -> String {
-    let mut vars: Vec<(String, String)> = std::env::vars().filter(|(k, _)| k.starts_with("JIOTV_") && k != "JIOTV_PATH_PREFIX").collect();
+    let mut vars: Vec<(String, String)> = std::env::vars()
+        .filter(|(k, _)| k.starts_with("JIOTV_") && k != "JIOTV_PATH_PREFIX")
+        .collect();
     vars.push(("JIOTV_PATH_PREFIX".to_string(), path_prefix.to_string()));
     vars.sort();
     let mut out = String::from("# Written by `jiotv autostart`.\n");
@@ -182,7 +198,10 @@ fn systemctl(user: bool, args: &[&str]) -> anyhow::Result<()> {
     if user {
         cmd.arg("--user");
     }
-    let status = cmd.args(args).status().map_err(|e| anyhow::anyhow!("cannot run systemctl: {e}"))?;
+    let status = cmd
+        .args(args)
+        .status()
+        .map_err(|e| anyhow::anyhow!("cannot run systemctl: {e}"))?;
     if !status.success() {
         anyhow::bail!("systemctl {} failed: {status}", args.join(" "));
     }
@@ -221,9 +240,14 @@ pub fn install(serve_args: &str, config: Option<&str>, path_prefix: &str) -> any
     systemctl(p.user, &["daemon-reload"])?;
     systemctl(p.user, &["enable", "--now", SERVICE])?;
     println!("Installed {} and started it.", p.unit.display());
-    println!("Settings from JIOTV_* variables are in {} (readable only by you).", p.env.display());
+    println!(
+        "Settings from JIOTV_* variables are in {} (readable only by you).",
+        p.env.display()
+    );
     if p.user {
-        println!("To keep it running after you log out and start it at boot, run once: sudo loginctl enable-linger $USER");
+        println!(
+            "To keep it running after you log out and start it at boot, run once: sudo loginctl enable-linger $USER"
+        );
         println!("Logs: journalctl --user -u {SERVICE} -f");
     } else {
         println!("Logs: journalctl -u {SERVICE} -f");
@@ -269,10 +293,20 @@ fn install_termux(serve_args: &str, path_prefix: &str) -> anyhow::Result<()> {
     let (contents, already_set_up) = termux_rc_contents(&existing, &line);
     std::fs::write(&rc, contents)?;
     if already_set_up {
-        println!("Updated JioTV autostart in {} (environment in {}).", rc.display(), env.display());
+        println!(
+            "Updated JioTV autostart in {} (environment in {}).",
+            rc.display(),
+            env.display()
+        );
     } else {
-        println!("jiotv will start in the background when Termux opens ({}).", rc.display());
-        println!("Settings from JIOTV_* variables are in {} (readable only by you).", env.display());
+        println!(
+            "jiotv will start in the background when Termux opens ({}).",
+            rc.display()
+        );
+        println!(
+            "Settings from JIOTV_* variables are in {} (readable only by you).",
+            env.display()
+        );
     }
     Ok(())
 }
@@ -280,7 +314,11 @@ fn install_termux(serve_args: &str, path_prefix: &str) -> anyhow::Result<()> {
 fn remove_termux() -> anyhow::Result<()> {
     let rc = termux_rc()?;
     let existing = std::fs::read_to_string(&rc).unwrap_or_default();
-    let kept: String = existing.lines().filter(|l| !l.contains(TERMUX_MARKER)).map(|l| format!("{l}\n")).collect();
+    let kept: String = existing
+        .lines()
+        .filter(|l| !l.contains(TERMUX_MARKER))
+        .map(|l| format!("{l}\n"))
+        .collect();
     std::fs::write(&rc, kept)?;
     if let Ok(env) = termux_env_path() {
         let _ = std::fs::remove_file(env);
@@ -303,8 +341,18 @@ mod tests {
 
     #[test]
     fn unit_file_has_the_service_basics() {
-        let exec = vec!["/usr/bin/jiotv".to_string(), "serve".to_string(), "--port".to_string(), "5001".to_string()];
-        let unit = unit_file(&exec, Path::new("/etc/jiotv/jiotv.env"), Path::new("/var/lib/jiotv"), false);
+        let exec = vec![
+            "/usr/bin/jiotv".to_string(),
+            "serve".to_string(),
+            "--port".to_string(),
+            "5001".to_string(),
+        ];
+        let unit = unit_file(
+            &exec,
+            Path::new("/etc/jiotv/jiotv.env"),
+            Path::new("/var/lib/jiotv"),
+            false,
+        );
         assert!(unit.contains("ExecStart=/usr/bin/jiotv serve --port 5001\n"));
         assert!(unit.contains("EnvironmentFile=-/etc/jiotv/jiotv.env\n"));
         assert!(unit.contains("WantedBy=multi-user.target\n"));
@@ -333,8 +381,13 @@ mod tests {
             None => std::env::remove_var(key),
         }
 
-        assert!(contents.contains("export JIOTV_PATH_PREFIX='/data/data/com.termux/files/home/.jiotv/'\n"));
-        assert!(contents.contains("export JIOTV_AUTOSTART_TEST_TOKEN='token with '\\''quote'\\'''\n"));
+        assert!(
+            contents
+                .contains("export JIOTV_PATH_PREFIX='/data/data/com.termux/files/home/.jiotv/'\n")
+        );
+        assert!(
+            contents.contains("export JIOTV_AUTOSTART_TEST_TOKEN='token with '\\''quote'\\'''\n")
+        );
         let line = termux_start_line(
             Path::new("/data/data/com.termux/files/usr/bin/jiotv"),
             Path::new("/data/data/com.termux/files/home/.config/jiotv/jiotv.env"),

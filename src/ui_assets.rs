@@ -2,7 +2,7 @@
 //! into the binary at compile time so the router still ships as one file.
 
 use axum::body::Body;
-use axum::http::{header, StatusCode, Uri};
+use axum::http::{StatusCode, Uri, header};
 use axum::response::{IntoResponse, Response};
 use rust_embed::RustEmbed;
 

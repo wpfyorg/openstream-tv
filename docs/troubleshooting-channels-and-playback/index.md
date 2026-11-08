@@ -16,21 +16,22 @@ Channels do not appear, the list is empty, or only some categories/languages are
 ### Possible causes
 
 - The JioTV account is not connected or the channel request failed.
-- Search, category, language or JioTV+-only filters hide results.
+- Search, category or language filters hide results.
+- A different provider is active, so the requested channel is not in the current catalogue.
 - The selected account/source does not provide those channels.
 - The provider catalogue is temporarily unavailable.
 
 ### Diagnosis
 
-Check **Settings** for JioTV and JioTV+ status. Clear the search field and reset category, language and JioTV+-only filters in Channels. Reload once, then check server output. Compare the UI list with the account's available content; do not assume every provider channel is available to every account.
+Check **Settings** for JioTV and JioTV+ status and which provider is **Active**. Clear the search field and reset category and language filters in Channels. Reload once, then check server output. Compare the UI list with the account's available content; do not assume every provider channel is available to every account.
 
 ### Solution
 
-Reconnect JioTV if disconnected. Reset the filters and choose the intended source. If only a specific source is affected, check its account status and entitlement. Wait and retry later if the upstream catalogue request failed.
+Reconnect JioTV if disconnected. Reset the filters and choose the intended provider in **Settings**. If only a specific source is affected, check its account status and entitlement. Wait and retry later if the upstream catalogue request failed.
 
 ### Verification
 
-Confirm a normal channel appears with filters cleared. Test one JioTV channel and one JioTV+ channel only if both accounts are configured.
+Confirm a normal channel appears with filters cleared. Switch the active provider in Settings and confirm the list follows it only when the other account is configured.
 
 ### Further help
 

@@ -7,7 +7,7 @@
 use crate::state::AppState;
 use axum::body::Body;
 use axum::extract::{Path, State};
-use axum::http::{header, StatusCode};
+use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -24,6 +24,9 @@ const CACHE_MAX_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 pub const STORE_KEY_ENABLED: &str = "epg_enabled";
 
 pub fn enabled_with_override(config_enabled: bool, stored: Option<&str>) -> bool {
+    if cfg!(feature = "android-epg") {
+        return true;
+    }
     match stored {
         Some("true") => true,
         Some("false") => false,
@@ -713,11 +716,19 @@ mod tests {
     use std::collections::HashMap;
 
     #[test]
+    #[cfg(not(feature = "android-epg"))]
     fn stored_enabled_override_wins_over_config() {
         assert!(enabled_with_override(false, Some("true")));
         assert!(!enabled_with_override(true, Some("false")));
         assert!(enabled_with_override(true, None));
         assert!(!enabled_with_override(false, Some("invalid")));
+    }
+
+    #[cfg(feature = "android-epg")]
+    #[test]
+    fn android_epg_feature_ignores_disabled_config_and_store() {
+        assert!(enabled_with_override(false, Some("false")));
+        assert!(enabled_with_override(false, None));
     }
 
     fn tv_channel(id: &str, name: &str) -> crate::television::Channel {
@@ -1015,13 +1026,10 @@ mod tests {
         assert!(!prepare_cache_for_state(&state).await.unwrap());
         let current = publish_test_guide(&state, "account-b-guide").await;
 
-        assert!(!publish_cache_if_current(
-            &state,
-            old_epoch,
-            &old_snapshot.fingerprint,
-            &old_bytes
-        )
-        .unwrap());
+        assert!(
+            !publish_cache_if_current(&state, old_epoch, &old_snapshot.fingerprint, &old_bytes)
+                .unwrap()
+        );
         let response = epg_handler(State(state)).await;
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(response_bytes(response).await, current);

@@ -23,6 +23,7 @@ Browse in order, or choose the task you need. The categories and article metadat
   - [Install on macOS](installations-macos/index.md)
   - [Install on Windows](installations-windows/index.md)
   - [Install on OpenWrt](installations-openwrt/index.md)
+  - [Install the Android TV and phone app](installations-android-app/index.md)
   - [Install on Raspberry Pi and SBCs](installations-sbc/index.md)
   - [Install on Android with Termux](installations-termux/index.md)
   - [Install with Docker](installations-docker/index.md)

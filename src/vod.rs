@@ -12,7 +12,7 @@ use crate::extras::{PlaybackData, Rail, VodItem};
 use crate::state::AppState;
 use axum::body::{Body, Bytes};
 use axum::extract::{Path, Query, State};
-use axum::http::{header, Method, StatusCode};
+use axum::http::{Method, StatusCode, header};
 use axum::response::{IntoResponse, Redirect, Response};
 use serde_json::json;
 use std::collections::HashMap;

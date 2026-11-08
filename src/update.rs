@@ -15,7 +15,11 @@ const DEFAULT_REPO: &str = "wpfyorg/better-jiotv-go";
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// The build this binary is: the update keeps it.
-pub const VARIANT: &str = if cfg!(feature = "full") { "full" } else { "slim" };
+pub const VARIANT: &str = if cfg!(feature = "full") {
+    "full"
+} else {
+    "slim"
+};
 
 #[derive(Deserialize)]
 struct Release {
@@ -31,11 +35,16 @@ struct Asset {
 }
 
 fn repo() -> String {
-    std::env::var("JIOTV_UPDATE_REPO").ok().filter(|r| !r.is_empty()).unwrap_or_else(|| DEFAULT_REPO.to_string())
+    std::env::var("JIOTV_UPDATE_REPO")
+        .ok()
+        .filter(|r| !r.is_empty())
+        .unwrap_or_else(|| DEFAULT_REPO.to_string())
 }
 
 fn token() -> Option<String> {
-    ["JIOTV_UPDATE_TOKEN", "GITHUB_TOKEN"].iter().find_map(|k| std::env::var(k).ok().filter(|t| !t.is_empty()))
+    ["JIOTV_UPDATE_TOKEN", "GITHUB_TOKEN"]
+        .iter()
+        .find_map(|k| std::env::var(k).ok().filter(|t| !t.is_empty()))
 }
 
 /// The asset name for this binary, e.g. `jiotv-slim-aarch64-unknown-linux-musl`.
@@ -66,7 +75,10 @@ fn target_for(arch: &str, os: &str) -> &'static str {
 }
 
 fn asset_for(variant: &str, target: &str, windows: bool) -> String {
-    format!("jiotv-{variant}-{target}{}", if windows { ".exe" } else { "" })
+    format!(
+        "jiotv-{variant}-{target}{}",
+        if windows { ".exe" } else { "" }
+    )
 }
 
 /// Parses "v1.2.3" or "1.2.3" into comparable numbers.
@@ -74,7 +86,11 @@ fn parse_version(v: &str) -> Option<(u64, u64, u64)> {
     let v = v.trim().trim_start_matches('v');
     let v = v.split(['-', '+']).next()?;
     let mut parts = v.split('.').map(|p| p.parse::<u64>().ok());
-    Some((parts.next()??, parts.next().flatten().unwrap_or(0), parts.next().flatten().unwrap_or(0)))
+    Some((
+        parts.next()??,
+        parts.next().flatten().unwrap_or(0),
+        parts.next().flatten().unwrap_or(0),
+    ))
 }
 
 fn is_newer(tag: &str, current: &str) -> bool {
@@ -85,7 +101,10 @@ fn is_newer(tag: &str, current: &str) -> bool {
 }
 
 fn client() -> anyhow::Result<reqwest::Client> {
-    Ok(reqwest::Client::builder().user_agent(format!("jiotv/{VERSION}")).timeout(Duration::from_secs(120)).build()?)
+    Ok(reqwest::Client::builder()
+        .user_agent(format!("jiotv/{VERSION}"))
+        .timeout(Duration::from_secs(120))
+        .build()?)
 }
 
 fn authed(req: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
@@ -100,24 +119,45 @@ async fn fetch_release(client: &reqwest::Client, version: Option<&str>) -> anyho
     let repo = repo();
     let url = match version {
         Some(v) => {
-            let tag = if v.starts_with('v') { v.to_string() } else { format!("v{v}") };
+            let tag = if v.starts_with('v') {
+                v.to_string()
+            } else {
+                format!("v{v}")
+            };
             format!("https://api.github.com/repos/{repo}/releases/tags/{tag}")
         }
         None => format!("https://api.github.com/repos/{repo}/releases/latest"),
     };
-    let resp = authed(client.get(&url).header("Accept", "application/vnd.github+json")).send().await?;
+    let resp = authed(
+        client
+            .get(&url)
+            .header("Accept", "application/vnd.github+json"),
+    )
+    .send()
+    .await?;
     match resp.status().as_u16() {
         200 => Ok(resp.json().await?),
-        404 if token().is_none() => anyhow::bail!("no release found in {repo}. If the repository is private, set JIOTV_UPDATE_TOKEN"),
+        404 if token().is_none() => anyhow::bail!(
+            "no release found in {repo}. If the repository is private, set JIOTV_UPDATE_TOKEN"
+        ),
         404 => anyhow::bail!("no release found in {repo}"),
-        401 | 403 => anyhow::bail!("GitHub refused the request ({}). Check JIOTV_UPDATE_TOKEN", resp.status()),
+        401 | 403 => anyhow::bail!(
+            "GitHub refused the request ({}). Check JIOTV_UPDATE_TOKEN",
+            resp.status()
+        ),
         _ => anyhow::bail!("GitHub answered {}", resp.status()),
     }
 }
 
 async fn download_asset(client: &reqwest::Client, asset: &Asset) -> anyhow::Result<Vec<u8>> {
     // The API asset URL works for private repositories too, given a token.
-    let resp = authed(client.get(&asset.url).header("Accept", "application/octet-stream")).send().await?;
+    let resp = authed(
+        client
+            .get(&asset.url)
+            .header("Accept", "application/octet-stream"),
+    )
+    .send()
+    .await?;
     if !resp.status().is_success() {
         anyhow::bail!("downloading {} failed: {}", asset.name, resp.status());
     }
@@ -135,16 +175,29 @@ fn checksum_for(sums: &str, name: &str) -> Option<String> {
 }
 
 fn sha256_hex(data: &[u8]) -> String {
-    Sha256::digest(data).iter().map(|b| format!("{b:02x}")).collect()
+    Sha256::digest(data)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }
 
 /// Writes the new binary next to the running one and renames it over it,
 /// which is safe while the old binary is running on Unix.
 fn replace_executable(data: &[u8]) -> anyhow::Result<std::path::PathBuf> {
     let exe = std::env::current_exe()?.canonicalize()?;
-    let dir = exe.parent().ok_or_else(|| anyhow::anyhow!("cannot find the binary's directory"))?;
-    let tmp = dir.join(format!(".{}.update", exe.file_name().and_then(|n| n.to_str()).unwrap_or("jiotv")));
-    std::fs::write(&tmp, data).map_err(|e| anyhow::anyhow!("cannot write to {}: {e} (run with permission to replace the binary)", dir.display()))?;
+    let dir = exe
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("cannot find the binary's directory"))?;
+    let tmp = dir.join(format!(
+        ".{}.update",
+        exe.file_name().and_then(|n| n.to_str()).unwrap_or("jiotv")
+    ));
+    std::fs::write(&tmp, data).map_err(|e| {
+        anyhow::anyhow!(
+            "cannot write to {}: {e} (run with permission to replace the binary)",
+            dir.display()
+        )
+    })?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -156,7 +209,13 @@ fn replace_executable(data: &[u8]) -> anyhow::Result<std::path::PathBuf> {
         let script = dir.join(format!(".jiotv-update-{pid}.ps1"));
         std::fs::write(&script, windows_replacement_script_bytes(pid, &tmp, &exe))?;
         if let Err(e) = std::process::Command::new("powershell.exe")
-            .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File"])
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+            ])
             .arg(&script)
             .spawn()
         {
@@ -175,7 +234,11 @@ fn replace_executable(data: &[u8]) -> anyhow::Result<std::path::PathBuf> {
 }
 
 #[cfg(windows)]
-fn windows_replacement_script_bytes(pid: u32, staged: &std::path::Path, exe: &std::path::Path) -> Vec<u8> {
+fn windows_replacement_script_bytes(
+    pid: u32,
+    staged: &std::path::Path,
+    exe: &std::path::Path,
+) -> Vec<u8> {
     let script = windows_replacement_script(pid, staged, exe);
     let mut bytes = Vec::with_capacity(script.len() + 3);
     bytes.extend_from_slice(b"\xEF\xBB\xBF");
@@ -190,19 +253,27 @@ fn windows_replacement_script(pid: u32, staged: &std::path::Path, exe: &std::pat
     }
     format!(
         "$ErrorActionPreference = 'Stop'\n$pidToWait = {pid}\n$staged = {}\n$exe = {}\n$script = $MyInvocation.MyCommand.Path\ntry {{\n  while (Get-Process -Id $pidToWait -ErrorAction SilentlyContinue) {{ Start-Sleep -Milliseconds 250 }}\n  Move-Item -LiteralPath $staged -Destination $exe -Force\n}} finally {{\n  Remove-Item -LiteralPath $script -Force -ErrorAction SilentlyContinue\n  Remove-Item -LiteralPath $staged -Force -ErrorAction SilentlyContinue\n}}\n",
-        quote(staged), quote(exe)
+        quote(staged),
+        quote(exe)
     )
 }
 
 /// `jiotv update [--version vX.Y.Z]`.
 pub async fn run(version: Option<&str>) -> anyhow::Result<()> {
     if target_triple() == "unsupported" {
-        anyhow::bail!("no release builds for {}/{}", std::env::consts::OS, std::env::consts::ARCH);
+        anyhow::bail!(
+            "no release builds for {}/{}",
+            std::env::consts::OS,
+            std::env::consts::ARCH
+        );
     }
     let client = client()?;
     let release = fetch_release(&client, version).await?;
     if version.is_none() && !is_newer(&release.tag_name, VERSION) {
-        println!("jiotv {VERSION} is up to date (latest release: {}).", release.tag_name);
+        println!(
+            "jiotv {VERSION} is up to date (latest release: {}).",
+            release.tag_name
+        );
         return Ok(());
     }
     let name = asset_name();
@@ -215,11 +286,17 @@ pub async fn run(version: Option<&str>) -> anyhow::Result<()> {
         .assets
         .iter()
         .find(|a| a.name == "SHA256SUMS")
-        .ok_or_else(|| anyhow::anyhow!("release {} has no SHA256SUMS; not installing an unverified binary", release.tag_name))?;
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "release {} has no SHA256SUMS; not installing an unverified binary",
+                release.tag_name
+            )
+        })?;
 
     println!("Downloading {name} from {} {}...", repo(), release.tag_name);
     let sums = String::from_utf8(download_asset(&client, sums_asset).await?)?;
-    let want = checksum_for(&sums, &name).ok_or_else(|| anyhow::anyhow!("SHA256SUMS has no entry for {name}"))?;
+    let want = checksum_for(&sums, &name)
+        .ok_or_else(|| anyhow::anyhow!("SHA256SUMS has no entry for {name}"))?;
     let data = download_asset(&client, asset).await?;
     let got = sha256_hex(&data);
     if got != want {
@@ -227,11 +304,18 @@ pub async fn run(version: Option<&str>) -> anyhow::Result<()> {
     }
     let path = replace_executable(&data)?;
     #[cfg(windows)]
-    println!("Downloaded {} to {}. The updater will replace it after this process exits.", release.tag_name, path.display());
+    println!(
+        "Downloaded {} to {}. The updater will replace it after this process exits.",
+        release.tag_name,
+        path.display()
+    );
     #[cfg(not(windows))]
     println!("Updated {} to {}.", path.display(), release.tag_name);
     if crate::autostart::installed() {
-        println!("Restart the service to use it: {}", crate::autostart::restart_hint());
+        println!(
+            "Restart the service to use it: {}",
+            crate::autostart::restart_hint()
+        );
     } else {
         println!("Restart jiotv to use it.");
     }
@@ -241,12 +325,19 @@ pub async fn run(version: Option<&str>) -> anyhow::Result<()> {
 /// Prints a line when a newer release exists. Quiet on any failure, so a
 /// server without internet access or a token starts as usual.
 pub async fn check_quietly() {
-    let Ok(client) = reqwest::Client::builder().user_agent(format!("jiotv/{VERSION}")).timeout(Duration::from_secs(5)).build() else {
+    let Ok(client) = reqwest::Client::builder()
+        .user_agent(format!("jiotv/{VERSION}"))
+        .timeout(Duration::from_secs(5))
+        .build()
+    else {
         return;
     };
     if let Ok(release) = fetch_release(&client, None).await {
         if is_newer(&release.tag_name, VERSION) {
-            println!("Update available: {} (you have {VERSION}). Run `jiotv update`.", release.tag_name);
+            println!(
+                "Update available: {} (you have {VERSION}). Run `jiotv update`.",
+                release.tag_name
+            );
         }
     }
 }
@@ -267,13 +358,22 @@ mod tests {
     #[test]
     fn reads_sha256sums() {
         let sums = "abc123  jiotv-full-x86_64-unknown-linux-musl\nDEF456 *jiotv-slim-aarch64-unknown-linux-musl\n";
-        assert_eq!(checksum_for(sums, "jiotv-slim-aarch64-unknown-linux-musl").as_deref(), Some("def456"));
-        assert_eq!(checksum_for(sums, "jiotv-full-aarch64-unknown-linux-musl"), None);
+        assert_eq!(
+            checksum_for(sums, "jiotv-slim-aarch64-unknown-linux-musl").as_deref(),
+            Some("def456")
+        );
+        assert_eq!(
+            checksum_for(sums, "jiotv-full-aarch64-unknown-linux-musl"),
+            None
+        );
     }
 
     #[test]
     fn hashes() {
-        assert_eq!(sha256_hex(b"abc"), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+        assert_eq!(
+            sha256_hex(b"abc"),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
     }
 
     #[test]
@@ -299,8 +399,14 @@ mod tests {
 
     #[test]
     fn asset_names_keep_variant_and_windows_extension() {
-        assert_eq!(asset_for("slim", "i686-pc-windows-msvc", true), "jiotv-slim-i686-pc-windows-msvc.exe");
-        assert_eq!(asset_for("full", "aarch64-linux-android", false), "jiotv-full-aarch64-linux-android");
+        assert_eq!(
+            asset_for("slim", "i686-pc-windows-msvc", true),
+            "jiotv-slim-i686-pc-windows-msvc.exe"
+        );
+        assert_eq!(
+            asset_for("full", "aarch64-linux-android", false),
+            "jiotv-full-aarch64-linux-android"
+        );
     }
 
     #[cfg(windows)]

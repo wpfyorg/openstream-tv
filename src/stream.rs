@@ -11,7 +11,7 @@ use crate::state::AppState;
 use crate::television::{self, LiveUrlOutput};
 use axum::body::Body;
 use axum::extract::{Query, State};
-use axum::http::{header, StatusCode};
+use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Redirect, Response};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -673,7 +673,7 @@ async fn live_impl_inner(
             .route(id, state.tv.logged_in(), is_custom)
             .is_some();
         if via_extras && television::has_dash(&live) {
-            let prefix_str = prefix.as_ref().map(|p| p.0 .0.clone()).unwrap_or_default();
+            let prefix_str = prefix.as_ref().map(|p| p.0.0.clone()).unwrap_or_default();
             return Redirect::to(&format!("{prefix_str}/live/mpd/{id}?q={quality}"))
                 .into_response();
         }
@@ -694,7 +694,7 @@ async fn live_impl_inner(
     }
 
     let encrypted = encrypt_render_auth(state, &live_url, &identity_scope(&live_url, None));
-    let prefix_str = prefix.as_ref().map(|p| p.0 .0.clone()).unwrap_or_default();
+    let prefix_str = prefix.as_ref().map(|p| p.0.0.clone()).unwrap_or_default();
     let q = if quality == "auto" {
         String::new()
     } else {
@@ -1955,16 +1955,18 @@ mod tests {
         let (url, scope) = decrypt_render_auth(&state, &auth).unwrap();
         assert_eq!(url, format!("{}/rotated/new/segment.ts", upstream.uri()));
         assert_eq!(scope.unwrap(), fresh_scope);
-        assert!(refresh_rendition(
-            &state,
-            &rotated_live,
-            "auto",
-            &identity,
-            "expired",
-            Some("https://old.example/old/segment.ts")
-        )
-        .await
-        .is_none());
+        assert!(
+            refresh_rendition(
+                &state,
+                &rotated_live,
+                "auto",
+                &identity,
+                "expired",
+                Some("https://old.example/old/segment.ts")
+            )
+            .await
+            .is_none()
+        );
 
         Mock::given(method("GET"))
             .and(path("/master.m3u8"))
@@ -2170,14 +2172,25 @@ mod tests {
         ] {
             let body = if tag.starts_with("#EXT-X-STREAM-INF:") {
                 format!("{tag}\nchild.m3u8\n")
-            } else { format!("{tag}\n") };
+            } else {
+                format!("{tag}\n")
+            };
             let entries = rendition_entries(&body, old);
             let scope = identity_scope(&entries[0].0, Some(entries[0].1.clone()));
-            assert_eq!(matching_rendition_url(&body, fresh, &scope).unwrap(), "https://new.example/b/child.m3u8?session=new");
+            assert_eq!(
+                matching_rendition_url(&body, fresh, &scope).unwrap(),
+                "https://new.example/b/child.m3u8?session=new"
+            );
             assert!(matching_rendition_url(&format!("{body}{body}"), fresh, &scope).is_none());
             assert!(matching_rendition_url("#EXTM3U\nother.m3u8\n", fresh, &scope).is_none());
-            assert!(matching_rendition_url(&body, fresh, &strip_hdnea_from_url(&entries[0].0)).is_none());
-            assert_ne!(RenderCaches::hdnea_key("1", "auto", &scope), RenderCaches::hdnea_key("1", "auto", &identity_scope(&entries[0].0, None)));
+            assert!(
+                matching_rendition_url(&body, fresh, &strip_hdnea_from_url(&entries[0].0))
+                    .is_none()
+            );
+            assert_ne!(
+                RenderCaches::hdnea_key("1", "auto", &scope),
+                RenderCaches::hdnea_key("1", "auto", &identity_scope(&entries[0].0, None))
+            );
         }
     }
 
@@ -2196,9 +2209,11 @@ mod tests {
                 .as_deref(),
             Some("rotated")
         );
-        assert!(caches
-            .get_hdnea(&shared_media_key("rendition", "different"))
-            .is_none());
+        assert!(
+            caches
+                .get_hdnea(&shared_media_key("rendition", "different"))
+                .is_none()
+        );
         assert_eq!(
             media_credential("a.ts?hdnea=A\nb.ts?hdnea=B\n", child, a, "cookie"),
             Some(("A".into(), false))

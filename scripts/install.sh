@@ -17,6 +17,8 @@ provider=${JIOTV_PROVIDER:-}
 public_host=${JIOTV_PUBLIC_HOST:-}
 tunnel=${JIOTV_TUNNEL:-}
 tunnel_token=${JIOTV_TUNNEL_TOKEN:-}
+cloudflare_domain=${JIOTV_CF_DOMAIN:-}
+cloudflare_subdomain=${JIOTV_CF_SUBDOMAIN:-tv}
 case "$ready_timeout" in ''|*[!0-9]*) echo "JIOTV_READY_TIMEOUT must be a number of seconds" >&2; exit 2 ;; esac
 # Readiness needs two consecutive good checks, so fewer than two seconds can never succeed.
 [ "$ready_timeout" -ge 2 ] || ready_timeout=2
@@ -29,7 +31,7 @@ case "$repo" in */*) ;; *) echo "JIOTV_REPO must be owner/repository" >&2; exit 
 case "$onboard" in auto|always|never) ;; *) echo "JIOTV_ONBOARD must be auto, always or never" >&2; exit 2 ;; esac
 case "$provider" in tv+|tvplus) provider=extras ;; esac
 case "$provider" in ''|jiotv|extras|fastway) ;; *) echo "JIOTV_PROVIDER must be jiotv, tv+ or fastway" >&2; exit 2 ;; esac
-case "$tunnel" in ''|none|temp|named) ;; *) echo "JIOTV_TUNNEL must be none, temp or named" >&2; exit 2 ;; esac
+case "$tunnel" in ''|none|temp|named|api) ;; *) echo "JIOTV_TUNNEL must be none, temp, named or api" >&2; exit 2 ;; esac
 
 sys=$(uname -s 2>/dev/null || echo unknown)
 machine=$(uname -m 2>/dev/null || echo unknown)
@@ -432,8 +434,8 @@ ob_choose_tunnel() {
   [ -z "$tunnel" ] || return 0
   ui_step "Access from outside your network"
   ui_select "Open JioTV up beyond your LAN?" \
-    "none|temp|named" \
-    "No, LAN only|Temporary Cloudflare URL, no account, new address every start|Permanent Cloudflare tunnel, needs a tunnel token"
+    "none|temp|named|api" \
+    "No, LAN only|Temporary Cloudflare URL, no account, new address every start|Permanent Cloudflare tunnel, use existing token|Set up permanent Cloudflare tunnel with an API token"
   tunnel=$ui_sel_value
   case "$tunnel" in
     none) return 0 ;;
@@ -453,7 +455,37 @@ ob_choose_tunnel() {
         *) ui_warn "That does not look like a Cloudflare tunnel token"; tunnel=temp; tunnel_token= ;;
       esac
       ;;
+    api)
+      ui_warn "A public hostname will expose the JioTV sign-in page. Use a strong admin password."
+      ;;
   esac
+}
+
+ob_setup_api() {
+  ob_bin=$1
+  [ "$tunnel" = api ] || return 0
+  ui_step "Create a Cloudflare tunnel"
+  printf '  Get a scoped API token with Zone Read, DNS Edit and Account Cloudflare Tunnel Edit permissions.\n'
+  if [ -z "$cloudflare_domain" ]; then
+    ui_input "Domain already on Cloudflare (example.com)" ""
+    cloudflare_domain=$ui_result
+  fi
+  ui_input "Subdomain (tv.example.com -> tv)" "$cloudflare_subdomain"
+  cloudflare_subdomain=$ui_result
+  ui_password "Cloudflare API token (used once, never saved)"
+  ob_cf_token=$ui_result
+  ob_port=5001
+  [ "$openwrt" != true ] || ob_port=$(uci_opt port 5001)
+  if [ -n "$ob_cf_token" ] && CLOUDFLARE_API_TOKEN="$ob_cf_token" "$ob_bin" tunnel setup \
+      --domain "$cloudflare_domain" --subdomain "$cloudflare_subdomain" --port "$ob_port" \
+      >"$tmp/cloudflare-setup.log" 2>&1; then
+    ui_ok "Permanent Cloudflare hostname configured: https://$cloudflare_subdomain.$cloudflare_domain"
+  else
+    ui_fail "Cloudflare setup failed; remote access stays off"
+    if [ -s "$tmp/cloudflare-setup.log" ]; then cat "$tmp/cloudflare-setup.log"; fi
+    tunnel=none
+  fi
+  ob_cf_token=
 }
 
 # ---------------------------------------------------------------------------
@@ -638,7 +670,10 @@ ob_write_uci() {
     none) uci set jiotv.main.tunnel=0; uci delete jiotv.main.tunnel_token 2>/dev/null || true ;;
     temp) uci set jiotv.main.tunnel=1; uci delete jiotv.main.tunnel_token 2>/dev/null || true ;;
     named) uci set jiotv.main.tunnel=1; uci set jiotv.main.tunnel_token="$tunnel_token" ;;
+    api) uci set jiotv.main.tunnel=1; uci delete jiotv.main.tunnel_token 2>/dev/null || true ;;
   esac
+  uci set jiotv.main.tunnel_saved="$( [ "$tunnel" = api ] && echo 1 || echo 0 )"
+  uci set jiotv.main.tunnel_quick="$( [ "$tunnel" = temp ] && echo 1 || echo 0 )"
   uci commit jiotv
 }
 
@@ -646,6 +681,8 @@ ob_serve_args() {
   ob_args="--host 0.0.0.0"
   [ "$install_tls" = 1 ] && ob_args="$ob_args --tls"
   [ "$tunnel" = none ] || ob_args="$ob_args --tunnel"
+  [ "$tunnel" != temp ] || ob_args="$ob_args --tunnel-quick"
+  [ "$tunnel" != api ] || ob_args="$ob_args --tunnel-saved"
   printf '%s\n' "$ob_args"
 }
 
@@ -786,6 +823,7 @@ ob_summary() {
   case "$tunnel" in
     temp) printf '  %sremote%s    a trycloudflare.com address, printed by the service each start\n' "$ui_dim" "$ui_reset" ;;
     named) printf '  %sremote%s    your Cloudflare hostname\n' "$ui_dim" "$ui_reset" ;;
+    api) printf '  %sremote%s    https://%s.%s\n' "$ui_dim" "$ui_reset" "$cloudflare_subdomain" "$cloudflare_domain" ;;
   esac
   printf '\n'
   if [ "$ob_service" != 1 ]; then
@@ -909,6 +947,7 @@ if [ "$openwrt" = true ]; then
       ui_fail "The install is complete but the account is not connected"
     fi
     ob_admin_password /usr/bin/jiotv
+    ob_setup_api /usr/bin/jiotv
     ob_write_uci
   fi
 
@@ -1120,6 +1159,7 @@ if onboard_enabled; then
   ob_write_shell_env
   if ob_credentials "$jiotv_bin"; then
     ob_admin_password "$jiotv_bin"
+    ob_setup_api "$jiotv_bin"
     ob_install_service "$jiotv_bin"
     ob_summary "$jiotv_bin"
     [ "$start_service" = 1 ] || ob_stopped_service=
