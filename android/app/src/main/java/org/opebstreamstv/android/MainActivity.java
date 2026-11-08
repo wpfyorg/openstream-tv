@@ -124,7 +124,7 @@ public final class MainActivity extends Activity {
         Future<?> task = setupTask;
         if (task != null) task.cancel(true);
     }
-    private Button copyButton, saveM3uButton, openButton, importConfigButton, exportConfigButton, importStoreButton;
+    private Button copyButton, saveM3uButton, openButton, settingsButton, importConfigButton, exportConfigButton, importStoreButton;
     private Button disableAutostartButton, logoutButton;
     private TextView tvServerBadge, tvLoginHeading, tvLoginHelper, tvOtpLabel, tvAccountName, tvAccountNote;
     private TextView tvAccountRetentionNote;
@@ -228,6 +228,7 @@ public final class MainActivity extends Activity {
         copyButton = button(actions, "Copy"); copyButton.setOnClickListener(v -> copyUrl());
         saveM3uButton = button(actions, "Save M3U"); saveM3uButton.setOnClickListener(v -> createPlaylistDocument());
         openButton = button(left, "Open in IPTV app"); openButton.setOnClickListener(v -> openUrl());
+        settingsButton = button(left, "Provider settings"); settingsButton.setOnClickListener(v -> openSettings());
 
         addText(right, "Provider login", television ? 19 : 20, 0xffffffff);
         number = field(right, "Mobile number"); number.setInputType(3); otp = field(right, "OTP"); otp.setInputType(2);
@@ -388,6 +389,8 @@ public final class MainActivity extends Activity {
         saveM3uButton = tvAction("Save M3U", 353, 647, 267, 60, false); saveM3uButton.setOnClickListener(v -> createPlaylistDocument());
         openButton = tvAction("Open in IPTV app", 636, 647, 274, 60, false); openButton.setOnClickListener(v -> openUrl());
         tvPlaylistViews.add(copyButton); tvPlaylistViews.add(saveM3uButton); tvPlaylistViews.add(openButton);
+        settingsButton = tvAction("Provider settings", 70, 711, 840, 40, false);
+        settingsButton.setOnClickListener(v -> openSettings());
 
         tvConfigViews.add(tvLabel("Configuration & backup", 70, 757, 810, 39, 32, TV_TEXT, true));
         tvConfigViews.add(tvLabel("Import or export configuration files on this device", 70, 796, 840, 33, 20, TV_MUTED, false));
@@ -1418,6 +1421,17 @@ public final class MainActivity extends Activity {
             restoreTvReturnFocus();
             say("Playlist URL copied, but the selected IPTV app could not be opened.");
         }
+    }
+    private void openSettings() {
+        if (playlistUrl.isEmpty()) {
+            say("Start the local server, then open provider settings.");
+            return;
+        }
+        String url = playlistUrl.replace("playlist.m3u", "") + "#/settings";
+        rememberTvReturnFocus(settingsButton);
+        Intent intent = new Intent(this, SettingsActivity.class);
+        intent.putExtra(SettingsActivity.EXTRA_SETTINGS_URL, url);
+        startActivity(intent);
     }
     private void openUrl() {
         if (playlistUrl.isEmpty()) return;

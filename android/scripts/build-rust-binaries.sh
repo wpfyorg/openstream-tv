@@ -16,7 +16,7 @@ API="${ANDROID_API_LEVEL:-23}"
 
 build_one() {
   local target="$1" abi="$2"
-  cargo ndk --target "$target" --platform "$API" --manifest-path "$ROOT/Cargo.toml" build --release --locked --no-default-features --features slim
+  cargo ndk --target "$target" --platform "$API" --manifest-path "$ROOT/Cargo.toml" build --release --locked --features full
   mkdir -p "$ANDROID_DIR/app/src/main/jniLibs/$abi"
   install -m 755 "$ROOT/target/$target/release/ost" "$ANDROID_DIR/app/src/main/jniLibs/$abi/libopenstream_exec.so"
 }

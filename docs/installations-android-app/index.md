@@ -1,17 +1,17 @@
 ---
 title: Install the Android TV and phone app
-description: Run the slim OpenStream TV IPTV server directly on Android TV or a phone and use its local playlist in another IPTV app.
+description: Run the OpenStream TV server with its web Settings UI directly on Android TV or a phone and use its local playlist in another IPTV app.
 category: Installation
-keywords: [Android TV, Android, APK, slim, IPTV, local playlist, import config]
+keywords: [Android TV, Android, APK, IPTV, local playlist, import config, provider settings]
 ---
 
 # Android TV and phone app
 
-The Android app bundles the **slim** OpenStream TV server. It provides controls for starting and stopping the local server, a playlist URL for IPTV players on the same Android device, and options to import or export a **TOML configuration file**. It has no browser TV player; use an installed IPTV player to watch.
+The Android app bundles the OpenStream TV server with the web Settings UI. It provides controls for starting and stopping the local server, a playlist URL for IPTV players on the same Android device, on-device provider settings, and options to import or export a **TOML configuration file**. It has no browser TV player; use an installed IPTV player to watch.
 
 ## Build and install
 
-The Android app project is in `android/`. The [Android TV and mobile app GitHub Actions workflow](https://github.com/wpfyorg/openstream-tv/actions/workflows/android-app.yml) builds the Rust slim server for ARM64, ARMv7 and x86_64, bundles it into one Android debug APK, and uploads that APK as a workflow artifact. The debug APK is for sideloading and testing, not a signed store release. See `android/README.md` for build prerequisites and local build instructions.
+The Android app project is in `android/`. The [Android TV and mobile app GitHub Actions workflow](https://github.com/wpfyorg/openstream-tv/actions/workflows/android-app.yml) builds the full Rust server for ARM64, ARMv7 and x86_64, bundles it into one Android debug APK, and uploads that APK as a workflow artifact. The debug APK is for sideloading and testing, not a signed store release. See `android/README.md` for build prerequisites and local build instructions.
 
 Install the APK on an Android phone, tablet or Android TV device that permits sideloading, then open the app. Android may ask you to permit notifications when it starts its foreground server service.
 
@@ -29,7 +29,7 @@ The key in the playlist URL grants access to the stream endpoints. Treat it as p
 
 Use **Import TOML config** to select a previously saved `.toml` configuration using Android's file picker. This imports server settings; it does **not** by itself transfer an authenticated provider account, tokens or the private runtime store. Sign in with your own provider account in the app if it has not been connected. Restart the local server for new settings to take effect.
 
-Choose **JioTV** or **JioTV+** in the app's provider row to select the account that receives the OTP. The row does not switch an already connected provider catalogue, and on Android TV it is hidden after sign-in. To change the active provider after both accounts are connected, use the web Settings on a full server build; the slim Android build does not serve that UI. JioTV+ also needs its own eligible JioFiber or AirFiber login. Fastway, PlayboxTV, VZY and the Tata Play diagnostic tools are configured on a full server build as well.
+Choose **JioTV** or **JioTV+** in the app's provider row to select the account that receives the OTP. The row does not switch an already connected provider catalogue, and on Android TV it is hidden after sign-in. Use **Provider settings** to open the bundled web Settings on the device: connect Fastway, PlayboxTV, VZY or the Tata Play diagnostic tools and select the active provider with **Use …**. JioTV+ also needs its own eligible JioFiber or AirFiber login.
 
 Use **Export TOML config** to save server settings through Android’s file picker. Login credentials are kept in the separate runtime store and are not added to the configuration export.
 

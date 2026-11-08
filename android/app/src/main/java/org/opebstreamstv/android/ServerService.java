@@ -46,8 +46,11 @@ public final class ServerService extends Service {
             Map<String, String> env = pb.environment();
             env.put("OPENSTREAM_PATH_PREFIX", new File(getFilesDir(), "data").getAbsolutePath());
             env.put("HOME", getFilesDir().getAbsolutePath());
-            env.put("OPENSTREAM_FASTWAY", "false");
+            env.put("OPENSTREAM_FASTWAY", "true");
             env.put("OPENSTREAM_TVPLUS", "true");
+            env.put("OPENSTREAM_PLAYBOX", "true");
+            env.put("OPENSTREAM_VZY", "true");
+            env.put("OPENSTREAM_TATAPLAY", "true");
             // Only the companion app forces EPG on; Termux uses the same Android binary target.
             env.put("OPENSTREAM_COMPANION_APP", "1");
             env.put("OPENSTREAM_EPG", "true");

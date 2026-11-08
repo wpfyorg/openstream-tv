@@ -21,6 +21,7 @@
             </intent-filter>
         </activity>
         <service android:name=".ServerService" android:exported="false" />
+        <activity android:name=".SettingsActivity" android:exported="false" />
         <receiver android:name=".BootReceiver" android:enabled="true" android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
