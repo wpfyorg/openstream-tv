@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.view.View;
+import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -29,6 +30,9 @@ public final class SettingsActivity extends Activity {
         settings.setSupportZoom(false);
         web.setBackgroundColor(Color.rgb(12, 14, 18));
         web.setWebViewClient(new WebViewClient());
+        // Settings uses JavaScript confirm() for provider logout and key
+        // rotation; without a client those dialogs are cancelled silently.
+        web.setWebChromeClient(new WebChromeClient());
         web.setFocusable(true);
         setContentView(web);
         web.loadUrl(url);
