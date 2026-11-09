@@ -31,6 +31,10 @@ Use **Import TOML config** to select a previously saved `.toml` configuration us
 
 Choose a provider in the app's **Provider** list. Selecting it opens that provider's sign-in panel directly below: JioTV, PlayboxTV, Airtel Xstream and Tata Play use a mobile number and OTP, JioTV+ uses its own OTP plus a connection picker, Fastway uses a username and password, and VZY needs no account. Beta providers are marked **(Beta)** in the list. A connected provider becomes active when selected, and only one provider is active at a time, so the playlist, EPG and streams follow that provider. Tata Play asks which account to use when one number holds several. JioTV+ needs its own eligible JioFiber or AirFiber login.
 
+The guide follows the active provider too. For PlayboxTV and Tata Play it lists channels without programmes, because those providers return no usable programme times; Airtel Xstream and VZY publish programmes only when their guide data includes them.
+
+The provider list is at the top of the dashboard, above the playlist fields, so scroll up to reach it after changing server settings.
+
 Use **Export TOML config** to save server settings through Android’s file picker. Login credentials are kept in the separate runtime store and are not added to the configuration export.
 
 Use **Import login store backup** separately to restore a `store_v4.toml` backup. The app validates it before replacing its private login store. This backup contains credentials; keep it private. Provider support depends on the bundled server and the configuration flags enabled for it.
@@ -45,7 +49,7 @@ Boot startup no longer requires the “display over other apps” permission, AD
 
 ## TV remote navigation
 
-Use the D-pad to move between controls and OK to activate them. Select a number field with OK to open the keyboard; Back dismisses the keyboard. Import and export require a compatible Android document picker. Some operator TV boxes do not include one.
+Use the D-pad to move between controls and OK to activate them. Select a number field with OK to open the keyboard; Back dismisses the keyboard. Import and export need a file picker: Android TV on Android 12 and older opens the app's own file browser, while Android 13 and newer uses the system document picker and reports when none is installed.
 
 ## Troubleshooting
 

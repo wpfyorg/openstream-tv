@@ -36,7 +36,7 @@ Use the Fastway username and password for your subscription. This provider does 
 ost fastway login
 ```
 
-The command prompts for the username and password and saves the login in the server's data directory. It also records Fastway as the active provider for the next server start, so you do not need to select **Use Fastway** afterwards. Restart a running server after a CLI login so it picks up the new credentials. To remove the saved login:
+The command prompts for the username and password and saves the login in the server's data directory. It also records Fastway as the active provider for the next server start, so you do not need to select **Use Fastway** afterwards. Stop a running server before a CLI login and start it again afterward: a running server can save its in-memory session back over the new credentials. To remove the saved login:
 
 ```bash
 ost fastway logout
@@ -53,8 +53,8 @@ Avoid using Fastway over networks you do not trust, protect the local data direc
 ## What changes while Fastway is connected
 
 - Fastway channels replace the JioTV catalogue in **Channels**, the M3U playlist and the XMLTV guide. Local custom channels remain available.
-- Connecting Fastway makes it the active provider. To switch back, use **Use JioTV**, **Use JioTV+**, **Use PlayboxTV** or **Use VZY** on another connected card; only one provider is active at a time.
-- Disconnecting Fastway falls back to the next available provider: JioTV+, PlayboxTV, then JioTV; the anonymous VZY free tier is only used when no JioTV account is connected.
+- Connecting Fastway makes it the active provider. To switch back, use **Use JioTV**, **Use JioTV+**, **Use PlayboxTV**, **Use VZY**, **Use Airtel Xstream** or **Use Tata Play** on another connected card, or run `ost provider use <id>`; only one provider is active at a time.
+- Disconnecting Fastway falls back to the next available provider in the established order: JioTV+, PlayboxTV, Airtel Xstream, Tata Play, then JioTV; the anonymous VZY free tier is only used when no JioTV account is connected.
 - Only channels the Fastway account is subscribed to are listed. A channel can still be unavailable if the provider rejects playback or the plan does not include it.
 - Fastway playback is DASH. Protected channels use Widevine through the provider's PallyCon license service; the server proxies the license request but does not decrypt or bypass DRM. See [Protected playback troubleshooting](../troubleshooting-protected-playback/index.md).
 - IPTV clients receive Fastway channels as `/live/mpd/...` entries with `inputstream.adaptive` and `manifest_type=mpd`.
