@@ -136,6 +136,7 @@ public final class MainActivity extends Activity {
     private final java.util.List<View> tvPlaylistViews = new java.util.ArrayList<>();
     private final java.util.List<View> tvConfigViews = new java.util.ArrayList<>();
     private final java.util.Map<View,Integer> tvBaseY = new java.util.IdentityHashMap<>();
+    private final java.util.IdentityHashMap<EditText,Integer> tvEditImeOptions = new java.util.IdentityHashMap<>();
     private final java.util.Map<View,View[]> tvFocusGraph = new java.util.IdentityHashMap<>();
     private float tvScale = 1f;
     private boolean tvOtpRequested, tvLoginBusy;
@@ -1139,9 +1140,11 @@ public final class MainActivity extends Activity {
     }
     private void configureTvEditField(EditText field) {
         final int inputType = field.getInputType();
+        final int imeOptions = field.getImeOptions();
+        tvEditImeOptions.put(field, imeOptions);
         field.setShowSoftInputOnFocus(false);
         field.setCursorVisible(false);
-        field.setRawInputType(android.text.InputType.TYPE_NULL);
+        field.setInputType(android.text.InputType.TYPE_NULL);
         field.setOnFocusChangeListener((v, focused) -> {
             if (focused) scrollTvFocusIntoView(v);
             else if (activeTvEditField == field) exitTvEditMode(field);
@@ -1174,7 +1177,8 @@ public final class MainActivity extends Activity {
     }
     private void enterTvEditMode(EditText field, int inputType) {
         activeTvEditField = field;
-        field.setRawInputType(inputType);
+        field.setInputType(inputType);
+        field.setImeOptions(tvEditImeOptions.getOrDefault(field, android.view.inputmethod.EditorInfo.IME_ACTION_NONE));
         field.setCursorVisible(true);
         field.setShowSoftInputOnFocus(true);
         field.setSelection(field.length());
@@ -1185,7 +1189,7 @@ public final class MainActivity extends Activity {
         if (activeTvEditField == field) activeTvEditField = null;
         field.setShowSoftInputOnFocus(false);
         field.setCursorVisible(false);
-        field.setRawInputType(android.text.InputType.TYPE_NULL);
+        field.setInputType(android.text.InputType.TYPE_NULL);
         InputMethodManager keyboard = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
         keyboard.hideSoftInputFromWindow(field.getWindowToken(), 0);
     }
