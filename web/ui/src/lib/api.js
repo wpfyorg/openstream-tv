@@ -58,6 +58,29 @@ export function looksLikeUnlockCode(s) {
   return /^\d{1,3}[a-z]{3,9}\d{1,2}a\d{1,3}k\d{1,3}n\d{1,3}$/i.test(s.trim());
 }
 
+// Optional OTT provider logins. The server owns rate limiting and account
+// state; these helpers only name the routes used by the login components.
+export function airtelSendOtp(number) {
+  return api("/api/airtel/login/sendOTP", { method: "POST", body: { number } });
+}
+
+export function airtelVerifyOtp(number, otp) {
+  return api("/api/airtel/login/verifyOTP", { method: "POST", body: { number, otp } });
+}
+
+// Tata Play answers send-OTP with `accounts` (login references) that must be
+// chosen before the OTP can be verified.
+export function tataplaySendOtp(number) {
+  return api("/api/tataplay/login/sendOTP", { method: "POST", body: { number } });
+}
+
+export function tataplayVerifyOtp({ otp, refId, refIdMode = false }) {
+  return api("/api/tataplay/login/verifyOTP", {
+    method: "POST",
+    body: { otp, refId, refIdMode },
+  });
+}
+
 export function formatTime(ms) {
   return new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }

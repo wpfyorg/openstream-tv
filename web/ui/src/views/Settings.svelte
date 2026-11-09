@@ -6,6 +6,8 @@
   import ExtrasLogin from "../lib/ExtrasLogin.svelte";
   import FastwayLogin from "../lib/FastwayLogin.svelte";
   import PlayboxLogin from "../lib/PlayboxLogin.svelte";
+  import AirtelLogin from "../lib/AirtelLogin.svelte";
+  import TataPlayLogin from "../lib/TataPlayLogin.svelte";
   import { plainHttpOrigin } from "../lib/origin.js";
 
   let status = $state(null);
@@ -16,13 +18,7 @@
   const activeProvider = $derived(
     status?.catalogue?.activeProduct === "extras"
       ? "jiotv_plus"
-      : status?.catalogue?.activeProduct === "fastway"
-        ? "fastway"
-        : status?.catalogue?.activeProduct === "playbox"
-          ? "playbox"
-          : status?.catalogue?.activeProduct === "vzy"
-            ? "vzy"
-            : "jiotv",
+      : (status?.catalogue?.activeProduct ?? "jiotv"),
   );
 
   async function refresh() {
@@ -66,6 +62,8 @@
       fastway: "Fastway",
       playbox: "PlayboxTV",
       vzy: "VZY",
+      airtel: "Airtel Xstream",
+      tataplay: "Tata Play",
     };
     if (!confirm(`Log out of ${labels[which] ?? which}?`)) return;
     try {
@@ -225,12 +223,41 @@
       </section>
     {/if}
 
+    {#if status.airtel?.enabled}
+      <section class="card">
+        <div class="card-head">
+          <h2>Airtel Xstream <span class="pill beta">Beta</span></h2>
+          {#if activeProvider === "airtel"}<span class="pill active">Active</span>{/if}
+        </div>
+        {#if status.airtel.connected}
+          <p class="ok">Connected</p>
+          {#if activeProvider !== "airtel"}
+            <button class="btn" disabled={providerBusy !== ""} onclick={() => activate("airtel")}>Use Airtel Xstream</button>
+          {/if}
+          {#if !status.logoutDisabled}<button class="btn" onclick={() => logout("airtel")}>Disconnect</button>{/if}
+        {:else}
+          <p class="muted">Use the Airtel mobile number for your Xstream subscription.</p>
+          <AirtelLogin ondone={loginChanged} />
+        {/if}
+      </section>
+    {/if}
+
     {#if status.tataplay?.enabled}
       <section class="card">
         <div class="card-head">
           <h2>Tata Play <span class="pill beta">Beta</span></h2>
+          {#if activeProvider === "tataplay"}<span class="pill active">Active</span>{/if}
         </div>
-        <p class="muted">Diagnostic beta only. It is not added to the channel list, playlist, or playback yet.</p>
+        {#if status.tataplay.connected}
+          <p class="ok">Connected</p>
+          {#if activeProvider !== "tataplay"}
+            <button class="btn" disabled={providerBusy !== ""} onclick={() => activate("tataplay")}>Use Tata Play</button>
+          {/if}
+          {#if !status.logoutDisabled}<button class="btn" onclick={() => logout("tataplay")}>Disconnect</button>{/if}
+        {:else}
+          <p class="muted">Use the Tata Play mobile number for your subscription.</p>
+          <TataPlayLogin ondone={loginChanged} />
+        {/if}
       </section>
     {/if}
 
