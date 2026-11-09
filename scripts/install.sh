@@ -703,7 +703,7 @@ ob_write_shell_env() {
     {
       printf 'export OPENSTREAM_TVPLUS=%s\n' "$(ob_shell_quote "$ob_tvplus_enabled")"
       printf 'export OPENSTREAM_FASTWAY=%s\n' "$(ob_shell_quote "$ob_fastway_enabled")"
-      [ "$epg" != true ] || printf 'export OPENSTREAM_EPG=%s\n' "$(ob_shell_quote true)"
+      [ -z "$epg" ] || printf 'export OPENSTREAM_EPG=%s\n' "$(ob_shell_quote "$epg")"
       [ -z "$tunnel_token" ] || printf 'export OPENSTREAM_TUNNEL_TOKEN=%s\n' "$(ob_shell_quote "$tunnel_token")"
     } >"$ob_env_file"
   )
@@ -716,7 +716,7 @@ ob_install_service() {
   OPENSTREAM_TVPLUS=$( [ "$provider" = extras ] && echo true || echo false )
   OPENSTREAM_FASTWAY=$( [ "$provider" = fastway ] && echo true || echo false )
   export OPENSTREAM_TVPLUS OPENSTREAM_FASTWAY
-  if [ "$epg" = true ]; then export OPENSTREAM_EPG=true; fi
+  [ -z "$epg" ] || export OPENSTREAM_EPG="$epg"
   if [ -n "$tunnel_token" ]; then export OPENSTREAM_TUNNEL_TOKEN="$tunnel_token"; fi
   ob_write_shell_env
   [ "$start_service" = 1 ] || return 0
@@ -731,14 +731,50 @@ ob_install_service() {
   fi
 }
 
+# The store the binary reads. Mirrors src/main.rs default_path_prefix so the
+# installer can tell whether an earlier enable left a stored override.
+ob_epg_store_file() {
+  ob_store_prefix=${OPENSTREAM_PATH_PREFIX:-${JIOTV_PATH_PREFIX:-}}
+  if [ -z "$ob_store_prefix" ]; then
+    if [ "$openwrt" = true ]; then
+      if [ -d /etc/openstream ] || [ ! -d /etc/jiotv ]; then ob_store_prefix=/etc/openstream
+      else ob_store_prefix=/etc/jiotv
+      fi
+    else
+      ob_store_home=${HOME:-$install_dir}
+      if [ -d "$ob_store_home/.openstream-tv" ] || [ ! -d "$ob_store_home/.jiotv_go" ]; then
+        ob_store_prefix=$ob_store_home/.openstream-tv
+      else
+        ob_store_prefix=$ob_store_home/.jiotv_go
+      fi
+    fi
+  fi
+  printf '%s/store_v4.toml\n' "${ob_store_prefix%/}"
+}
+
+ob_epg_override_on() {
+  ob_store_file=$(ob_epg_store_file)
+  [ -f "$ob_store_file" ] &&
+    grep -Eq '^[[:space:]]*epg_enabled[[:space:]]*=[[:space:]]*"true"' "$ob_store_file"
+}
+
 # Stores the persistent "turn it on" answer so every start mode, including a
-# service installed by an older installer, picks the guide up.
+# service installed by an older installer, picks the guide up. A "no" only
+# clears an override an earlier "yes" stored: pinning "no" on a fresh install
+# would hide later config changes.
 ob_apply_epg() {
-  [ "$epg" = true ] || return 0
-  if "$1" epg on >"$tmp/epg.log" 2>&1; then
-    ui_ok "Programme guide enabled"
-  else
-    ui_warn "Could not enable the programme guide; run: ost epg on"
+  if [ "$epg" = true ]; then
+    if "$1" epg on >"$tmp/epg.log" 2>&1; then
+      ui_ok "Programme guide enabled"
+    else
+      ui_warn "Could not enable the programme guide; run: ost epg on"
+    fi
+  elif [ "$epg" = false ] && ob_epg_override_on; then
+    if "$1" epg off >"$tmp/epg.log" 2>&1; then
+      ui_ok "Programme guide disabled"
+    else
+      ui_warn "Could not disable the programme guide; run: ost epg off"
+    fi
   fi
 }
 

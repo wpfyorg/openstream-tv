@@ -44,6 +44,24 @@ $TunnelToken = Get-OpenStreamEnv 'OPENSTREAM_TUNNEL_TOKEN' 'JIOTV_TUNNEL_TOKEN'
 $Epg = Get-OpenStreamEnv 'OPENSTREAM_EPG' 'JIOTV_EPG'
 if ($Epg -notin @('', 'true', 'false')) { throw 'OPENSTREAM_EPG must be true or false' }
 
+# The store the binary reads. A "no" only clears an override an earlier "yes"
+# stored: pinning "no" on a fresh install would hide later config changes.
+function Get-OpenStreamDataDir {
+    $prefix = Get-OpenStreamEnv 'OPENSTREAM_PATH_PREFIX' 'JIOTV_PATH_PREFIX'
+    if ($prefix) { return $prefix }
+    $home = Get-OpenStreamEnv 'HOME' 'USERPROFILE'
+    $current = Join-Path $home '.openstream-tv'
+    $legacy = Join-Path $home '.jiotv_go'
+    if ((Test-Path -LiteralPath $current) -or -not (Test-Path -LiteralPath $legacy)) { return $current }
+    return $legacy
+}
+
+function Test-EpgOverrideEnabled {
+    $store = Join-Path (Get-OpenStreamDataDir) 'store_v4.toml'
+    if (-not (Test-Path -LiteralPath $store)) { return $false }
+    return [bool](Select-String -LiteralPath $store -Pattern '^\s*epg_enabled\s*=\s*"true"' -Quiet)
+}
+
 # Same rule as the shell installer: only a real console drives the flow, so
 # redirected runs (CI, scheduled tasks) keep the old non-interactive output.
 # The output is deliberately ASCII: Windows PowerShell 5.1 reads a BOM-less
@@ -539,6 +557,14 @@ try {
             & $ost epg on | Out-Null
             if ($LASTEXITCODE -eq 0) { Write-Ok 'Programme guide enabled' }
             else { Write-Warn2 'Could not enable the programme guide; run: ost epg on' }
+        }
+        elseif ($Epg -eq 'false') {
+            Set-UserEnvironment 'OPENSTREAM_EPG' 'false'
+            if (Test-EpgOverrideEnabled) {
+                & $ost epg off | Out-Null
+                if ($LASTEXITCODE -eq 0) { Write-Ok 'Programme guide disabled' }
+                else { Write-Warn2 'Could not disable the programme guide; run: ost epg off' }
+            }
         }
 
         Write-Host ''

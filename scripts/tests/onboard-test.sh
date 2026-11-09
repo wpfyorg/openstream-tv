@@ -130,11 +130,13 @@ start_flow() {
   # The installer needs a terminal, so it runs under `script`. macOS ships BSD
   # script, which rejects a FIFO on stdin but accepts a pipe, so `cat` turns the
   # FIFO into one. util-linux script takes the command with -c instead.
+  # The guide question only appears when no EPG setting is inherited, so every
+  # flow starts from an unset OPENSTREAM_EPG and JIOTV_EPG.
   if script --version 2>/dev/null | grep -qi 'util-linux'; then
-    OPENSTREAM_INSTALL_DIR="$flow_dir" HOME="$flow_dir/home" XDG_CONFIG_HOME="$flow_dir/home/.config" OPENSTREAM_TUNNEL="${OPENSTREAM_TEST_TUNNEL:-}" OPENSTREAM_TUNNEL_TOKEN="${OPENSTREAM_TEST_TUNNEL_TOKEN:-}" PATH="$tmp/bin:$PATH" \
+    OPENSTREAM_INSTALL_DIR="$flow_dir" HOME="$flow_dir/home" XDG_CONFIG_HOME="$flow_dir/home/.config" OPENSTREAM_EPG='' JIOTV_EPG='' OPENSTREAM_TUNNEL="${OPENSTREAM_TEST_TUNNEL:-}" OPENSTREAM_TUNNEL_TOKEN="${OPENSTREAM_TEST_TUNNEL_TOKEN:-}" PATH="$tmp/bin:$PATH" \
       sh -c 'cat "$1" | script -q -c "sh $2" /dev/null >"$3" 2>&1' _ "$tmp/in" "$root/scripts/install.sh" "$flow_out" &
   else
-    OPENSTREAM_INSTALL_DIR="$flow_dir" HOME="$flow_dir/home" XDG_CONFIG_HOME="$flow_dir/home/.config" OPENSTREAM_TUNNEL="${OPENSTREAM_TEST_TUNNEL:-}" OPENSTREAM_TUNNEL_TOKEN="${OPENSTREAM_TEST_TUNNEL_TOKEN:-}" PATH="$tmp/bin:$PATH" \
+    OPENSTREAM_INSTALL_DIR="$flow_dir" HOME="$flow_dir/home" XDG_CONFIG_HOME="$flow_dir/home/.config" OPENSTREAM_EPG='' JIOTV_EPG='' OPENSTREAM_TUNNEL="${OPENSTREAM_TEST_TUNNEL:-}" OPENSTREAM_TUNNEL_TOKEN="${OPENSTREAM_TEST_TUNNEL_TOKEN:-}" PATH="$tmp/bin:$PATH" \
       sh -c 'cat "$1" | script -q /dev/null sh "$2" >"$3" 2>&1' _ "$tmp/in" "$root/scripts/install.sh" "$flow_out" &
   fi
   flow_pid=$!
@@ -164,16 +166,36 @@ grep -F "Signed in to JioTV" "$tmp/out" >/dev/null
 grep -F "http://192.168.1.9:5001/k/secret-key/playlist.m3u" "$tmp/out" >/dev/null
 grep -F "guide     off" "$tmp/out" >/dev/null
 if grep -F "epg" "$OPENSTREAM_TEST_STUB_LOG" >/dev/null; then
-  echo "declining the programme guide still changed the EPG setting" >&2
+  echo "declining the programme guide on a fresh install changed the EPG setting" >&2
   exit 1
 fi
-if grep -F "OPENSTREAM_EPG" "$tmp/install/home/.config/openstream/installer.env" >/dev/null; then
-  echo "declining the programme guide still wrote OPENSTREAM_EPG" >&2
-  exit 1
-fi
+grep -F "export OPENSTREAM_EPG='false'" "$tmp/install/home/.config/openstream/installer.env" >/dev/null
 test -x "$tmp/install/ost"
 if [ "${OPENSTREAM_TEST_SHOW:-0}" = 1 ]; then sed 's/\r$//' "$tmp/out"; fi
 echo "onboarding default flow OK"
+
+# ---- declining clears an override an earlier enable stored ---------------
+mkdir -p "$tmp/install-epg/home/.openstream-tv"
+printf '[data]\nepg_enabled = "true"\n' >"$tmp/install-epg/home/.openstream-tv/store_v4.toml"
+: >"$OPENSTREAM_TEST_STUB_LOG"
+start_flow "$tmp/install-epg" "$tmp/out-epg"
+wait_for "Which build?" "$tmp/out-epg"; enter
+wait_for "Which account are you setting up?" "$tmp/out-epg"; enter
+wait_for "This machine's address" "$tmp/out-epg"; send '192.168.1.9'; enter
+wait_for "Open OpenStream TV beyond your LAN?" "$tmp/out-epg"; enter
+wait_for "Turn on the programme guide (EPG)?" "$tmp/out-epg"; enter
+wait_for "Mobile number registered with JioTV" "$tmp/out-epg"; send '9999999999'; enter
+wait_for "Enter the OTP" "$tmp/out-epg"; send '123456'; enter
+wait_for "Choose an admin password" "$tmp/out-epg"; send 'secret'; enter
+wait_for "Installation complete" "$tmp/out-epg"
+finish_flow
+
+grep -F "Programme guide disabled" "$tmp/out-epg" >/dev/null
+grep -F "epg off" "$OPENSTREAM_TEST_STUB_LOG" >/dev/null
+grep -F "guide     off" "$tmp/out-epg" >/dev/null
+grep -F "export OPENSTREAM_EPG='false'" "$tmp/install-epg/home/.config/openstream/installer.env" >/dev/null
+if [ "${OPENSTREAM_TEST_SHOW:-0}" = 1 ]; then sed 's/\r$//' "$tmp/out-epg"; fi
+echo "onboarding clears an earlier stored programme guide override OK"
 
 # ---- arrow keys: slim build, JioTV+ with a connection picker, EPG on ------
 : >"$OPENSTREAM_TEST_STUB_LOG"
