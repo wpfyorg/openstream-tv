@@ -35,7 +35,7 @@ $Onboard = Get-OpenStreamEnv 'OPENSTREAM_ONBOARD' 'JIOTV_ONBOARD' 'auto'
 if ($Onboard -notin @('auto', 'always', 'never')) { throw 'OPENSTREAM_ONBOARD must be auto, always or never' }
 $Provider = Get-OpenStreamEnv 'OPENSTREAM_PROVIDER' 'JIOTV_PROVIDER'
 if ($Provider -in @('tv+', 'tvplus')) { $Provider = 'extras' }
-if ($Provider -notin @('', 'jiotv', 'extras', 'fastway', 'airtel')) { throw 'OPENSTREAM_PROVIDER must be jiotv, tv+, fastway or airtel' }
+if ($Provider -notin @('', 'jiotv', 'extras', 'fastway', 'playbox', 'vzy', 'airtel', 'tataplay')) { throw 'OPENSTREAM_PROVIDER must be jiotv, tv+, fastway, playbox, vzy, airtel or tataplay' }
 $PublicHost = Get-OpenStreamEnv 'OPENSTREAM_PUBLIC_HOST' 'JIOTV_PUBLIC_HOST'
 $Tunnel = Get-OpenStreamEnv 'OPENSTREAM_TUNNEL' 'JIOTV_TUNNEL'
 if ($Tunnel -notin @('', 'none', 'temp', 'named')) { throw 'OPENSTREAM_TUNNEL must be none, temp, or named' }
@@ -356,6 +356,70 @@ function Connect-Airtel {
     return $false
 }
 
+function Connect-Playbox {
+    param([string]$Exe)
+    Write-Step 'Sign in to PlayboxTV'
+    $number = Read-Text 'PlayboxTV mobile number (+91)'
+    $digits = $number -replace '[^0-9]', ''
+    if ($digits -match '^91([6-9][0-9]{9})$') { $number = $Matches[1] }
+    elseif ($digits -match '^[6-9][0-9]{9}$') { $number = $digits }
+    else { Write-Fail 'Enter a 10-digit Indian mobile number'; return $false }
+    $dialog = New-Dialog $Exe 'playbox login'
+    Send-Dialog $dialog $number
+    if (Wait-Dialog $dialog 'OTP:') {
+        Write-Ok "OTP sent to +91$number"
+        Send-Dialog $dialog (Read-Secret 'Enter the OTP')
+    }
+    if ((Complete-Dialog $dialog) -and ($dialog.Text.ToString() -match 'PlayboxTV login saved')) {
+        Write-Ok 'Signed in to PlayboxTV'
+        return $true
+    }
+    Show-Dialog $dialog
+    Write-Fail 'PlayboxTV sign-in did not complete'
+    return $false
+}
+
+function Connect-Tataplay {
+    param([string]$Exe)
+    Write-Step 'Sign in to Tata Play'
+    $number = Read-Text 'Tata Play mobile number (+91)'
+    $digits = $number -replace '[^0-9]', ''
+    if ($digits -match '^91([6-9][0-9]{9})$') { $number = $Matches[1] }
+    elseif ($digits -match '^[6-9][0-9]{9}$') { $number = $digits }
+    else { Write-Fail 'Enter a 10-digit Indian mobile number'; return $false }
+    $dialog = New-Dialog $Exe 'tataplay login'
+    Send-Dialog $dialog $number
+    # One number can hold several Tata Play accounts, so the login asks which
+    # one to use before it asks for the code.
+    if (Wait-Dialog $dialog 'Sign in to which account|Tata Play OTP:') {
+        if ($dialog.Text.ToString() -match 'Sign in to which account') {
+            $found = [regex]::Matches($dialog.Text.ToString(), '(?m)^\s{2}([0-9]+)\)\s+(.+?)\s*$')
+            if ($found.Count -gt 0) {
+                $choices = @()
+                foreach ($match in $found) { $choices += @{ Value = $match.Groups[1].Value; Label = $match.Groups[2].Value } }
+                Send-Dialog $dialog ([string](Select-Option 'Choose the account' $choices))
+            }
+            $null = Wait-Dialog $dialog 'Tata Play OTP:'
+        }
+        Write-Ok "OTP sent to +91$number"
+        Send-Dialog $dialog (Read-Secret 'Enter the OTP')
+    }
+    if ((Complete-Dialog $dialog) -and ($dialog.Text.ToString() -match 'Tata Play login saved')) {
+        Write-Ok 'Signed in to Tata Play'
+        return $true
+    }
+    Show-Dialog $dialog
+    Write-Fail 'Tata Play sign-in did not complete'
+    return $false
+}
+
+# VZY signs in anonymously, so choosing it is all the setup it needs.
+function Connect-Vzy {
+    Write-Step 'Using VZY'
+    Write-Ok 'VZY needs no account; its free tier starts with the server'
+    return $true
+}
+
 function Connect-Fastway {
     param([string]$Exe)
     Write-Step 'Sign in to Fastway'
@@ -384,7 +448,10 @@ function Connect-Provider {
         try {
             if ($Provider -eq 'extras') { $ok = Connect-Extras $Exe }
             elseif ($Provider -eq 'fastway') { $ok = Connect-Fastway $Exe }
+            elseif ($Provider -eq 'playbox') { $ok = Connect-Playbox $Exe }
+            elseif ($Provider -eq 'vzy') { $ok = Connect-Vzy }
             elseif ($Provider -eq 'airtel') { $ok = Connect-Airtel $Exe }
+            elseif ($Provider -eq 'tataplay') { $ok = Connect-Tataplay $Exe }
             else { $ok = Connect-JioTv $Exe }
         }
         catch {
@@ -511,7 +578,10 @@ try {
         $providers = @(@{ Value = 'jiotv'; Label = 'JioTV       live channels and programme guide - mobile-number OTP' })
         if ($TvPlusCmd) { $providers += @{ Value = 'extras'; Label = 'JioTV+      extra channels, movies and shows - eligible JioFiber/AirFiber login' } }
         if ($help -match 'fastway login') { $providers += @{ Value = 'fastway'; Label = 'Fastway     live TV - Fastway-accepted credentials' } }
-        if ($help -match 'airtel login') { $providers += @{ Value = 'airtel'; Label = 'Airtel      Airtel Xstream live TV - mobile-number OTP' } }
+        if ($help -match 'playbox login') { $providers += @{ Value = 'playbox'; Label = 'PlayboxTV   live TV (beta) - mobile-number OTP' } }
+        if ($help -match 'vzy') { $providers += @{ Value = 'vzy'; Label = 'VZY         free-tier live TV (beta) - no account needed' } }
+        if ($help -match 'airtel login') { $providers += @{ Value = 'airtel'; Label = 'Airtel      Airtel Xstream live TV (beta) - mobile-number OTP' } }
+        if ($help -match 'tataplay login') { $providers += @{ Value = 'tataplay'; Label = 'Tata Play   live TV (beta) - mobile-number OTP' } }
 
         if (-not ($providers.Value -contains $Provider)) { $Provider = '' }
         if (-not $Provider) {
@@ -521,8 +591,11 @@ try {
                 Write-Step "Using $only (the only provider this build supports)"
             }
             else {
-                Write-Host '  JioTV and Airtel sign in with a mobile-number OTP. JioTV+ needs an eligible' -ForegroundColor DarkGray
-                Write-Host '  JioFiber or AirFiber login. Fastway needs credentials its provider accepts.' -ForegroundColor DarkGray
+                Write-Host '  Only one provider is active at a time, and only its channels appear in the' -ForegroundColor DarkGray
+                Write-Host '  playlist, programme guide and player. Signing in selects that provider.' -ForegroundColor DarkGray
+                Write-Host '  JioTV, PlayboxTV, Airtel Xstream and Tata Play sign in with a mobile-number' -ForegroundColor DarkGray
+                Write-Host '  OTP. JioTV+ needs an eligible JioFiber or AirFiber login. Fastway needs' -ForegroundColor DarkGray
+                Write-Host '  credentials its provider accepts. VZY needs no account.' -ForegroundColor DarkGray
                 Write-Host '  ACT eligibility, where offered, depends on the provider.' -ForegroundColor DarkGray
                 $Provider = Select-Option 'Which account are you setting up?' $providers
             }
@@ -566,22 +639,23 @@ try {
 
         $tvPlusEnabled = if ($Provider -eq 'extras') { 'true' } else { 'false' }
         $fastwayEnabled = if ($Provider -eq 'fastway') { 'true' } else { 'false' }
+        $playboxEnabled = if ($Provider -eq 'playbox') { 'true' } else { 'false' }
+        $vzyEnabled = if ($Provider -eq 'vzy') { 'true' } else { 'false' }
         $airtelEnabled = if ($Provider -eq 'airtel') { 'true' } else { 'false' }
+        $tataplayEnabled = if ($Provider -eq 'tataplay') { 'true' } else { 'false' }
         Set-UserEnvironment 'OPENSTREAM_TVPLUS' $tvPlusEnabled
         Set-UserEnvironment 'OPENSTREAM_FASTWAY' $fastwayEnabled
+        Set-UserEnvironment 'OPENSTREAM_PLAYBOX' $playboxEnabled
+        Set-UserEnvironment 'OPENSTREAM_VZY' $vzyEnabled
         Set-UserEnvironment 'OPENSTREAM_AIRTEL' $airtelEnabled
+        Set-UserEnvironment 'OPENSTREAM_TATAPLAY' $tataplayEnabled
         if ($Tunnel -eq 'named' -and $TunnelToken) {
             Set-UserEnvironment 'OPENSTREAM_TUNNEL_TOKEN' $TunnelToken
         }
         else {
             Set-UserEnvironment 'OPENSTREAM_TUNNEL_TOKEN' $null
         }
-        $providerEnv = switch ($Provider) {
-            'extras'  { "`$env:OPENSTREAM_TVPLUS = 'true'; `$env:OPENSTREAM_FASTWAY = 'false'; `$env:OPENSTREAM_AIRTEL = 'false'; " }
-            'fastway' { "`$env:OPENSTREAM_TVPLUS = 'false'; `$env:OPENSTREAM_FASTWAY = 'true'; `$env:OPENSTREAM_AIRTEL = 'false'; " }
-            'airtel'  { "`$env:OPENSTREAM_TVPLUS = 'false'; `$env:OPENSTREAM_FASTWAY = 'false'; `$env:OPENSTREAM_AIRTEL = 'true'; " }
-            default   { "`$env:OPENSTREAM_TVPLUS = 'false'; `$env:OPENSTREAM_FASTWAY = 'false'; `$env:OPENSTREAM_AIRTEL = 'false'; " }
-        }
+        $providerEnv = "`$env:OPENSTREAM_TVPLUS = '$tvPlusEnabled'; `$env:OPENSTREAM_FASTWAY = '$fastwayEnabled'; `$env:OPENSTREAM_PLAYBOX = '$playboxEnabled'; `$env:OPENSTREAM_VZY = '$vzyEnabled'; `$env:OPENSTREAM_AIRTEL = '$airtelEnabled'; `$env:OPENSTREAM_TATAPLAY = '$tataplayEnabled'; "
         $serveLine = "$providerEnv$serveLine"
 
         # Sign-in happens inside the wizard: the commands read plain stdin
@@ -590,7 +664,9 @@ try {
         $loginCmd = switch ($Provider) {
             'extras' { $TvPlusCmd }
             'fastway' { 'fastway login' }
+            'playbox' { 'playbox login' }
             'airtel' { 'airtel login' }
+            'tataplay' { 'tataplay login' }
             default { 'login otp' }
         }
         if ($signedIn) { Write-Ok 'Signed in' }
@@ -627,7 +703,14 @@ try {
         Write-Host '  Installation complete' -ForegroundColor Green
         Write-Rule
         Write-Host "  build     $Variant $target" -ForegroundColor DarkGray
-        Write-Host "  account   $(if ($Provider -eq 'extras') { 'JioTV+' } elseif ($Provider -eq 'airtel') { 'Airtel Xstream' } else { $Provider })"
+        Write-Host "  account   $(switch ($Provider) {
+            'extras' { 'JioTV+' }
+            'playbox' { 'PlayboxTV (beta)' }
+            'vzy' { 'VZY free tier (beta)' }
+            'airtel' { 'Airtel Xstream (beta)' }
+            'tataplay' { 'Tata Play (beta)' }
+            default { $Provider }
+        })"
         if (-not $signedIn) { Write-Warn2 "  Not signed in yet: run 'ost $loginCmd'" }
         if ($Variant -eq 'full') {
             if ($NoTls) { Write-Host "  browser   http://${PublicHost}:5001/" }
