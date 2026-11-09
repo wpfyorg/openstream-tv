@@ -33,6 +33,7 @@ const DEFAULT_HEARTBEAT_SECS: u64 = 30;
 struct Heartbeat {
     document: String,
     session_id: String,
+    client: Arc<Client>,
     task: tokio::task::JoinHandle<()>,
 }
 
@@ -335,11 +336,10 @@ impl TataplayState {
         if let Some(previous) = slot.take() {
             previous.task.abort();
             // Aborting the task only stops the beat. Close the replaced session
-            // explicitly so the upstream concurrency slot is not held until it
-            // times out.
-            let previous_client = client.clone();
+            // explicitly with the client that owns it so the upstream
+            // concurrency slot is not held until it times out.
             tokio::spawn(async move {
-                if let Err(error) = previous_client.end_session(&previous.session_id).await {
+                if let Err(error) = previous.client.end_session(&previous.session_id).await {
                     tracing::debug!(%error, "tataplay replaced session end failed");
                 }
             });
@@ -373,6 +373,7 @@ impl TataplayState {
         *slot = Some(Heartbeat {
             document: document.to_string(),
             session_id,
+            client: client.clone(),
             task,
         });
     }
@@ -383,14 +384,13 @@ impl TataplayState {
             return;
         };
         running.task.abort();
-        let Some(client) = self.client() else {
-            return;
-        };
         if tokio::runtime::Handle::try_current().is_err() {
             return;
         }
+        // Use the client that owns the session: logout clears the active client
+        // and verify_otp replaces it before this cleanup runs.
         tokio::spawn(async move {
-            if let Err(error) = client.end_session(&running.session_id).await {
+            if let Err(error) = running.client.end_session(&running.session_id).await {
                 tracing::debug!(%error, "tataplay session end failed");
             }
         });
@@ -732,6 +732,47 @@ mod tests {
         );
         state.invalidate_playback("tp_1918").await;
         wait_for(&server, "DELETE", "/smgs/api/v1/session").await;
+    }
+
+    #[tokio::test]
+    async fn stopping_after_a_client_change_ends_the_original_session() {
+        let original = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/smgs/api/v1/session"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"code": 0})))
+            .mount(&original)
+            .await;
+        Mock::given(method("DELETE"))
+            .and(path("/smgs/api/v1/session"))
+            .and(header("x-session-id", "sess-original"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"code": 0})))
+            .expect(1)
+            .mount(&original)
+            .await;
+        let replacement = MockServer::start().await;
+
+        let state = TataplayState::new(true);
+        let original_client = client_for(&original);
+        state.set_client_for_test(original_client.clone());
+        let resolved = ResolvedPlayback {
+            session_id: "sess-original".into(),
+            heartbeat_interval: Some(3600),
+            ..ResolvedPlayback::default()
+        };
+        state.start_heartbeat(&original_client, "tp_1", &resolved);
+        wait_for(&original, "POST", "/smgs/api/v1/session").await;
+
+        // Logout and verify_otp replace the active client before clear() stops
+        // the heartbeat; cleanup must still reach the original session.
+        state.set_client_for_test(client_for(&replacement));
+        state.clear();
+
+        wait_for(&original, "DELETE", "/smgs/api/v1/session").await;
+        assert!(
+            replacement.received_requests().await.unwrap().is_empty(),
+            "cleanup must not use the replacement client"
+        );
+        original.verify().await;
     }
 
     #[tokio::test]
