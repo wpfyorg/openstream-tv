@@ -25,6 +25,7 @@ mod state;
 mod store;
 mod stream;
 mod tataplay;
+mod tataplay_state;
 mod television;
 mod tls;
 mod token_refresh;
@@ -832,6 +833,8 @@ fn build_app_state(
     vzy_state.init(&http, &store);
     let airtel_state = Arc::new(airtel_state::AirtelState::new(cfg.airtel));
     airtel_state.init(&http, &store);
+    let tataplay_state = Arc::new(tataplay_state::TataplayState::new(cfg.tataplay));
+    tataplay_state.init(&http, &store);
 
     Ok(Arc::new(state::AppState {
         config: cfg.clone(),
@@ -849,6 +852,7 @@ fn build_app_state(
         extras: extras_state,
         fastway: fastway_state,
         playbox: playbox_state,
+        tataplay: tataplay_state,
         vzy: vzy_state,
         airtel: airtel_state,
         vod_state: Default::default(),
