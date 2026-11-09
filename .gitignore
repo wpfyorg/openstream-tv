@@ -54,3 +54,6 @@ extra.md
 # Local design work (never commit)
 /design/tv-app-ui.pen
 /design/tv-app-ui-export/
+
+# Local session handoff notes (never commit)
+/HANDOFF.md
