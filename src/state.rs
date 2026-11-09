@@ -8,6 +8,7 @@ use crate::playbox_state::PlayboxState;
 use crate::secureurl::SecureUrl;
 use crate::store::Store;
 use crate::stream::RenderCaches;
+use crate::tataplay_state::TataplayState;
 use crate::television::Television;
 use crate::vzy_state::VzyState;
 use std::sync::Arc;
@@ -19,6 +20,7 @@ pub enum ActiveProduct {
     Fastway,
     Playbox,
     Vzy,
+    TataPlay,
 }
 
 impl ActiveProduct {
@@ -29,6 +31,7 @@ impl ActiveProduct {
             ActiveProduct::Fastway => "fastway",
             ActiveProduct::Playbox => "playbox",
             ActiveProduct::Vzy => "vzy",
+            ActiveProduct::TataPlay => "tataplay",
         }
     }
 }
@@ -57,6 +60,7 @@ pub struct AppState {
     pub fastway: Arc<FastwayState>,
     pub playbox: Arc<PlayboxState>,
     pub vzy: Arc<VzyState>,
+    pub tataplay: Arc<TataplayState>,
     pub vod_state: crate::vod::VodState,
     /// The server's cached public IPv4, used to compute today's extras
     /// unlock code. See `unlock.rs`.
@@ -120,6 +124,7 @@ impl AppState {
         // next context: drop provider caches at the same boundary.
         self.playbox.clear();
         self.vzy.clear();
+        self.tataplay.clear();
     }
 
     /// Product selection follows the authenticated session that can actually
@@ -135,6 +140,8 @@ impl AppState {
             ActiveProduct::Playbox
         } else if self.vzy.connected() {
             ActiveProduct::Vzy
+        } else if self.tataplay.connected() {
+            ActiveProduct::TataPlay
         } else {
             ActiveProduct::Tv
         }
@@ -171,6 +178,14 @@ impl AppState {
                 }
                 Ok(channels)
             }
+            ActiveProduct::TataPlay => {
+                let loaded = self.tataplay.ensure_catalogue().await;
+                let channels = self.tataplay.channels();
+                if !loaded && channels.is_empty() {
+                    anyhow::bail!("tataplay catalogue is unavailable");
+                }
+                Ok(channels)
+            }
             ActiveProduct::Tv => Ok(self.tv.channels().await?.result),
         }
     }
@@ -204,6 +219,10 @@ impl AppState {
                 self.vzy.ensure_catalogue(&self.store).await;
                 self.vzy.contains(id)
             }
+            ActiveProduct::TataPlay => {
+                self.tataplay.ensure_catalogue().await;
+                self.tataplay.contains(id)
+            }
             ActiveProduct::Tv => self
                 .tv
                 .channels()
@@ -229,6 +248,11 @@ impl AppState {
         }
         if crate::playbox::is_playbox_channel(id) {
             return self.playbox.is_drm(id);
+        }
+        if crate::tataplay::is_tataplay_channel(id) {
+            // Every Tata Play live channel is Widevine DASH, independent of
+            // whether its playback has been resolved yet.
+            return true;
         }
         match self
             .extras
@@ -260,6 +284,9 @@ impl AppState {
         if crate::playbox::is_playbox_channel(id) {
             return self.playbox.is_dash(id);
         }
+        if crate::tataplay::is_tataplay_channel(id) {
+            return true;
+        }
         false
     }
 
@@ -283,6 +310,7 @@ impl AppState {
             ActiveProduct::Extras => self.extras.connected(),
             ActiveProduct::Playbox => self.playbox.connected(),
             ActiveProduct::Vzy => self.vzy.connected(),
+            ActiveProduct::TataPlay => self.tataplay.connected(),
             ActiveProduct::Tv => self.tv.logged_in(),
         }
     }
@@ -313,6 +341,7 @@ mod tests {
             extras: Arc::new(ExtrasState::new(false, None)),
             fastway: Arc::new(FastwayState::new(false)),
             playbox: Arc::new(PlayboxState::new(false)),
+            tataplay: Arc::new(TataplayState::new(false)),
             vzy: Arc::new(VzyState::new(false)),
             vod_state: Default::default(),
             public_ip: Arc::new(crate::unlock::PublicIp::new(reqwest::Client::new())),
@@ -343,6 +372,7 @@ mod tests {
             extras,
             fastway: Arc::new(FastwayState::new(false)),
             playbox,
+            tataplay: Arc::new(TataplayState::new(false)),
             vzy: Arc::new(VzyState::new(false)),
             vod_state: Default::default(),
             public_ip: Arc::new(crate::unlock::PublicIp::new(reqwest::Client::new())),
@@ -460,6 +490,43 @@ mod tests {
         let server = wiremock::MockServer::start().await;
         let s = state_with_providers(empty_store(), extras, playbox_state_with_mock(&server));
         assert_eq!(s.active_product(), ActiveProduct::Extras);
+    }
+
+    #[tokio::test]
+    async fn tataplay_channels_are_dash_and_playable_without_resolving_playback() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/homescreen/pub/api/v1/lit/hierarchy/LIT_LIVETV"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": [{"railId": 1, "contentList": [
+                    {"id": 1918, "channelName": "Star Plus"}
+                ]}]
+            })))
+            .mount(&server)
+            .await;
+        let s = state();
+        s.tataplay
+            .set_client_for_test(Arc::new(crate::tataplay::Client::for_test(
+                &server.uri(),
+                crate::tataplay::Credentials {
+                    access_token: "token".into(),
+                    refresh_token: "refresh".into(),
+                    subscriber_id: "sub-1".into(),
+                    sid: "sid-1".into(),
+                },
+            )));
+        assert_eq!(s.active_product(), ActiveProduct::TataPlay);
+
+        let channels = s.effective_channels().await.unwrap();
+        assert_eq!(channels.len(), 1);
+        let id = &channels[0].id;
+        assert!(s.is_playable(id));
+        assert!(s.is_drm_channel(id));
+        assert!(s.is_dash_channel(id));
+        assert!(s.tataplay.playlist_ready(id));
     }
 
     #[test]

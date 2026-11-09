@@ -479,6 +479,19 @@ async fn drm_license_impl(
         return send_license_request(req, body).await;
     }
 
+    // Tata Play's license request carries the subscriber token and device
+    // identity that authorised the playback session.
+    if crate::tataplay::is_tataplay_channel(&channel_id) {
+        let mut req = state
+            .http
+            .request(method, &decoded_url)
+            .header(header::CONTENT_TYPE, "application/octet-stream");
+        for (k, v) in state.tataplay.license_headers(&channel_id).await {
+            req = req.header(k.as_str(), v.as_str());
+        }
+        return send_license_request(req, body).await;
+    }
+
     // A extras channel's license is authorised by the token already in the
     // license URL; send the headers the extras app sends and skip the
     // cookie-harvesting dance below entirely, mirroring `DRMKeyHandler`'s
@@ -1060,6 +1073,7 @@ mod tests {
             extras: Arc::new(crate::extras_state::ExtrasState::new(false, None)),
             fastway,
             playbox: Arc::new(crate::playbox_state::PlayboxState::new(false)),
+            tataplay: Arc::new(crate::tataplay_state::TataplayState::new(false)),
             vzy: Arc::new(crate::vzy_state::VzyState::new(false)),
             vod_state: Default::default(),
             public_ip: Arc::new(crate::unlock::PublicIp::new(http)),
@@ -1076,9 +1090,7 @@ mod tests {
         use wiremock::{Mock, MockServer, ResponseTemplate};
 
         let dir = tempfile::tempdir().unwrap();
-        let store = Arc::new(
-            crate::store::Store::open(dir.path().to_str().unwrap()).unwrap(),
-        );
+        let store = Arc::new(crate::store::Store::open(dir.path().to_str().unwrap()).unwrap());
         Credentials {
             username: "redacted-user".into(),
             password: "redacted-pass".into(),
@@ -1108,7 +1120,10 @@ mod tests {
                 header::USER_AGENT.as_str(),
                 crate::fastway::LICENSE_USER_AGENT,
             ))
-            .and(header(header::CONTENT_TYPE.as_str(), "application/octet-stream"))
+            .and(header(
+                header::CONTENT_TYPE.as_str(),
+                "application/octet-stream",
+            ))
             .and(header("pallycon-customdata-v2", "pallycon-token"))
             .and(header("pallycon-client-meta", expected_meta))
             .and(body_string_contains("widevine-challenge"))
@@ -1188,6 +1203,7 @@ mod tests {
             extras: Arc::new(crate::extras_state::ExtrasState::new(false, None)),
             fastway: Arc::new(crate::fastway_state::FastwayState::new(false)),
             playbox,
+            tataplay: Arc::new(crate::tataplay_state::TataplayState::new(false)),
             vzy: Arc::new(crate::vzy_state::VzyState::new(false)),
             vod_state: Default::default(),
             public_ip: Arc::new(crate::unlock::PublicIp::new(reqwest::Client::new())),
