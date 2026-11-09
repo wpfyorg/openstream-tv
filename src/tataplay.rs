@@ -1,7 +1,14 @@
-//! Tata Play Smart experimental provider.
+//! Tata Play Smart live TV provider.
 //!
-//! Contracts come from the com.tataplay.livetv 1.0.10 Retrofit layer.
-//! This provider is diagnostic-only until runtime parity is proven.
+//! Contracts come from the com.tataplay.livetv 1.0.10 Retrofit layer and the
+//! `ADD_HEADERS` interceptor (`defpackage/RD0.java`), which is why header names
+//! here differ from the obvious guesses: the `version` token becomes the
+//! `appVersion` header, and `device_details` carries the serialized
+//! `DeviceDetails` model built by `defpackage/C4099ep1.java`.
+//!
+//! Playback and license URLs come back AES/ECB/PKCS5 encrypted with a suffix
+//! that selects the key (`#v1` or `#v2`), and the keys are published
+//! unauthenticated by `lit-ls-config/pub/api/v1/config`.
 
 use base64::Engine;
 use serde::{Deserialize, Serialize};
@@ -21,6 +28,27 @@ pub const STORE_KEY_DEVICE: &str = "tataplay_device";
 pub const STORE_KEY_PENDING: &str = "tataplay_pending_login";
 pub const STORE_KEY_CREDENTIALS: &str = "tataplay_credentials";
 
+/// Channel ids in the shared catalogue look like `tp_1918`, where `1918` is the
+/// Tata Play document id returned by the search and hierarchy endpoints.
+pub const ID_PREFIX: &str = "tp_";
+/// Content type the access-control endpoint expects for a live channel.
+pub const CONTENT_TYPE_LIVE: &str = "LIVE";
+/// Home page whose rails carry the live channel catalogue.
+pub const HIERARCHY_PAGE: &str = "LIT_LIVETV";
+pub const LOCALE: &str = "eng";
+
+pub fn channel_id(document_id: &str) -> String {
+    format!("{ID_PREFIX}{document_id}")
+}
+
+pub fn document_id(channel_id: &str) -> Option<&str> {
+    channel_id.strip_prefix(ID_PREFIX)
+}
+
+pub fn is_tataplay_channel(id: &str) -> bool {
+    id.starts_with(ID_PREFIX)
+}
+
 #[cfg(not(test))]
 const HTTP_TIMEOUT: Duration = Duration::from_secs(15);
 #[cfg(test)]
@@ -38,6 +66,49 @@ pub struct Device {
 }
 
 impl Device {
+    /// The `device_details` header value: `DeviceDetails` serialized by Gson, as
+    /// the app builds it in `defpackage/C4099ep1.java`. The app pins several
+    /// fields to constants; only the device identity and display size vary.
+    pub fn details(&self) -> String {
+        json!({
+            "device_type": "android",
+            "device_platform": "tv",
+            "device_id": self.device_id,
+            "device_category": "open",
+            "os_version": "13",
+            "os": "13",
+            "model_id": "PC",
+            "model_name": "PC",
+            "model_name_ascii": "PC",
+            "screen_height": "1080",
+            "screen_width": "1920",
+            "manufacturer": "OpenStream",
+            "location": "",
+            "sname": "PC",
+            "brand": "PC",
+            "sdk_version": "33",
+            "uhd": false,
+            "app_version": VERSION_NAME,
+            "app_version_name": VERSION_NAME,
+            "app_version_code": VERSION_CODE.to_string(),
+            "os_version_dot": "132",
+            "os_version_major": "1111",
+            "os_version_minor": "1212",
+            "referer_platform": "chrome",
+            "year_of_release": "1987",
+            "pl": "ios",
+            "lo": "en-us",
+            "app": "11",
+            "dn": "PC",
+            "bv": 133,
+            "bn": "CHROME",
+            "model": "PC",
+            "new_deviceID": "",
+            "old_deviceID": ""
+        })
+        .to_string()
+    }
+
     pub fn new() -> Device {
         let mut bytes = [0u8; 8];
         rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut bytes);
@@ -146,6 +217,19 @@ impl Client {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn for_test(base: &str, credentials: Credentials) -> Client {
+        Client {
+            http: reqwest::Client::new(),
+            base: format!("{}/", base.trim_end_matches('/')),
+            device: Device {
+                device_id: "0123456789abcdef".into(),
+                device_name: "Test TV".into(),
+            },
+            credentials: Some(credentials),
+        }
+    }
+
     fn url(&self, path: &str) -> String {
         format!("{}{}", self.base, path.trim_start_matches('/'))
     }
@@ -160,7 +244,7 @@ impl Client {
         Ok(format!("bearer {token}"))
     }
 
-    fn credentials(&self) -> anyhow::Result<&Credentials> {
+    pub(crate) fn credentials(&self) -> anyhow::Result<&Credentials> {
         self.credentials
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("tataplay: not logged in"))
@@ -195,7 +279,7 @@ impl Client {
             .checked_json(
                 self.http
                     .post(self.url("login-service/pub/api/v3/signin/generate/otp"))
-                    .header("version", VERSION_NAME)
+                    .header("appVersion", VERSION_NAME)
                     .header("platform", PLATFORM)
                     .header(reqwest::header::CONTENT_TYPE, "application/json")
                     .header("deviceId", &self.device.device_id)
@@ -255,14 +339,13 @@ impl Client {
             .checked_json(
                 self.http
                     .post(self.url("login-service/pub/api/v3/signin/validate/otp"))
-                    .header("version", VERSION_NAME)
+                    .header("appVersion", VERSION_NAME)
                     .header("platform", PLATFORM)
                     .header(reqwest::header::CONTENT_TYPE, "application/json")
-                    // The app forwards an opaque persisted DEVICE_DETAILS string.
-                    // Its encoding is not recovered, and the app's missing-value
-                    // behavior is the empty string, so the beta deliberately does
-                    // not fabricate a device-details payload.
-                    .header("device_details", "")
+                    // `device_details` is the serialized `DeviceDetails` model the
+                    // app persists after onboarding; the interceptor forwards it
+                    // verbatim.
+                    .header("device_details", self.device.details())
                     .json(&body),
                 "verify OTP",
             )
@@ -285,7 +368,7 @@ impl Client {
                 self.http
                     .post(self.url("rest-api/pub/api/v3/refreshToken"))
                     .header(reqwest::header::CONTENT_TYPE, "application/json")
-                    .header("device_details", "")
+                    .header("device_details", self.device.details())
                     .header("platform", PLATFORM)
                     .header(
                         reqwest::header::AUTHORIZATION,
@@ -318,7 +401,7 @@ impl Client {
             .checked_json(
                 self.http
                     .get(self.url("portal-search/pub/api/v1/channels/all"))
-                    .header("version", VERSION_NAME)
+                    .header("appVersion", VERSION_NAME)
                     .header("platform", PLATFORM)
                     .header(reqwest::header::CONTENT_TYPE, "application/json")
                     .query(&[("limit", limit), ("offset", offset)]),
@@ -403,6 +486,321 @@ impl Client {
             &value,
         ))
     }
+
+    /// Publishes the AES keys used for playback and license URLs. The endpoint
+    /// needs no account, so keys can be fetched before login.
+    pub async fn app_config(&self) -> anyhow::Result<AppKeys> {
+        let value = self
+            .checked_json(
+                self.http
+                    .get(self.url("lit-ls-config/pub/api/v1/config"))
+                    .header("appVersion", VERSION_NAME)
+                    .header("platform", PLATFORM)
+                    .header(reqwest::header::CONTENT_TYPE, "application/json"),
+                "app config",
+            )
+            .await?;
+        let dd = payload(&value).get("app").and_then(|app| app.get("dd"));
+        let keys = AppKeys {
+            v1: dd
+                .and_then(|dd| dd.get("v1"))
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            v2: dd
+                .and_then(|dd| dd.get("v2"))
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+        };
+        if keys.v1.is_empty() && keys.v2.is_empty() {
+            anyhow::bail!("tataplay: app config carries no decryption keys");
+        }
+        Ok(keys)
+    }
+
+    /// The live channel catalogue. `channels/all` returns only document ids, so
+    /// names, logos and flags come from the authenticated home hierarchy.
+    pub async fn catalogue(&self) -> anyhow::Result<Vec<crate::television::Channel>> {
+        let credentials = self.credentials()?;
+        let value = self
+            .checked_json(
+                self.http
+                    .get(self.url(&format!(
+                        "homescreen/pub/api/v1/lit/hierarchy/{HIERARCHY_PAGE}"
+                    )))
+                    .header("appVersion", VERSION_NAME)
+                    .header("platform", PLATFORM)
+                    .header(reqwest::header::CONTENT_TYPE, "application/json")
+                    .header("deviceId", &self.device.device_id)
+                    .header(reqwest::header::AUTHORIZATION, self.auth()?)
+                    // The interceptor always sends an empty device token.
+                    .header("devicetoken", "")
+                    .header("x-authenticated-userid", &credentials.sid)
+                    .header("profileId", &credentials.sid)
+                    .query(&[("locale", LOCALE)]),
+                "catalogue",
+            )
+            .await?;
+        Ok(parse_catalogue(&value))
+    }
+
+    /// Resolves a live channel to a playable DASH manifest and Widevine license
+    /// URL, both decrypted with the app-config keys.
+    pub async fn play(&self, document: &str, keys: &AppKeys) -> anyhow::Result<ResolvedPlayback> {
+        let credentials = self.credentials()?;
+        if document.trim().is_empty() {
+            anyhow::bail!("tataplay: channel id is required");
+        }
+        let request = self
+            .http
+            .get(self.url(&format!(
+                "pas/api/v1/access/control/{CONTENT_TYPE_LIVE}/{}",
+                urlencoding::encode(document)
+            )))
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .header(reqwest::header::AUTHORIZATION, self.auth()?)
+            .header("x-subscriber-id", &credentials.subscriber_id)
+            .header("platform", PLATFORM)
+            .header("x-device-id", &self.device.device_id)
+            .header("x-device-platform", "MOBILE")
+            .header("x-device-type", "ANDROID")
+            .header("x-subscriber-name", "Ancfg Both")
+            .header("x-device-name", &self.device.device_name);
+        let value = self.checked_json(request, "playback").await?;
+        let data = payload(&value);
+        let playback = data.get("playbackUrls").unwrap_or(&Value::Null);
+        let play_raw = first_field(&[playback, data], "dashWidewinePlayUrl");
+        if play_raw.is_empty() {
+            anyhow::bail!("tataplay: playback response has no DASH manifest URL");
+        }
+        let license_raw = first_field(&[playback, data], "dashWidewineLicenseUrl");
+        Ok(ResolvedPlayback {
+            playable: decrypt_url(&play_raw, keys)?,
+            license_url: decrypt_url(&license_raw, keys)?,
+            is_dash: true,
+            media_headers: Vec::new(),
+            license_headers: Vec::new(),
+            session_id: first_field(&[data], "sessionId"),
+            heartbeat_interval: data
+                .get("heartbeatInterval")
+                .and_then(Value::as_u64)
+                .filter(|seconds| *seconds > 0),
+        })
+    }
+
+    /// Opens the concurrency session that keeps playback authorised.
+    ///
+    /// `NetworkApi.X` posts to `smgs/api/v1/session` with no body: the session
+    /// id and device name travel as `x-session-id` and `x-device-name`.
+    pub async fn start_session(&self, session_id: &str) -> anyhow::Result<()> {
+        if session_id.trim().is_empty() {
+            anyhow::bail!("tataplay: session id is required");
+        }
+        let request = self
+            .session_request(reqwest::Method::POST, session_id)
+            .await?;
+        self.checked_json(request, "session start").await?;
+        Ok(())
+    }
+
+    /// Closes the session on stop, so the upstream frees the concurrency slot.
+    /// `NetworkApi.M` is the bodyless `DELETE` of the same path.
+    pub async fn end_session(&self, session_id: &str) -> anyhow::Result<()> {
+        if session_id.trim().is_empty() {
+            return Ok(());
+        }
+        let request = self
+            .session_request(reqwest::Method::DELETE, session_id)
+            .await?;
+        self.checked_json(request, "session end").await?;
+        Ok(())
+    }
+
+    async fn session_request(
+        &self,
+        method: reqwest::Method,
+        session_id: &str,
+    ) -> anyhow::Result<reqwest::RequestBuilder> {
+        let credentials = self.credentials()?;
+        Ok(self
+            .http
+            .request(method, self.url("smgs/api/v1/session"))
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .header(reqwest::header::AUTHORIZATION, self.auth()?)
+            .header("x-subscriber-id", &credentials.subscriber_id)
+            .header("x-authenticated-userid", &credentials.sid)
+            .header("platform", PLATFORM)
+            .header("x-device-id", &self.device.device_id)
+            .header("x-device-platform", "MOBILE")
+            .header("x-device-type", "ANDROID")
+            .header("x-subscriber-name", "Ancfg Both")
+            .header("x-device-name", &self.device.device_name)
+            .header("x-session-id", session_id))
+    }
+}
+
+/// Keys from `app.dd`; the URL suffix picks one (`#v1` or `#v2`).
+#[derive(Debug, Clone, Default)]
+pub struct AppKeys {
+    pub v1: String,
+    pub v2: String,
+}
+
+/// A resolved live channel, in the shape the media and license proxies need.
+#[derive(Debug, Clone, Default)]
+pub struct ResolvedPlayback {
+    pub playable: String,
+    pub license_url: String,
+    pub is_dash: bool,
+    pub media_headers: Vec<(String, String)>,
+    pub license_headers: Vec<(String, String)>,
+    /// Concurrency session the upstream opened for this playback. It is also
+    /// the `x-session-id` of the heartbeat calls.
+    pub session_id: String,
+    /// Seconds between heartbeats, as the upstream requested them.
+    pub heartbeat_interval: Option<u64>,
+}
+
+fn base64_decode(value: &str) -> Option<Vec<u8>> {
+    let value = value.trim();
+    base64::engine::general_purpose::STANDARD
+        .decode(value)
+        .or_else(|_| base64::engine::general_purpose::STANDARD_NO_PAD.decode(value))
+        .or_else(|_| base64::engine::general_purpose::URL_SAFE.decode(value))
+        .ok()
+}
+
+/// AES/ECB/PKCS5, matching `defpackage/C5232kv1.a` which calls
+/// `Cipher.getInstance("AES")` with a `SecretKeySpec`.
+fn aes_ecb_decrypt(ciphertext: &[u8], key: &[u8]) -> anyhow::Result<Vec<u8>> {
+    use aes::cipher::generic_array::GenericArray;
+    use aes::cipher::{BlockDecrypt, KeyInit};
+
+    if ciphertext.is_empty() || !ciphertext.len().is_multiple_of(16) {
+        anyhow::bail!("tataplay: encrypted URL is not a whole number of AES blocks");
+    }
+    let mut buf = ciphertext.to_vec();
+    match key.len() {
+        16 => {
+            let cipher = aes::Aes128::new_from_slice(key)
+                .map_err(|_| anyhow::anyhow!("tataplay: invalid AES-128 key"))?;
+            for block in buf.chunks_mut(16) {
+                cipher.decrypt_block(GenericArray::from_mut_slice(block));
+            }
+        }
+        32 => {
+            let cipher = aes::Aes256::new_from_slice(key)
+                .map_err(|_| anyhow::anyhow!("tataplay: invalid AES-256 key"))?;
+            for block in buf.chunks_mut(16) {
+                cipher.decrypt_block(GenericArray::from_mut_slice(block));
+            }
+        }
+        other => anyhow::bail!("tataplay: unsupported AES key length {other}"),
+    }
+    if let Some(&pad) = buf.last() {
+        let pad = pad as usize;
+        if (1..=16).contains(&pad) && pad <= buf.len() {
+            buf.truncate(buf.len() - pad);
+        }
+    }
+    Ok(buf)
+}
+
+/// Decrypts a `base64(ciphertext)#v1` style URL. A value without a suffix is
+/// already plain and is returned unchanged.
+pub fn decrypt_url(encrypted: &str, keys: &AppKeys) -> anyhow::Result<String> {
+    let encrypted = encrypted.trim();
+    if encrypted.is_empty() {
+        return Ok(String::new());
+    }
+    let Some((body, tag)) = encrypted.rsplit_once('#') else {
+        return Ok(encrypted.to_string());
+    };
+    let key_b64 = match tag.to_ascii_lowercase().as_str() {
+        "v1" => keys.v1.as_str(),
+        "v2" => keys.v2.as_str(),
+        other => anyhow::bail!("tataplay: unknown URL key version {other}"),
+    };
+    if key_b64.is_empty() {
+        anyhow::bail!("tataplay: no decryption key for #{tag}");
+    }
+    let key = base64_decode(key_b64)
+        .ok_or_else(|| anyhow::anyhow!("tataplay: decryption key is not base64"))?;
+    let raw = base64_decode(body)
+        .ok_or_else(|| anyhow::anyhow!("tataplay: encrypted URL is not base64"))?;
+    let plain = aes_ecb_decrypt(&raw, &key)?;
+    String::from_utf8(plain).map_err(|_| anyhow::anyhow!("tataplay: decrypted URL is not UTF-8"))
+}
+
+fn json_id(value: &Value) -> String {
+    match value {
+        Value::String(text) => text.trim().to_string(),
+        Value::Number(number) => number.to_string(),
+        _ => String::new(),
+    }
+}
+
+fn first_field(sources: &[&Value], key: &str) -> String {
+    sources
+        .iter()
+        .map(|source| string_field(source, key))
+        .find(|value| !value.is_empty())
+        .unwrap_or_default()
+}
+
+/// Flattens every rail of the `LIT_LIVETV` hierarchy into one channel list.
+fn parse_catalogue(value: &Value) -> Vec<crate::television::Channel> {
+    use std::collections::HashSet;
+
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut out: Vec<crate::television::Channel> = Vec::new();
+    let Some(rails) = payload(value).as_array() else {
+        return out;
+    };
+    for rail in rails {
+        let Some(entries) = rail.get("contentList").and_then(Value::as_array) else {
+            continue;
+        };
+        for entry in entries {
+            let id = entry.get("id").map(json_id).unwrap_or_default();
+            if id.is_empty() || !seen.insert(id.clone()) {
+                continue;
+            }
+            let name = first_field(&[entry], "channelName");
+            let name = if name.is_empty() {
+                first_field(&[entry], "name")
+            } else {
+                name
+            };
+            let logo = first_field(&[entry], "logo");
+            let logo = if logo.is_empty() {
+                first_field(&[entry], "channelPosterImage")
+            } else {
+                logo
+            };
+            out.push(crate::television::Channel {
+                id: channel_id(&id),
+                name,
+                logo_url: logo,
+                is_hd: entry
+                    .get("hdChannel")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+                is_catchup_available: entry
+                    .get("restartTvAllowed")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+                    || entry
+                        .get("cdvrEnabled")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false),
+                ..Default::default()
+            });
+        }
+    }
+    out.sort_by_cached_key(|channel| channel.name.to_lowercase());
+    out
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -665,16 +1063,20 @@ pub async fn logout(store: &crate::store::Store) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Whether a stored Tata Play session exists, without contacting the API.
+pub fn is_logged_in(store: &crate::store::Store) -> bool {
+    Credentials::load(store).is_some()
+}
+
 pub fn status(enabled: bool, connected: bool) -> Value {
     json!({
         "enabled": enabled,
         "connected": connected,
-        "beta": true,
         "package": PACKAGE,
         "version": VERSION_NAME,
         "versionCode": VERSION_CODE,
         "sha256": ARTIFACT_SHA256,
-        "sharedPlayback": false,
+        "sharedPlayback": true,
         "syntheticDeviceIdentity": true,
         "implemented": {
             "login": true,
@@ -683,9 +1085,9 @@ pub fn status(enabled: bool, connected: bool) -> Value {
             "epg": true,
             "entitlement": true,
             "accessControlDiagnostic": true,
-            "sharedCatalogue": false,
-            "liveProxy": false,
-            "licenseProxy": false
+            "sharedCatalogue": true,
+            "liveProxy": true,
+            "licenseProxy": true
         }
     })
 }
@@ -740,7 +1142,7 @@ mod tests {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/login-service/pub/api/v3/signin/generate/otp"))
-            .and(header("version", VERSION_NAME))
+            .and(header("appVersion", VERSION_NAME))
             .and(header("platform", PLATFORM))
             .and(header("deviceId", "0123456789abcdef"))
             .and(header("deviceName", "Test TV"))
@@ -764,7 +1166,6 @@ mod tests {
         Mock::given(method("POST"))
             .and(path("/login-service/pub/api/v3/signin/validate/otp"))
             .and(header("platform", PLATFORM))
-            .and(header("device_details", ""))
             .and(body_json(json!({
                 "authorization":"123456",
                 "rmn":"9876543210",
@@ -805,6 +1206,14 @@ mod tests {
         assert_eq!(credentials.sid, "sid-1");
         assert!(Credentials::load(&store).is_some());
         assert!(store.get_opt(STORE_KEY_PENDING).is_none());
+        let requests = server.received_requests().await.unwrap();
+        let sent = requests
+            .last()
+            .unwrap()
+            .headers
+            .get("device_details")
+            .unwrap();
+        assert_eq!(sent.to_str().unwrap(), device().details());
     }
 
     #[tokio::test]
@@ -865,6 +1274,86 @@ mod tests {
         assert_eq!(
             client.guide(&query).await.unwrap_err().to_string(),
             "tataplay: login is required for EPG guide"
+        );
+        assert!(server.received_requests().await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn session_start_posts_a_bodyless_heartbeat_with_recovered_headers() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/smgs/api/v1/session"))
+            .and(header("Authorization", "bearer access-value"))
+            .and(header("x-subscriber-id", "sub-1"))
+            .and(header("x-authenticated-userid", "sid-1"))
+            .and(header("platform", PLATFORM))
+            .and(header("x-device-id", "0123456789abcdef"))
+            .and(header("x-device-platform", "MOBILE"))
+            .and(header("x-device-type", "ANDROID"))
+            .and(header("x-subscriber-name", "Ancfg Both"))
+            .and(header("x-device-name", "Test TV"))
+            .and(header("x-session-id", "session-value"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({"code":0})))
+            .mount(&server)
+            .await;
+        let client = Client {
+            http: reqwest::Client::new(),
+            base: format!("{}/", server.uri()),
+            device: device(),
+            credentials: Some(Credentials {
+                access_token: "access-value".into(),
+                refresh_token: "refresh-value".into(),
+                subscriber_id: "sub-1".into(),
+                sid: "sid-1".into(),
+            }),
+        };
+        client.start_session("session-value").await.unwrap();
+        let requests = server.received_requests().await.unwrap();
+        assert_eq!(requests.len(), 1);
+        assert!(requests[0].body.is_empty(), "the app posts no session body");
+    }
+
+    #[tokio::test]
+    async fn session_end_deletes_the_session() {
+        let server = MockServer::start().await;
+        Mock::given(method("DELETE"))
+            .and(path("/smgs/api/v1/session"))
+            .and(header("x-session-id", "session-value"))
+            .and(header("x-device-name", "Test TV"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({"code":0})))
+            .mount(&server)
+            .await;
+        let client = Client {
+            http: reqwest::Client::new(),
+            base: format!("{}/", server.uri()),
+            device: device(),
+            credentials: Some(Credentials {
+                access_token: "access-value".into(),
+                refresh_token: "refresh-value".into(),
+                subscriber_id: "sub-1".into(),
+                sid: "sid-1".into(),
+            }),
+        };
+        client.end_session("session-value").await.unwrap();
+        assert_eq!(server.received_requests().await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn session_calls_require_login() {
+        let server = MockServer::start().await;
+        let client = Client {
+            http: reqwest::Client::new(),
+            base: format!("{}/", server.uri()),
+            device: device(),
+            credentials: None,
+        };
+        assert_eq!(
+            client
+                .start_session("session-value")
+                .await
+                .unwrap_err()
+                .to_string(),
+            "tataplay: not logged in"
         );
         assert!(server.received_requests().await.unwrap().is_empty());
     }

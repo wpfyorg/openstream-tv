@@ -23,6 +23,7 @@ mod state;
 mod store;
 mod stream;
 mod tataplay;
+mod tataplay_state;
 mod television;
 mod tls;
 mod token_refresh;
@@ -816,6 +817,8 @@ fn build_app_state(
     playbox_state.init(&http, &store);
     let vzy_state = Arc::new(vzy_state::VzyState::new(cfg.vzy));
     vzy_state.init(&http, &store);
+    let tataplay_state = Arc::new(tataplay_state::TataplayState::new(cfg.tataplay));
+    tataplay_state.init(&http, &store);
 
     Ok(Arc::new(state::AppState {
         config: cfg.clone(),
@@ -833,6 +836,7 @@ fn build_app_state(
         extras: extras_state,
         fastway: fastway_state,
         playbox: playbox_state,
+        tataplay: tataplay_state,
         vzy: vzy_state,
         vod_state: Default::default(),
         public_ip: Arc::new(unlock::PublicIp::new(http)),

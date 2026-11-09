@@ -118,6 +118,10 @@ fn snapshot_fingerprint(
             hash_field(&mut hasher, &state.vzy.account_fingerprint());
             hash_field(&mut hasher, "vzy-free-tier");
         }
+        crate::state::ActiveProduct::TataPlay => {
+            hash_field(&mut hasher, &state.tataplay.account_fingerprint());
+            hash_field(&mut hasher, "tataplay-epg:channels-only");
+        }
     }
 
     // XMLTV currently contains only upstream channels. Sorting makes this a
@@ -489,6 +493,17 @@ pub async fn regenerate_for_state(state: &Arc<AppState>) -> anyhow::Result<()> {
             } else {
                 generate_xml_gz_from_sources(&state.http, Vec::new(), sources, programmes).await?
             }
+        }
+        // Tata Play's guide endpoint needs epoch-millisecond start/end bounds
+        // whose runtime encoding is not yet proven, so only the channel list is
+        // published; no programme is invented.
+        crate::state::ActiveProduct::TataPlay => {
+            let channels = snapshot
+                .channels
+                .iter()
+                .map(|ch| (ch.id.clone(), ch.name.clone()))
+                .collect();
+            generate_channels_only_xml_gz(channels)?
         }
     };
 
@@ -887,6 +902,7 @@ mod tests {
             extras: std::sync::Arc::new(crate::extras_state::ExtrasState::new(false, None)),
             fastway: std::sync::Arc::new(crate::fastway_state::FastwayState::new(false)),
             playbox: std::sync::Arc::new(crate::playbox_state::PlayboxState::new(false)),
+            tataplay: Arc::new(crate::tataplay_state::TataplayState::new(false)),
             vzy: std::sync::Arc::new(crate::vzy_state::VzyState::new(false)),
             vod_state: Default::default(),
             public_ip: std::sync::Arc::new(crate::unlock::PublicIp::new(reqwest::Client::new())),
@@ -964,6 +980,7 @@ mod tests {
             extras: std::sync::Arc::new(crate::extras_state::ExtrasState::new(false, None)),
             fastway: std::sync::Arc::new(crate::fastway_state::FastwayState::new(false)),
             playbox: std::sync::Arc::new(crate::playbox_state::PlayboxState::new(false)),
+            tataplay: Arc::new(crate::tataplay_state::TataplayState::new(false)),
             vzy,
             vod_state: Default::default(),
             public_ip: std::sync::Arc::new(crate::unlock::PublicIp::new(http)),
@@ -1085,6 +1102,7 @@ mod tests {
             extras: extras_state,
             fastway: Arc::new(crate::fastway_state::FastwayState::new(false)),
             playbox: Arc::new(crate::playbox_state::PlayboxState::new(false)),
+            tataplay: Arc::new(crate::tataplay_state::TataplayState::new(false)),
             vzy: Arc::new(crate::vzy_state::VzyState::new(false)),
             vod_state: Default::default(),
             public_ip: Arc::new(crate::unlock::PublicIp::new(http)),

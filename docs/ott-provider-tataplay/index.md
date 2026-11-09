@@ -1,50 +1,81 @@
 ---
-title: Tata Play Smart Beta Provider Evidence
-description: Recovered Tata Play Smart API contracts, diagnostic beta scope, runtime gaps and verification notes.
+title: Tata Play Smart Provider Evidence
+description: Recovered Tata Play Smart API contracts, live provider behaviour, runtime gaps and verification notes.
 category: Provider Reference
-keywords: [Tata Play Smart, beta, provider, OTP, EPG, entitlement]
+keywords: [Tata Play Smart, provider, OTP, EPG, entitlement, DASH, Widevine]
 ---
 
-# Beta OTT provider: Tata Play Smart
+# OTT provider: Tata Play Smart
 
 This record covers two app generations: the older `com.ryzmedia.tatasky`
 509.0/894 installed on the A15, and the newer `com.tataplay.livetv` 1.0.10/101
 artifact whose native Retrofit layer is recoverable.
 
-## Experimental backend status
+## Provider status
 
-The newer app's verified Retrofit contracts are now implemented behind
+The newer app's verified Retrofit contracts are implemented behind
 `tataplay = true` / `OPENSTREAM_TATAPLAY=true` (legacy alias
-`JIOTV_TATAPLAY=true`) as a diagnostic beta. No live
-Tata Play request has been made by this implementation yet.
+`JIOTV_TATAPLAY=true`) as a shared live TV provider. Enabling it and logging in
+makes Tata Play the active product when no other OTT provider is connected, so
+its channels appear in `/api/channels`, the M3U playlist, the XMLTV EPG and the
+`/live` playback flow.
 
-Implemented beta routes:
+Routes:
 
 - `GET /api/tataplay/status`
 - `POST /api/tataplay/login/sendOTP`
 - `POST /api/tataplay/login/verifyOTP`
 - `POST /api/tataplay/refresh`
 - `POST /api/tataplay/logout`
+- `GET /api/tataplay/channels`
 - `GET /api/tataplay/catalogue-seed`
 - `GET /api/tataplay/epg`
 - `GET /api/tataplay/entitlement`
 - `GET /api/tataplay/play/:id?contentType=LIVE`
 
-The beta persists a stable synthetic device identity because the server is not
-running inside the Android APK. OTP/session credentials remain server-side.
-The app's `device_details` header is an opaque persisted string whose producer
-was not recovered; the beta therefore sends the app's observed missing-value
-form (an empty string) instead of inventing an encoding.
-The playback diagnostic returns only booleans/counts such as whether a
-Widevine play URL, license URL or session ID was present; it never returns
-those values. Tata Play is not added to `ActiveProduct`, playlists, shared
-catalogues, `/live`, or the DRM/license proxy.
+Credentials, playback URLs and license URLs stay server-side; `/live` and the
+license proxy resolve them per request.
 
-The `channels/all` contract exposes only ordered `documentIds`; no per-ID
-hydration endpoint has been proven, so `catalogue-seed` deliberately does not
-pretend they are channel objects. EPG date/timestamp encodings are also not
-guessed: testers must pass the app-observed `date`, `epgStartTime` and
-`epgEndTime` values.
+### Recovered runtime details
+
+The provider persists a stable synthetic device identity because the server is
+not running inside the Android APK. `device_details` is now the JSON the app
+sends: the `DeviceDetails` model serialized by `C4099ep1.invokeSuspend` with its
+observed constants (`device_type` `android`, `device_platform` `tv`,
+`os_version` `13`, `app_version` `1.0.10`, `pl` `ios`, `bv` `133`) plus the
+server's own `device_id` and screen size.
+
+The header interceptor (`RD0`, case 0) maps `ADD_HEADERS` tokens to session
+values and sends the app version under the header name `appVersion`.
+
+Catalogue entries come from `homescreen/pub/api/v1/lit/hierarchy/LIT_LIVETV`:
+every rail's `contentList` is flattened and deduplicated, and each channel is
+exposed as `tp_<id>` where `<id>` is the channel's content id.
+
+Playback URLs are AES-encrypted. `pas/api/v1/access/control/LIVE/<id>` returns
+`playbackUrls.dashWidewinePlayUrl` and `dashWidewineLicenseUrl` as
+`base64(ciphertext)#v1` or `#v2`; the key is `app.dd.v1` or `app.dd.v2` from
+`lit-ls-config/pub/api/v1/config`, decoded with AES/ECB/PKCS5Padding. Both
+config and `channels/all` answer without authentication, so the keys and the
+document-id map are available before login.
+
+### Known gaps
+
+- EPG programmes are not published: the guide endpoint needs epoch-millisecond
+  `epgStartTime`/`epgEndTime` bounds whose runtime encoding is unproven, so
+  XMLTV contains channels only.
+- The OTP step still needs the `refId` and `refIdMode` values the app obtains
+  from the send-OTP JWT, so the client must pass the chosen account's `refId`.
+
+### Playback sessions
+
+`NetworkApi.X` opens a concurrency session with a bodyless
+`POST smgs/api/v1/session`, carrying `x-device-name` and the `x-session-id`
+returned by access control. The provider registers that session as soon as
+playback resolves, repeats the call every `heartbeatInterval` seconds, and
+sends the bodyless `DELETE smgs/api/v1/session` when the channel is stopped or
+the playback cache is invalidated. When the response omits `heartbeatInterval`
+the provider beats every 30 seconds.
 
 
 ## 1. Artifact identity (observed fact)

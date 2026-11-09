@@ -992,10 +992,10 @@ pub struct TataplayPlayQuery {
 }
 
 fn tataplay_enabled(state: &AppState) -> Option<Response> {
-    if state.config.tataplay {
+    if state.tataplay.enabled() {
         None
     } else {
-        Some(err(StatusCode::BAD_REQUEST, "tataplay beta is not enabled"))
+        Some(err(StatusCode::BAD_REQUEST, "tataplay is not enabled"))
     }
 }
 
@@ -1003,26 +1003,48 @@ fn tataplay_connected(state: &AppState) -> Option<Response> {
     if let Some(response) = tataplay_enabled(state) {
         return Some(response);
     }
-    if crate::tataplay::Credentials::load(&state.store).is_some() {
+    if state.tataplay.connected() {
         None
     } else {
         Some(err(StatusCode::UNAUTHORIZED, "tataplay is not logged in"))
     }
 }
 
+fn tataplay_otp_limiter() -> &'static crate::unlock::AttemptLimiter {
+    static LIMITER: OnceLock<crate::unlock::AttemptLimiter> = OnceLock::new();
+    LIMITER.get_or_init(crate::unlock::AttemptLimiter::default)
+}
+
+fn tataplay_otp_attempt(kind: &str, addr: SocketAddr) -> Option<String> {
+    let key = format!("{kind}:{}", addr.ip());
+    let now = SystemTime::now();
+    let limiter = tataplay_otp_limiter();
+    if !limiter.allowed(&key, now) {
+        return None;
+    }
+    // Count before forwarding upstream so failed requests are limited too.
+    limiter.record_failure(&key, now);
+    Some(key)
+}
+
 pub async fn tataplay_send_otp(
     State(state): State<SharedState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
     Json(body): Json<TataplaySendOtpBody>,
 ) -> Response {
     if let Some(response) = tataplay_enabled(&state) {
         return response;
     }
-    let client = match crate::tataplay::Client::from_store(state.http.clone(), &state.store) {
-        Ok(client) => client,
-        Err(e) => return err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-    };
-    match client
+    if tataplay_otp_attempt("send", addr).is_none() {
+        return err(
+            StatusCode::TOO_MANY_REQUESTS,
+            "too many Tata Play OTP attempts, try again later",
+        );
+    }
+    match state
+        .tataplay
         .send_otp(
+            &state.http,
             &state.store,
             &body.number,
             body.sid.as_deref().unwrap_or(""),
@@ -1036,20 +1058,46 @@ pub async fn tataplay_send_otp(
 
 pub async fn tataplay_verify_otp(
     State(state): State<SharedState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
     Json(body): Json<TataplayVerifyOtpBody>,
 ) -> Response {
     if let Some(response) = tataplay_enabled(&state) {
         return response;
     }
-    let client = match crate::tataplay::Client::from_store(state.http.clone(), &state.store) {
-        Ok(client) => client,
-        Err(e) => return err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    let attempt_key = match tataplay_otp_attempt("verify", addr) {
+        Some(key) => key,
+        None => {
+            return err(
+                StatusCode::TOO_MANY_REQUESTS,
+                "too many Tata Play OTP attempts, try again later",
+            )
+        }
     };
-    match client
-        .verify_otp(&state.store, &body.otp, &body.ref_id, body.ref_id_mode)
-        .await
-    {
-        Ok(_) => Json(json!({"status": true, "connected": true})).into_response(),
+    let installed = std::sync::atomic::AtomicBool::new(false);
+    let result = state
+        .tataplay
+        .verify_otp(
+            &state.http,
+            &state.store,
+            &body.otp,
+            &body.ref_id,
+            body.ref_id_mode,
+            || {
+                installed.store(true, std::sync::atomic::Ordering::SeqCst);
+                state.invalidate_context();
+            },
+        )
+        .await;
+    if installed.load(std::sync::atomic::Ordering::SeqCst) {
+        state.invalidate_context();
+        crate::epg::trigger_regeneration(&state);
+    }
+    match result {
+        Ok(true) => {
+            tataplay_otp_limiter().record_success(&attempt_key);
+            Json(json!({"status": true, "connected": true})).into_response()
+        }
+        Ok(false) => err(StatusCode::BAD_REQUEST, "wrong OTP"),
         Err(e) => err(StatusCode::BAD_REQUEST, e.to_string()),
     }
 }
@@ -1075,10 +1123,35 @@ pub async fn tataplay_logout(State(state): State<SharedState>) -> Response {
     if let Some(response) = tataplay_enabled(&state) {
         return response;
     }
-    match crate::tataplay::logout(&state.store).await {
-        Ok(()) => Json(json!({"status": true})).into_response(),
+    state.invalidate_context();
+    match state.tataplay.logout(&state.store).await {
+        Ok(()) => {
+            state.invalidate_context();
+            crate::epg::trigger_regeneration(&state);
+            Json(json!({"status": true})).into_response()
+        }
         Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
     }
+}
+
+/// `GET /api/tataplay/channels` — the provider catalogue in the shared shape.
+pub async fn tataplay_channels(State(state): State<SharedState>) -> Response {
+    if let Some(response) = tataplay_connected(&state) {
+        return response;
+    }
+    if !state.tataplay.ensure_catalogue().await {
+        return err(
+            StatusCode::BAD_GATEWAY,
+            "tataplay: the channel catalogue could not be loaded",
+        );
+    }
+    let channels: Vec<_> = state
+        .tataplay
+        .channels()
+        .into_iter()
+        .map(|ch| json!({"id": ch.id, "name": ch.name, "logo": ch.logo_url}))
+        .collect();
+    Json(json!({"status": true, "channels": channels})).into_response()
 }
 
 pub async fn tataplay_catalogue_seed(
@@ -1314,6 +1387,7 @@ mod tests {
             extras,
             fastway,
             playbox: Arc::new(crate::playbox_state::PlayboxState::new(false)),
+            tataplay: Arc::new(crate::tataplay_state::TataplayState::new(false)),
             vzy: Arc::new(crate::vzy_state::VzyState::new(false)),
             vod_state: Default::default(),
             public_ip: Arc::new(crate::unlock::PublicIp::new(reqwest::Client::new())),
@@ -1884,7 +1958,7 @@ mod tests {
         assert!(json.get("vzyone").is_some());
         assert_eq!(json["playbox"]["connected"], false);
         assert_eq!(json["tataplay"]["enabled"], false);
-        assert_eq!(json["tataplay"]["sharedPlayback"], false);
+        assert_eq!(json["tataplay"]["sharedPlayback"], true);
         assert_eq!(json["vzyone"]["provider"], false);
         assert_eq!(json["vzyone"]["package"], "com.uptodown");
     }
@@ -1905,6 +1979,7 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
         let resp = tataplay_send_otp(
             State(s),
+            test_connect_info(11),
             Json(TataplaySendOtpBody {
                 number: "9876543210".into(),
                 sid: None,
@@ -1940,6 +2015,7 @@ mod tests {
             extras: Arc::new(crate::extras_state::ExtrasState::new(false, None)),
             fastway: Arc::new(crate::fastway_state::FastwayState::new(false)),
             playbox: Arc::new(state),
+            tataplay: Arc::new(crate::tataplay_state::TataplayState::new(false)),
             vzy: Arc::new(crate::vzy_state::VzyState::new(false)),
             vod_state: Default::default(),
             public_ip: Arc::new(crate::unlock::PublicIp::new(reqwest::Client::new())),
@@ -2075,6 +2151,7 @@ mod tests {
             extras: Arc::new(crate::extras_state::ExtrasState::new(false, None)),
             fastway: Arc::new(crate::fastway_state::FastwayState::new(false)),
             playbox: Arc::new(crate::playbox_state::PlayboxState::new(true)),
+            tataplay: Arc::new(crate::tataplay_state::TataplayState::new(false)),
             vzy: Arc::new(crate::vzy_state::VzyState::new(false)),
             vod_state: Default::default(),
             public_ip: Arc::new(crate::unlock::PublicIp::new(reqwest::Client::new())),
@@ -2095,16 +2172,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn tataplay_status_reports_isolated_beta_capabilities() {
+    async fn tataplay_status_reports_a_shared_provider() {
         let s = state();
         let json = response_json(tataplay_status(State(s)).await).await;
         assert_eq!(json["tataplay"]["enabled"], false);
-        assert_eq!(json["tataplay"]["beta"], true);
+        assert_eq!(json["tataplay"]["sharedPlayback"], true);
         assert_eq!(json["tataplay"]["implemented"]["login"], true);
         assert_eq!(json["tataplay"]["implemented"]["catalogueSeed"], true);
-        assert_eq!(json["tataplay"]["implemented"]["sharedCatalogue"], false);
-        assert_eq!(json["tataplay"]["implemented"]["liveProxy"], false);
-        assert_eq!(json["tataplay"]["implemented"]["licenseProxy"], false);
+        assert_eq!(json["tataplay"]["implemented"]["sharedCatalogue"], true);
+        assert_eq!(json["tataplay"]["implemented"]["liveProxy"], true);
+        assert_eq!(json["tataplay"]["implemented"]["licenseProxy"], true);
     }
 
     #[tokio::test]

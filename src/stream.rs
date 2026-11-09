@@ -324,6 +324,9 @@ pub(crate) async fn fetch_live(
     if crate::playbox::is_playbox_channel(channel_id) {
         return state.playbox.live(channel_id).await;
     }
+    if crate::tataplay::is_tataplay_channel(channel_id) {
+        return state.tataplay.live(channel_id).await;
+    }
     if crate::vzy::is_vzy_channel(channel_id) {
         return state.vzy.live(channel_id, &state.store).await;
     }
@@ -397,17 +400,31 @@ fn shared_media_key(rendition_key: &str, original_token: &str) -> String {
     )
 }
 
-/// Fetch one manifest or segment for `channel_id`. PlayboxTV carries its
-/// media headers with the resolved playback URL; every other product uses the
-/// JioTV cookie flow.
+/// Headers a provider attaches to its own media requests, for channels that do
+/// not use the JioTV cookie flow.
+async fn provider_media_headers(
+    state: &AppState,
+    channel_id: &str,
+) -> Option<Vec<(String, String)>> {
+    if crate::playbox::is_playbox_channel(channel_id) {
+        return Some(state.playbox.media_headers(channel_id).await);
+    }
+    if crate::tataplay::is_tataplay_channel(channel_id) {
+        return Some(state.tataplay.media_headers(channel_id).await);
+    }
+    None
+}
+
+/// Fetch one manifest or segment for `channel_id`. PlayboxTV and Tata Play
+/// carry their media headers with the resolved playback URL; every other
+/// product uses the JioTV cookie flow.
 pub(crate) async fn fetch_media(
     state: &AppState,
     channel_id: &str,
     url: &str,
     token: &str,
 ) -> (Vec<u8>, u16, String) {
-    if crate::playbox::is_playbox_channel(channel_id) {
-        let headers = state.playbox.media_headers(channel_id).await;
+    if let Some(headers) = provider_media_headers(state, channel_id).await {
         return state.tv.render_with_headers(url, "", &headers).await;
     }
     if crate::vzy::is_vzy_channel(channel_id) {
@@ -1145,6 +1162,9 @@ async fn render_m3u8_inner(state: Arc<AppState>, q: RenderQuery) -> Response {
         if crate::playbox::is_playbox_channel(&channel_id) {
             state.playbox.invalidate_playback(&channel_id).await;
         }
+        if crate::tataplay::is_tataplay_channel(&channel_id) {
+            state.tataplay.invalidate_playback(&channel_id).await;
+        }
         if crate::vzy::is_vzy_channel(&channel_id) {
             return (StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_GATEWAY))
                 .into_response();
@@ -1249,6 +1269,9 @@ async fn render_m3u8_inner(state: Arc<AppState>, q: RenderQuery) -> Response {
 
     if crate::playbox::is_playbox_channel(&channel_id) && matches!(status, 401 | 403 | 404) {
         state.playbox.invalidate_playback(&channel_id).await;
+    }
+    if crate::tataplay::is_tataplay_channel(&channel_id) && matches!(status, 401 | 403 | 404) {
+        state.tataplay.invalidate_playback(&channel_id).await;
     }
 
     let base_string_url = render_url
@@ -1397,12 +1420,16 @@ pub async fn render_ts_handler(
 
     if matches!(status, 401 | 403)
         && (crate::playbox::is_playbox_channel(&channel_id)
-            || crate::vzy::is_vzy_channel(&channel_id))
+            || crate::vzy::is_vzy_channel(&channel_id)
+            || crate::tataplay::is_tataplay_channel(&channel_id))
     {
-        // No cookie refresh exists for PlayboxTV: re-resolve once for fresh
-        // headers, then retry the same segment URL.
+        // No cookie refresh exists for PlayboxTV or Tata Play: re-resolve once
+        // for fresh headers, then retry the same segment URL.
         if crate::playbox::is_playbox_channel(&channel_id) {
             state.playbox.invalidate_playback(&channel_id).await;
+        }
+        if crate::tataplay::is_tataplay_channel(&channel_id) {
+            state.tataplay.invalidate_playback(&channel_id).await;
         }
         if refresh_channel_token(&state, &channel_id).await.is_ok() {
             let (s, b, h) = proxy_segment(&state, &channel_id, &decoded, token.as_deref()).await;
@@ -1462,9 +1489,9 @@ async fn proxy_segment(
     hdnea: Option<&str>,
 ) -> (u16, Vec<u8>, Option<String>) {
     let mut req = state.http.get(url);
-    if crate::playbox::is_playbox_channel(channel_id) {
+    if let Some(headers) = provider_media_headers(state, channel_id).await {
         let mut has_user_agent = false;
-        for (name, value) in state.playbox.media_headers(channel_id).await {
+        for (name, value) in headers {
             if name.eq_ignore_ascii_case("user-agent") {
                 has_user_agent = true;
             }
@@ -1530,9 +1557,9 @@ pub async fn render_key_handler(
     let is_custom = state.custom_channels.contains(&channel_id);
 
     let mut req = state.http.get(&decoded);
-    if crate::playbox::is_playbox_channel(&channel_id) {
+    if let Some(headers) = provider_media_headers(&state, &channel_id).await {
         let mut has_user_agent = false;
-        for (name, value) in state.playbox.media_headers(&channel_id).await {
+        for (name, value) in headers {
             if name.eq_ignore_ascii_case("user-agent") {
                 has_user_agent = true;
             }
@@ -1875,6 +1902,7 @@ mod tests {
             extras: Arc::new(crate::extras_state::ExtrasState::new(false, None)),
             fastway: Arc::new(crate::fastway_state::FastwayState::new(false)),
             playbox: Arc::new(crate::playbox_state::PlayboxState::new(false)),
+            tataplay: Arc::new(crate::tataplay_state::TataplayState::new(false)),
             vzy: Arc::new(crate::vzy_state::VzyState::new(false)),
             vod_state: Default::default(),
             public_ip: Arc::new(crate::unlock::PublicIp::new(reqwest::Client::new())),
@@ -2427,6 +2455,7 @@ mod tests {
             extras: Arc::new(crate::extras_state::ExtrasState::new(false, None)),
             fastway: Arc::new(crate::fastway_state::FastwayState::new(false)),
             playbox: Arc::new(crate::playbox_state::PlayboxState::new(false)),
+            tataplay: Arc::new(crate::tataplay_state::TataplayState::new(false)),
             vzy: Arc::new(crate::vzy_state::VzyState::new(false)),
             vod_state: Default::default(),
             public_ip: Arc::new(crate::unlock::PublicIp::new(reqwest::Client::new())),
@@ -2493,6 +2522,7 @@ mod tests {
             extras: std::sync::Arc::new(crate::extras_state::ExtrasState::new(false, None)),
             fastway: std::sync::Arc::new(crate::fastway_state::FastwayState::new(false)),
             playbox,
+            tataplay: std::sync::Arc::new(crate::tataplay_state::TataplayState::new(false)),
             vzy: std::sync::Arc::new(crate::vzy_state::VzyState::new(false)),
             vod_state: Default::default(),
             public_ip: std::sync::Arc::new(crate::unlock::PublicIp::new(reqwest::Client::new())),
