@@ -1,6 +1,6 @@
 <script>
   import { onMount } from "svelte";
-  import { api } from "./lib/api.js";
+  import { api, invalidateChannels } from "./lib/api.js";
   import { route } from "./lib/router.svelte.js";
   import Login from "./views/Login.svelte";
   import Channels from "./views/Channels.svelte";
@@ -37,7 +37,12 @@
       const next = status?.catalogue?.activeProduct || "";
       const changed = !!activeProduct && activeProduct !== next;
       activeProduct = next;
-      if (changed) window.dispatchEvent(new CustomEvent("openstream:provider-changed"));
+      if (changed) {
+        // The Channels view may be unmounted, so its listener cannot clear the
+        // shared cache; do it here before notifying it.
+        invalidateChannels();
+        window.dispatchEvent(new CustomEvent("openstream:provider-changed"));
+      }
     })();
     try {
       await providerStatusPromise;

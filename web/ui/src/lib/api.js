@@ -45,6 +45,12 @@ export function loadChannels(force = false) {
   return channelsPromise;
 }
 
+// Drops the cached catalogue so the next load refetches it. Used when the
+// active provider changes while the Channels view is unmounted.
+export function invalidateChannels() {
+  channelsPromise = null;
+}
+
 // Shape of the extras unlock code (see docs/config.md and src/unlock.rs).
 // Matched before ever sending a search-box query to the server, so an
 // ordinary channel search never leaves the browser.
