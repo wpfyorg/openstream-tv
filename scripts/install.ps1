@@ -35,7 +35,7 @@ $Onboard = Get-OpenStreamEnv 'OPENSTREAM_ONBOARD' 'JIOTV_ONBOARD' 'auto'
 if ($Onboard -notin @('auto', 'always', 'never')) { throw 'OPENSTREAM_ONBOARD must be auto, always or never' }
 $Provider = Get-OpenStreamEnv 'OPENSTREAM_PROVIDER' 'JIOTV_PROVIDER'
 if ($Provider -in @('tv+', 'tvplus')) { $Provider = 'extras' }
-if ($Provider -notin @('', 'jiotv', 'extras', 'fastway')) { throw 'OPENSTREAM_PROVIDER must be jiotv, tv+ or fastway' }
+if ($Provider -notin @('', 'jiotv', 'extras', 'fastway', 'airtel')) { throw 'OPENSTREAM_PROVIDER must be jiotv, tv+, fastway or airtel' }
 $PublicHost = Get-OpenStreamEnv 'OPENSTREAM_PUBLIC_HOST' 'JIOTV_PUBLIC_HOST'
 $Tunnel = Get-OpenStreamEnv 'OPENSTREAM_TUNNEL' 'JIOTV_TUNNEL'
 if ($Tunnel -notin @('', 'none', 'temp', 'named')) { throw 'OPENSTREAM_TUNNEL must be none, temp, or named' }
@@ -286,6 +286,29 @@ function Connect-Extras {
     return $false
 }
 
+function Connect-Airtel {
+    param([string]$Exe)
+    Write-Step 'Sign in to Airtel Xstream'
+    $number = Read-Text 'Airtel mobile number (+91)'
+    $digits = $number -replace '[^0-9]', ''
+    if ($digits -match '^91([6-9][0-9]{9})$') { $number = $Matches[1] }
+    elseif ($digits -match '^[6-9][0-9]{9}$') { $number = $digits }
+    else { Write-Fail 'Enter a 10-digit Indian mobile number'; return $false }
+    $dialog = New-Dialog $Exe 'airtel login'
+    Send-Dialog $dialog $number
+    if (Wait-Dialog $dialog 'OTP:') {
+        Write-Ok "OTP sent to +91$number"
+        Send-Dialog $dialog (Read-Secret 'Enter the OTP')
+    }
+    if ((Complete-Dialog $dialog) -and ($dialog.Text.ToString() -match 'Airtel login saved')) {
+        Write-Ok 'Signed in to Airtel Xstream'
+        return $true
+    }
+    Show-Dialog $dialog
+    Write-Fail 'Airtel sign-in did not complete'
+    return $false
+}
+
 function Connect-Fastway {
     param([string]$Exe)
     Write-Step 'Sign in to Fastway'
@@ -314,6 +337,7 @@ function Connect-Provider {
         try {
             if ($Provider -eq 'extras') { $ok = Connect-Extras $Exe }
             elseif ($Provider -eq 'fastway') { $ok = Connect-Fastway $Exe }
+            elseif ($Provider -eq 'airtel') { $ok = Connect-Airtel $Exe }
             else { $ok = Connect-JioTv $Exe }
         }
         catch {
@@ -440,6 +464,7 @@ try {
         $providers = @(@{ Value = 'jiotv'; Label = 'JioTV       live channels and programme guide - mobile-number OTP' })
         if ($TvPlusCmd) { $providers += @{ Value = 'extras'; Label = 'JioTV+      extra channels, movies and shows - eligible JioFiber/AirFiber login' } }
         if ($help -match 'fastway login') { $providers += @{ Value = 'fastway'; Label = 'Fastway     live TV - Fastway-accepted credentials' } }
+        if ($help -match 'airtel login') { $providers += @{ Value = 'airtel'; Label = 'Airtel      Airtel Xstream live TV - mobile-number OTP' } }
 
         if (-not ($providers.Value -contains $Provider)) { $Provider = '' }
         if (-not $Provider) {
@@ -449,7 +474,7 @@ try {
                 Write-Step "Using $only (the only provider this build supports)"
             }
             else {
-                Write-Host '  JioTV signs in with a mobile-number OTP. JioTV+ needs an eligible' -ForegroundColor DarkGray
+                Write-Host '  JioTV and Airtel sign in with a mobile-number OTP. JioTV+ needs an eligible' -ForegroundColor DarkGray
                 Write-Host '  JioFiber or AirFiber login. Fastway needs credentials its provider accepts.' -ForegroundColor DarkGray
                 Write-Host '  ACT eligibility, where offered, depends on the provider.' -ForegroundColor DarkGray
                 $Provider = Select-Option 'Which account are you setting up?' $providers
@@ -485,8 +510,10 @@ try {
 
         $tvPlusEnabled = if ($Provider -eq 'extras') { 'true' } else { 'false' }
         $fastwayEnabled = if ($Provider -eq 'fastway') { 'true' } else { 'false' }
+        $airtelEnabled = if ($Provider -eq 'airtel') { 'true' } else { 'false' }
         Set-UserEnvironment 'OPENSTREAM_TVPLUS' $tvPlusEnabled
         Set-UserEnvironment 'OPENSTREAM_FASTWAY' $fastwayEnabled
+        Set-UserEnvironment 'OPENSTREAM_AIRTEL' $airtelEnabled
         if ($Tunnel -eq 'named' -and $TunnelToken) {
             Set-UserEnvironment 'OPENSTREAM_TUNNEL_TOKEN' $TunnelToken
         }
@@ -494,9 +521,10 @@ try {
             Set-UserEnvironment 'OPENSTREAM_TUNNEL_TOKEN' $null
         }
         $providerEnv = switch ($Provider) {
-            'extras'  { "`$env:OPENSTREAM_TVPLUS = 'true'; `$env:OPENSTREAM_FASTWAY = 'false'; " }
-            'fastway' { "`$env:OPENSTREAM_TVPLUS = 'false'; `$env:OPENSTREAM_FASTWAY = 'true'; " }
-            default   { "`$env:OPENSTREAM_TVPLUS = 'false'; `$env:OPENSTREAM_FASTWAY = 'false'; " }
+            'extras'  { "`$env:OPENSTREAM_TVPLUS = 'true'; `$env:OPENSTREAM_FASTWAY = 'false'; `$env:OPENSTREAM_AIRTEL = 'false'; " }
+            'fastway' { "`$env:OPENSTREAM_TVPLUS = 'false'; `$env:OPENSTREAM_FASTWAY = 'true'; `$env:OPENSTREAM_AIRTEL = 'false'; " }
+            'airtel'  { "`$env:OPENSTREAM_TVPLUS = 'false'; `$env:OPENSTREAM_FASTWAY = 'false'; `$env:OPENSTREAM_AIRTEL = 'true'; " }
+            default   { "`$env:OPENSTREAM_TVPLUS = 'false'; `$env:OPENSTREAM_FASTWAY = 'false'; `$env:OPENSTREAM_AIRTEL = 'false'; " }
         }
         $serveLine = "$providerEnv$serveLine"
 
@@ -506,6 +534,7 @@ try {
         $loginCmd = switch ($Provider) {
             'extras' { $TvPlusCmd }
             'fastway' { 'fastway login' }
+            'airtel' { 'airtel login' }
             default { 'login otp' }
         }
         if ($signedIn) { Write-Ok 'Signed in' }
@@ -527,7 +556,7 @@ try {
         Write-Host '  Installation complete' -ForegroundColor Green
         Write-Rule
         Write-Host "  build     $Variant $target" -ForegroundColor DarkGray
-        Write-Host "  account   $(if ($Provider -eq 'extras') { 'JioTV+' } else { $Provider })"
+        Write-Host "  account   $(if ($Provider -eq 'extras') { 'JioTV+' } elseif ($Provider -eq 'airtel') { 'Airtel Xstream' } else { $Provider })"
         if (-not $signedIn) { Write-Warn2 "  Not signed in yet: run 'ost $loginCmd'" }
         if ($Variant -eq 'full') {
             if ($NoTls) { Write-Host "  browser   http://${PublicHost}:5001/" }

@@ -33,6 +33,7 @@ case "${1:-}" in
     echo "  ost login otp"
     echo "  ost tv+ login | tv+ logout"
     echo "  ost fastway login"
+    echo "  ost airtel login"
     echo "  ost admin password"
     ;;
   login)
@@ -59,6 +60,14 @@ case "${1:-}" in
     fi
     read otp
     echo "JioTV+ login saved. Restart the server to use it."
+    ;;
+  airtel)
+    printf 'Airtel mobile number (+91): '
+    read number
+    printf 'OTP sent to your mobile number\n'
+    printf 'Airtel OTP: '
+    read otp
+    echo "Airtel login saved for +91$number. Restart the server to use it."
     ;;
   admin)
     printf 'New admin password: '
@@ -157,6 +166,29 @@ grep -F "http://192.168.1.9:5001/k/secret-key/playlist.m3u" "$tmp/out" >/dev/nul
 test -x "$tmp/install/ost"
 if [ "${OPENSTREAM_TEST_SHOW:-0}" = 1 ]; then sed 's/\r$//' "$tmp/out"; fi
 echo "onboarding default flow OK"
+
+# ---- Airtel: OTP sign-in writes the provider flag ------------------------
+start_flow "$tmp/install-airtel" "$tmp/out-airtel"
+wait_for "Which build?" "$tmp/out-airtel"; enter
+wait_for "Which account are you setting up?" "$tmp/out-airtel"; send "$(printf '\033[B\033[B\033[B')"; enter
+wait_for "This machine's address" "$tmp/out-airtel"; send '192.168.1.9'; enter
+wait_for "Open OpenStream TV beyond your LAN?" "$tmp/out-airtel"; enter
+wait_for "Airtel mobile number" "$tmp/out-airtel"; send '+91 98765 43210'; enter
+wait_for "Enter the OTP" "$tmp/out-airtel"; send '135790'; enter
+wait_for "Choose an admin password" "$tmp/out-airtel"; send 'secret'; enter
+wait_for "Installation complete" "$tmp/out-airtel"
+finish_flow
+if [ "${OPENSTREAM_TEST_SHOW:-0}" = 1 ]; then sed 's/\r$//' "$tmp/out-airtel"; fi
+
+grep -F "Signed in to Airtel Xstream" "$tmp/out-airtel" >/dev/null
+# The formatted number typed above is normalised before it reaches the CLI.
+grep -F "OTP sent to +919876543210" "$tmp/out-airtel" >/dev/null
+grep -F "account   Airtel Xstream" "$tmp/out-airtel" >/dev/null
+airtel_env="$tmp/install-airtel/home/.config/openstream/installer.env"
+grep -F "export OPENSTREAM_AIRTEL='true'" "$airtel_env" >/dev/null
+grep -F "export OPENSTREAM_FASTWAY='false'" "$airtel_env" >/dev/null
+env -i PATH="$PATH" sh -c '. "$1"; test "$OPENSTREAM_AIRTEL" = true' _ "$airtel_env"
+echo "onboarding Airtel flow OK"
 
 # ---- arrow keys: slim build, JioTV+ with a connection picker --------------
 start_flow "$tmp/install-slim" "$tmp/out2"
