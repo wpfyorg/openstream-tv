@@ -767,10 +767,30 @@ ob_install_service() {
   fi
 }
 
-# The store the binary reads. Mirrors src/main.rs default_path_prefix so the
-# installer can tell whether an earlier enable left a stored override.
+# The store the binary reads. Mirrors src/main.rs path_prefix resolution: the
+# environment, then path_prefix in the current directory's openstream.toml,
+# then the platform default. A "no" only clears an override an earlier "yes"
+# stored: pinning "no" on a fresh install would hide later config changes.
+ob_config_path_prefix() {
+  [ -f openstream.toml ] || return 1
+  ob_config_line=$(grep -E '^[[:space:]]*path_prefix[[:space:]]*=' openstream.toml | tail -n 1) || return 1
+  [ -n "$ob_config_line" ] || return 1
+  ob_config_value=${ob_config_line#*=}
+  ob_config_value=$(printf '%s\n' "$ob_config_value" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+  case $ob_config_value in
+    \"*) ob_config_value=${ob_config_value#\"}; ob_config_value=${ob_config_value%%\"*} ;;
+    \'*) ob_config_value=${ob_config_value#\'}; ob_config_value=${ob_config_value%%\'*} ;;
+    *) ob_config_value=${ob_config_value%%#*}; ob_config_value=$(printf '%s\n' "$ob_config_value" | sed -e 's/[[:space:]]*$//') ;;
+  esac
+  [ -n "$ob_config_value" ] || return 1
+  printf '%s\n' "$ob_config_value"
+}
+
 ob_epg_store_file() {
   ob_store_prefix=${OPENSTREAM_PATH_PREFIX:-${JIOTV_PATH_PREFIX:-}}
+  if [ -z "$ob_store_prefix" ]; then
+    ob_store_prefix=$(ob_config_path_prefix || true)
+  fi
   if [ -z "$ob_store_prefix" ]; then
     if [ "$openwrt" = true ]; then
       if [ -d /etc/openstream ] || [ ! -d /etc/jiotv ]; then ob_store_prefix=/etc/openstream

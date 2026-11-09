@@ -44,12 +44,38 @@ $TunnelToken = Get-OpenStreamEnv 'OPENSTREAM_TUNNEL_TOKEN' 'JIOTV_TUNNEL_TOKEN'
 $Epg = Get-OpenStreamEnv 'OPENSTREAM_EPG' 'JIOTV_EPG'
 if ($Epg -notin @('', 'true', 'false')) { throw 'OPENSTREAM_EPG must be true or false' }
 
-# The store the binary reads. A "no" only clears an override an earlier "yes"
+# The store the binary reads. Mirrors src/main.rs path_prefix resolution: the
+# environment, then path_prefix in the current directory's openstream.toml,
+# then the platform default. A "no" only clears an override an earlier "yes"
 # stored: pinning "no" on a fresh install would hide later config changes.
+function Get-OpenStreamConfigPathPrefix {
+    $config = Join-Path (Get-Location) 'openstream.toml'
+    if (-not (Test-Path -LiteralPath $config)) { return '' }
+    $line = Select-String -LiteralPath $config -Pattern '^\s*path_prefix\s*=' -CaseSensitive | Select-Object -Last 1
+    if (-not $line) { return '' }
+    $value = ($line.Line -replace '^\s*path_prefix\s*=\s*', '').Trim()
+    if ($value -match '^"([^"]*)"') { return $Matches[1] }
+    if ($value -match "^'([^']*)'") { return $Matches[1] }
+    return ($value -split '#')[0].Trim()
+}
+
+function Get-OpenStreamHome {
+    $value = Get-OpenStreamEnv 'HOME'
+    if ($value) { return $value }
+    $value = Get-OpenStreamEnv 'USERPROFILE'
+    if ($value) { return $value }
+    $drive = Get-OpenStreamEnv 'HOMEDRIVE'
+    $path = Get-OpenStreamEnv 'HOMEPATH'
+    if ($drive -and $path) { return "$drive$path" }
+    return ''
+}
+
 function Get-OpenStreamDataDir {
     $prefix = Get-OpenStreamEnv 'OPENSTREAM_PATH_PREFIX' 'JIOTV_PATH_PREFIX'
+    if (-not $prefix) { $prefix = Get-OpenStreamConfigPathPrefix }
     if ($prefix) { return $prefix }
-    $homeDir = Get-OpenStreamEnv 'USERPROFILE' 'HOME'
+    $homeDir = Get-OpenStreamHome
+    if (-not $homeDir) { throw 'cannot resolve the user profile directory' }
     $current = Join-Path $homeDir '.openstream-tv'
     $legacy = Join-Path $homeDir '.jiotv_go'
     if ((Test-Path -LiteralPath $current) -or -not (Test-Path -LiteralPath $legacy)) { return $current }
