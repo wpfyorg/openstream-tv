@@ -1,4 +1,5 @@
 use crate::access::Access;
+use crate::airtel_state::AirtelState;
 use crate::config::Config;
 use crate::custom_channels::CustomChannels;
 use crate::dash::DashState;
@@ -20,6 +21,7 @@ pub enum ActiveProduct {
     Fastway,
     Playbox,
     Vzy,
+    Airtel,
     TataPlay,
 }
 
@@ -31,6 +33,7 @@ impl ActiveProduct {
             ActiveProduct::Fastway => "fastway",
             ActiveProduct::Playbox => "playbox",
             ActiveProduct::Vzy => "vzy",
+            ActiveProduct::Airtel => "airtel",
             ActiveProduct::TataPlay => "tataplay",
         }
     }
@@ -59,8 +62,9 @@ pub struct AppState {
     pub extras: Arc<ExtrasState>,
     pub fastway: Arc<FastwayState>,
     pub playbox: Arc<PlayboxState>,
-    pub vzy: Arc<VzyState>,
+    pub airtel: Arc<AirtelState>,
     pub tataplay: Arc<TataplayState>,
+    pub vzy: Arc<VzyState>,
     pub vod_state: crate::vod::VodState,
     /// The server's cached public IPv4, used to compute today's extras
     /// unlock code. See `unlock.rs`.
@@ -124,13 +128,16 @@ impl AppState {
         // next context: drop provider caches at the same boundary.
         self.playbox.clear();
         self.vzy.clear();
+        self.airtel.clear();
         self.tataplay.clear();
     }
 
     /// Product selection follows the authenticated session that can actually
     /// supply the alternate catalogue. Fastway takes priority when connected,
-    /// then JioTV+, then PlayboxTV; otherwise the TV catalogue. Logging out of
-    /// an alternate provider immediately falls back to the next one.
+    /// then JioTV+, then PlayboxTV, VZY, Airtel and Tata Play; otherwise the
+    /// TV catalogue.
+    /// Logging out of an alternate provider immediately falls back to the next
+    /// one.
     pub fn active_product(&self) -> ActiveProduct {
         if self.fastway.connected() {
             ActiveProduct::Fastway
@@ -140,6 +147,8 @@ impl AppState {
             ActiveProduct::Playbox
         } else if self.vzy.connected() {
             ActiveProduct::Vzy
+        } else if self.airtel.connected() {
+            ActiveProduct::Airtel
         } else if self.tataplay.connected() {
             ActiveProduct::TataPlay
         } else {
@@ -187,6 +196,14 @@ impl AppState {
                 Ok(channels)
             }
             ActiveProduct::Tv => Ok(self.tv.channels().await?.result),
+            ActiveProduct::Airtel => {
+                let loaded = self.airtel.ensure_catalogue(&self.store).await;
+                let channels = self.airtel.channels();
+                if !loaded && channels.is_empty() {
+                    anyhow::bail!("airtel catalogue is unavailable");
+                }
+                Ok(channels)
+            }
         }
     }
 
@@ -219,6 +236,10 @@ impl AppState {
                 self.vzy.ensure_catalogue(&self.store).await;
                 self.vzy.contains(id)
             }
+            ActiveProduct::Airtel => {
+                self.airtel.ensure_catalogue(&self.store).await;
+                self.airtel.contains(id)
+            }
             ActiveProduct::TataPlay => {
                 self.tataplay.ensure_catalogue().await;
                 self.tataplay.contains(id)
@@ -248,6 +269,9 @@ impl AppState {
         }
         if crate::playbox::is_playbox_channel(id) {
             return self.playbox.is_drm(id);
+        }
+        if crate::airtel::is_airtel_channel(id) {
+            return self.airtel.is_drm(id);
         }
         if crate::tataplay::is_tataplay_channel(id) {
             // Every Tata Play live channel is Widevine DASH, independent of
@@ -284,6 +308,9 @@ impl AppState {
         if crate::playbox::is_playbox_channel(id) {
             return self.playbox.is_dash(id);
         }
+        if crate::airtel::is_airtel_channel(id) {
+            return self.airtel.is_dash(id);
+        }
         if crate::tataplay::is_tataplay_channel(id) {
             return true;
         }
@@ -294,6 +321,8 @@ impl AppState {
     pub fn player_user_agent_for(&self, host: &str) -> &'static str {
         if self.fastway.is_cdn_host(host) {
             crate::fastway::PLAYER_USER_AGENT
+        } else if crate::airtel::looks_like_airtel_cdn(host) {
+            crate::airtel::PLAYER_USER_AGENT
         } else {
             self.extras.player_user_agent_for(host)
         }
@@ -310,6 +339,7 @@ impl AppState {
             ActiveProduct::Extras => self.extras.connected(),
             ActiveProduct::Playbox => self.playbox.connected(),
             ActiveProduct::Vzy => self.vzy.connected(),
+            ActiveProduct::Airtel => self.airtel.connected(),
             ActiveProduct::TataPlay => self.tataplay.connected(),
             ActiveProduct::Tv => self.tv.logged_in(),
         }
@@ -343,6 +373,7 @@ mod tests {
             playbox: Arc::new(PlayboxState::new(false)),
             tataplay: Arc::new(TataplayState::new(false)),
             vzy: Arc::new(VzyState::new(false)),
+            airtel: Arc::new(AirtelState::new(false)),
             vod_state: Default::default(),
             public_ip: Arc::new(crate::unlock::PublicIp::new(reqwest::Client::new())),
             unlock_limiter: Arc::new(crate::unlock::AttemptLimiter::default()),
@@ -374,6 +405,7 @@ mod tests {
             playbox,
             tataplay: Arc::new(TataplayState::new(false)),
             vzy: Arc::new(VzyState::new(false)),
+            airtel: Arc::new(AirtelState::new(false)),
             vod_state: Default::default(),
             public_ip: Arc::new(crate::unlock::PublicIp::new(reqwest::Client::new())),
             unlock_limiter: Arc::new(crate::unlock::AttemptLimiter::default()),

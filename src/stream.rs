@@ -330,6 +330,9 @@ pub(crate) async fn fetch_live(
     if crate::vzy::is_vzy_channel(channel_id) {
         return state.vzy.live(channel_id, &state.store).await;
     }
+    if crate::airtel::is_airtel_channel(channel_id) {
+        return state.airtel.live(channel_id, &state.store).await;
+    }
     let is_custom = state.custom_channels.contains(channel_id);
     if let Some(content_id) = state.fastway.route(channel_id) {
         return state.fastway.live(&content_id).await;
@@ -400,6 +403,34 @@ fn shared_media_key(rendition_key: &str, original_token: &str) -> String {
     )
 }
 
+/// Merge a manifest token into provider headers as the `__hdnea__` cookie.
+/// Airtel returns its own cookie/headers with the playback descriptor, so add
+/// the token to that cookie instead of sending a second `Cookie` header.
+fn merge_hdnea_cookie(mut headers: Vec<(String, String)>, token: &str) -> Vec<(String, String)> {
+    let token = token.trim();
+    if token.is_empty() {
+        return headers;
+    }
+    if let Some((_, value)) = headers
+        .iter_mut()
+        .find(|(name, _)| name.eq_ignore_ascii_case("cookie"))
+    {
+        let has_token = value
+            .split(';')
+            .any(|part| part.trim().starts_with("__hdnea__="));
+        if !has_token {
+            if !value.is_empty() {
+                value.push_str("; ");
+            }
+            value.push_str("__hdnea__=");
+            value.push_str(token);
+        }
+    } else {
+        headers.push(("Cookie".to_string(), format!("__hdnea__={token}")));
+    }
+    headers
+}
+
 /// Headers a provider attaches to its own media requests, for channels that do
 /// not use the JioTV cookie flow.
 async fn provider_media_headers(
@@ -416,8 +447,9 @@ async fn provider_media_headers(
 }
 
 /// Fetch one manifest or segment for `channel_id`. PlayboxTV and Tata Play
-/// carry their media headers with the resolved playback URL; every other
-/// product uses the JioTV cookie flow.
+/// carry their media headers with the resolved playback URL; Airtel adds the
+/// manifest token to its own cookies; every other product uses the JioTV
+/// cookie flow.
 pub(crate) async fn fetch_media(
     state: &AppState,
     channel_id: &str,
@@ -432,6 +464,11 @@ pub(crate) async fn fetch_media(
             .tv
             .render_with_headers(url, token, &[("User-Agent".into(), "okhttp/4.12.0".into())])
             .await;
+    }
+    if crate::airtel::is_airtel_channel(channel_id) {
+        let headers = state.airtel.media_headers(&state.store, channel_id).await;
+        let headers = merge_hdnea_cookie(headers, token);
+        return state.tv.render_with_headers(url, "", &headers).await;
     }
     state.tv.render(url, token).await
 }
@@ -740,8 +777,9 @@ async fn live_impl_inner(
             .is_some();
         let via_playbox = crate::playbox::is_playbox_channel(id);
         let via_vzy = crate::vzy::is_vzy_channel(id);
+        let via_airtel = crate::airtel::is_airtel_channel(id);
         let via_tataplay = crate::tataplay::is_tataplay_channel(id);
-        if (via_fastway || via_extras || via_playbox || via_vzy || via_tataplay)
+        if (via_fastway || via_extras || via_playbox || via_vzy || via_airtel || via_tataplay)
             && television::has_dash(&live)
         {
             let prefix_str = prefix.as_ref().map(|p| p.0 .0.clone()).unwrap_or_default();
@@ -1507,6 +1545,12 @@ async fn proxy_segment(
         req = req
             .header(header::USER_AGENT, "okhttp/4.12.0")
             .header(header::ACCEPT, "*/*");
+    } else if crate::airtel::is_airtel_channel(channel_id) {
+        let headers = state.airtel.media_headers(&state.store, channel_id).await;
+        let headers = merge_hdnea_cookie(headers, hdnea.unwrap_or_default());
+        for (name, value) in headers {
+            req = req.header(name.as_str(), value.as_str());
+        }
     } else {
         let ua = url::Url::parse(url)
             .ok()
@@ -1575,6 +1619,12 @@ pub async fn render_key_handler(
         req = req
             .header(header::USER_AGENT, "okhttp/4.12.0")
             .header(header::ACCEPT, "*/*");
+    } else if crate::airtel::is_airtel_channel(&channel_id) {
+        let headers = state.airtel.media_headers(&state.store, &channel_id).await;
+        let headers = merge_hdnea_cookie(headers, hdnea.as_deref().unwrap_or_default());
+        for (name, value) in headers {
+            req = req.header(name.as_str(), value.as_str());
+        }
     } else {
         req = req.header(header::USER_AGENT, television::PLAYER_USER_AGENT);
         if let Some(t) = &hdnea {
@@ -1640,6 +1690,35 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn airtel_hdnea_token_is_merged_into_provider_cookie() {
+        let merged = merge_hdnea_cookie(
+            vec![
+                ("x-cdn".to_string(), "a".to_string()),
+                ("Cookie".to_string(), "session=1".to_string()),
+            ],
+            "tok",
+        );
+        assert_eq!(
+            merged,
+            vec![
+                ("x-cdn".to_string(), "a".to_string()),
+                ("Cookie".to_string(), "session=1; __hdnea__=tok".to_string()),
+            ]
+        );
+        assert_eq!(
+            merge_hdnea_cookie(Vec::new(), "tok"),
+            vec![("Cookie".to_string(), "__hdnea__=tok".to_string())]
+        );
+        assert_eq!(
+            merge_hdnea_cookie(
+                vec![("cookie".to_string(), "__hdnea__=old".to_string())],
+                "tok"
+            ),
+            vec![("cookie".to_string(), "__hdnea__=old".to_string())]
+        );
+    }
 
     #[test]
     fn hdnea_cache_key_is_scoped_to_hls_rendition() {
@@ -1907,6 +1986,7 @@ mod tests {
             playbox: Arc::new(crate::playbox_state::PlayboxState::new(false)),
             tataplay: Arc::new(crate::tataplay_state::TataplayState::new(false)),
             vzy: Arc::new(crate::vzy_state::VzyState::new(false)),
+            airtel: Arc::new(crate::airtel_state::AirtelState::new(false)),
             vod_state: Default::default(),
             public_ip: Arc::new(crate::unlock::PublicIp::new(reqwest::Client::new())),
             unlock_limiter: Arc::new(crate::unlock::AttemptLimiter::default()),
@@ -2460,6 +2540,7 @@ mod tests {
             playbox: Arc::new(crate::playbox_state::PlayboxState::new(false)),
             tataplay: Arc::new(crate::tataplay_state::TataplayState::new(false)),
             vzy: Arc::new(crate::vzy_state::VzyState::new(false)),
+            airtel: Arc::new(crate::airtel_state::AirtelState::new(false)),
             vod_state: Default::default(),
             public_ip: Arc::new(crate::unlock::PublicIp::new(reqwest::Client::new())),
             unlock_limiter: Arc::new(crate::unlock::AttemptLimiter::default()),
@@ -2527,6 +2608,7 @@ mod tests {
             playbox,
             tataplay: std::sync::Arc::new(crate::tataplay_state::TataplayState::new(false)),
             vzy: std::sync::Arc::new(crate::vzy_state::VzyState::new(false)),
+            airtel: std::sync::Arc::new(crate::airtel_state::AirtelState::new(false)),
             vod_state: Default::default(),
             public_ip: std::sync::Arc::new(crate::unlock::PublicIp::new(reqwest::Client::new())),
             unlock_limiter: std::sync::Arc::new(crate::unlock::AttemptLimiter::default()),

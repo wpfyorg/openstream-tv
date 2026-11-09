@@ -73,6 +73,21 @@ case "$1 $2" in
     echo 'the OTP is wrong or has expired' >&2
     exit 1
     ;;
+"airtel login")
+    printf 'Airtel mobile number (+91): '
+    read -r number
+    echo "number=$number" >> "$log"
+    echo 'OTP sent to your mobile number'
+    printf 'Airtel OTP: '
+    read -r otp
+    echo "otp=$otp" >> "$log"
+    if [ "$otp" = 135790 ]; then
+        echo 'Airtel login saved for +919876543210. Restart the server to use it.'
+        exit 0
+    fi
+    echo 'airtel: login failed: the OTP is wrong or has expired' >&2
+    exit 1
+    ;;
 "fastway login")
     printf 'Fastway username: '
     read -r user
@@ -188,6 +203,17 @@ $script:answerText = 'customer'
 $script:answerSecret = 's3cret'
 Check 'Fastway sign-in succeeds' (Connect-Fastway $Stub)
 Check 'Fastway sends both credentials' ((Log-Text) -eq "user=customer`npassword=s3cret")
+
+# Airtel: the number goes in, the SMS OTP is asked here and goes in next.
+Reset-Log
+$script:answerText = '9876543210'
+$script:answerSecret = '135790'
+Check 'Airtel sign-in succeeds' (Connect-Airtel $Stub)
+Check 'Airtel sends the number then the OTP' ((Log-Text) -eq "number=9876543210`notp=135790")
+
+Reset-Log
+$script:answerSecret = '000000'
+Check 'Airtel rejects a wrong OTP' (-not (Connect-Airtel $Stub))
 
 # A failed attempt is offered a retry, and saying no ends the sign-in.
 Reset-Log

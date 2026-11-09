@@ -726,9 +726,17 @@ impl Television {
     ) -> (Vec<u8>, u16, String) {
         let mut req = self.client.get(stream_url);
         let mut has_user_agent = false;
+        let mut has_hdnea_cookie = false;
         for (name, value) in extra_headers {
             if name.eq_ignore_ascii_case("user-agent") {
                 has_user_agent = true;
+            }
+            if name.eq_ignore_ascii_case("cookie")
+                && value
+                    .split(';')
+                    .any(|part| part.trim().starts_with("__hdnea__="))
+            {
+                has_hdnea_cookie = true;
             }
             req = req.header(name.as_str(), value.as_str());
         }
@@ -741,7 +749,9 @@ impl Television {
             extract_hdnea_from_url(stream_url)
         };
         if let Some(t) = &token {
-            req = req.header(header::COOKIE, format!("__hdnea__={t}"));
+            if !has_hdnea_cookie {
+                req = req.header(header::COOKIE, format!("__hdnea__={t}"));
+            }
         }
         let resp = match req.send().await {
             Ok(r) => r,

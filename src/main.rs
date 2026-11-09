@@ -1,4 +1,6 @@
 mod access;
+mod airtel;
+mod airtel_state;
 mod api;
 mod autostart;
 mod catchup;
@@ -90,6 +92,8 @@ fn main() -> anyhow::Result<()> {
         cli::Command::ExtrasLogout => extras_logout_cli(&store),
         cli::Command::FastwayLogin => runtime.block_on(fastway_login_cli(&store)),
         cli::Command::FastwayLogout => fastway_logout_cli(&store),
+        cli::Command::AirtelLogin => runtime.block_on(airtel_login_cli(&store)),
+        cli::Command::AirtelLogout => airtel_logout_cli(&store),
         cli::Command::AdminPassword => admin_password(&access, &path_prefix),
         cli::Command::KeyShow => show_key(&access),
         cli::Command::KeyRotate => rotate_key(&access),
@@ -560,6 +564,16 @@ async fn serve(
             }
         );
     }
+    if state.airtel.enabled() {
+        println!(
+            "airtel enabled{}",
+            if state.airtel.connected() {
+                " (logged in)"
+            } else {
+                " (run `ost airtel login`)"
+            }
+        );
+    }
 
     // Validating the XMLTV cache needs the active channel catalogue, which can
     // mean remote API calls with no timeout, so it runs off the startup path:
@@ -817,6 +831,8 @@ fn build_app_state(
     playbox_state.init(&http, &store);
     let vzy_state = Arc::new(vzy_state::VzyState::new(cfg.vzy));
     vzy_state.init(&http, &store);
+    let airtel_state = Arc::new(airtel_state::AirtelState::new(cfg.airtel));
+    airtel_state.init(&http, &store);
     let tataplay_state = Arc::new(tataplay_state::TataplayState::new(cfg.tataplay));
     tataplay_state.init(&http, &store);
 
@@ -838,6 +854,7 @@ fn build_app_state(
         playbox: playbox_state,
         tataplay: tataplay_state,
         vzy: vzy_state,
+        airtel: airtel_state,
         vod_state: Default::default(),
         public_ip: Arc::new(unlock::PublicIp::new(http)),
         unlock_limiter: Arc::new(unlock::AttemptLimiter::default()),
@@ -1038,6 +1055,42 @@ fn fastway_logout_cli(store: &store::Store) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// `ost airtel login` — Airtel only signs in with an SMS OTP, so the CLI asks
+/// for the number, sends the code, then asks for it.
+async fn airtel_login_cli(store: &store::Store) -> anyhow::Result<()> {
+    let client = airtel::Client::from_store(reqwest::Client::new(), store)?;
+
+    print!("Airtel mobile number (+91): ");
+    std::io::stdout().flush()?;
+    let mut number = String::new();
+    std::io::stdin().read_line(&mut number)?;
+    let Some(msisdn) = airtel::normalize_msisdn(number.trim()) else {
+        anyhow::bail!("enter a 10-digit Indian mobile number");
+    };
+
+    let message = client.send_otp(&msisdn).await?;
+    println!("{message}");
+
+    print!("Airtel OTP: ");
+    std::io::stdout().flush()?;
+    let mut otp = String::new();
+    std::io::stdin().read_line(&mut otp)?;
+
+    match client.verify_otp(store, &msisdn, otp.trim(), || {}).await {
+        Ok(creds) => {
+            println!("Airtel login saved for {}. Restart the server to use it.", creds.msisdn);
+            Ok(())
+        }
+        Err(e) => anyhow::bail!("login failed: {e}"),
+    }
+}
+
+fn airtel_logout_cli(store: &store::Store) -> anyhow::Result<()> {
+    airtel::delete_credentials(store)?;
+    println!("Airtel login deleted.");
+    Ok(())
+}
+
 fn login_reset(store: &store::Store) -> anyhow::Result<()> {
     println!("Deleting existing login file if exists");
     login::clear(store)?;
@@ -1154,6 +1207,7 @@ fn print_help() {
          login otp | login reset\n  \
          tv+ login | tv+ logout   (off by default; needs tv_plus = true / OPENSTREAM_TVPLUS=true)\n  \
          fastway login | fastway logout (off by default; needs fastway = true / OPENSTREAM_FASTWAY=true)\n  \
+         airtel login | airtel logout (off by default; needs airtel = true / OPENSTREAM_AIRTEL=true)\n  \
          epg generate | epg delete | epg on | epg off\n  \
          admin password\n  \
          key show | key rotate\n  \
