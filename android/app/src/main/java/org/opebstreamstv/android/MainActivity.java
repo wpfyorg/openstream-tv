@@ -1478,7 +1478,9 @@ public final class MainActivity extends Activity {
                 } else if (verifyRequest) {
                     body.put("otp", code);
                 }
-                String base = "jiotv_plus".equals(provider) ? "extras/login/" : "api/" + provider + "/login/";
+                String base = "jiotv".equals(provider)
+                        ? "login/"
+                        : ("jiotv_plus".equals(provider) ? "extras/login/" : "api/" + provider + "/login/");
                 JSONObject response = post(keyedPrefix + base + (verifyRequest ? "verifyOTP" : "sendOTP"), body);
                 if (verifyRequest) {
                     boolean ok = "jiotv".equals(provider)
