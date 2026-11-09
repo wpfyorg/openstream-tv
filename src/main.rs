@@ -904,6 +904,17 @@ fn display_host(host: &str) -> String {
     }
 }
 
+/// Records the provider whose CLI login just succeeded, matching the HTTP
+/// login handlers so the next server start activates that provider.
+fn remember_cli_provider(
+    store: &store::Store,
+    product: state::ActiveProduct,
+) -> anyhow::Result<()> {
+    store
+        .set(state::STORE_KEY_ACTIVE_PROVIDER, product.store_name())
+        .map_err(|e| anyhow::anyhow!("could not save the active provider: {e}"))
+}
+
 async fn login_otp(store: Arc<store::Store>) -> anyhow::Result<()> {
     print!("Enter your mobile number: +91 ");
     std::io::stdout().flush()?;
@@ -927,6 +938,7 @@ async fn login_otp(store: Arc<store::Store>) -> anyhow::Result<()> {
         anyhow::bail!("the OTP is wrong or has expired");
     };
     login::save(&store, &creds, login::TOUCH_ALL)?;
+    remember_cli_provider(&store, state::ActiveProduct::Tv)?;
     println!("Login successful");
     Ok(())
 }
@@ -994,7 +1006,10 @@ async fn extras_login_cli(store: &store::Store) -> anyhow::Result<()> {
         cr.save(store)?;
     }
     match result {
-        Ok(_) => println!("JioTV+ login saved. Restart the server to use it."),
+        Ok(_) => {
+            remember_cli_provider(store, state::ActiveProduct::Extras)?;
+            println!("JioTV+ login saved. Restart the server to use it.");
+        }
         Err(e) => anyhow::bail!("login failed: {e}"),
     }
     Ok(())
@@ -1020,6 +1035,7 @@ async fn fastway_login_cli(store: &store::Store) -> anyhow::Result<()> {
     match client.login(username, &password).await {
         Ok(creds) => {
             creds.save(store)?;
+            remember_cli_provider(store, state::ActiveProduct::Fastway)?;
             println!("Fastway login saved. Restart the server to use it.");
             Ok(())
         }
