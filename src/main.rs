@@ -1142,6 +1142,7 @@ async fn airtel_login_cli(store: &store::Store) -> anyhow::Result<()> {
 
     match client.verify_otp(store, &msisdn, otp.trim(), || {}).await {
         Ok(creds) => {
+            remember_cli_provider(store, state::ActiveProduct::Airtel)?;
             println!("Airtel login saved for {}. Restart the server to use it.", creds.msisdn);
             Ok(())
         }
