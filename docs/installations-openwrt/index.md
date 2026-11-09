@@ -17,7 +17,7 @@ By default, the installer enables the service and starts it. Open the browser in
 
 ## Guided setup
 
-Over an SSH terminal the installer also asks how to set the router up: build (`full` or `slim`), account (JioTV, JioTV+, Fastway, or Airtel Xstream beta when that package supports it), the address other devices will use, whether to expose it through Cloudflare, whether to turn on the programme guide, and the account sign-in. It stops the service before the terminal login and aborts if the service cannot be stopped, so a running process cannot overwrite the new login.
+Over an SSH terminal the installer also asks how to set the router up: build (`full` or `slim`), account (JioTV, JioTV+, Fastway, PlayboxTV, VZY, Airtel Xstream or Tata Play, each beta option only when that package supports it), the address other devices will use, whether to expose it through Cloudflare, whether to turn on the programme guide, and the account sign-in. It stops the service before the terminal login and aborts if the service cannot be stopped, so a running process cannot overwrite the new login.
 
 The provider, tunnel and guide choices are written to UCI, so those settings survive a reboot and a package upgrade. The address shown during setup is an installer summary choice, not a UCI setting; configure `option host` manually if the service must bind to a particular address.
 
