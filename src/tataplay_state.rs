@@ -334,6 +334,15 @@ impl TataplayState {
         }
         if let Some(previous) = slot.take() {
             previous.task.abort();
+            // Aborting the task only stops the beat. Close the replaced session
+            // explicitly so the upstream concurrency slot is not held until it
+            // times out.
+            let previous_client = client.clone();
+            tokio::spawn(async move {
+                if let Err(error) = previous_client.end_session(&previous.session_id).await {
+                    tracing::debug!(%error, "tataplay replaced session end failed");
+                }
+            });
         }
         let seconds = resolved
             .heartbeat_interval
@@ -723,5 +732,41 @@ mod tests {
         );
         state.invalidate_playback("tp_1918").await;
         wait_for(&server, "DELETE", "/smgs/api/v1/session").await;
+    }
+
+    #[tokio::test]
+    async fn replacing_a_heartbeat_ends_the_previous_session() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/smgs/api/v1/session"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"code": 0})))
+            .mount(&server)
+            .await;
+        Mock::given(method("DELETE"))
+            .and(path("/smgs/api/v1/session"))
+            .and(header("x-session-id", "sess-old"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"code": 0})))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let state = TataplayState::new(true);
+        let client = client_for(&server);
+        let first = ResolvedPlayback {
+            session_id: "sess-old".into(),
+            heartbeat_interval: Some(3600),
+            ..ResolvedPlayback::default()
+        };
+        state.start_heartbeat(&client, "tp_1", &first);
+        wait_for(&server, "POST", "/smgs/api/v1/session").await;
+
+        let second = ResolvedPlayback {
+            session_id: "sess-new".into(),
+            heartbeat_interval: Some(3600),
+            ..ResolvedPlayback::default()
+        };
+        state.start_heartbeat(&client, "tp_2", &second);
+
+        wait_for(&server, "DELETE", "/smgs/api/v1/session").await;
+        server.verify().await;
     }
 }

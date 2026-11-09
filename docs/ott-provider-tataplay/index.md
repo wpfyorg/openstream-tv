@@ -72,10 +72,13 @@ document-id map are available before login.
 `NetworkApi.X` opens a concurrency session with a bodyless
 `POST smgs/api/v1/session`, carrying `x-device-name` and the `x-session-id`
 returned by access control. The provider registers that session as soon as
-playback resolves, repeats the call every `heartbeatInterval` seconds, and
-sends the bodyless `DELETE smgs/api/v1/session` when the channel is stopped or
-the playback cache is invalidated. When the response omits `heartbeatInterval`
-the provider beats every 30 seconds.
+playback resolves and repeats the call every `heartbeatInterval` seconds. It
+sends the bodyless `DELETE smgs/api/v1/session` when playback is invalidated
+(a CDN rejection), when the provider is cleared on logout or account switch,
+when another channel replaces the session, and after five minutes without a
+media or license request. The server has no explicit player-stop signal, so a
+channel that is merely closed ends through that idle timeout. When the response
+omits `heartbeatInterval` the provider beats every 30 seconds.
 
 
 ## 1. Artifact identity (observed fact)
