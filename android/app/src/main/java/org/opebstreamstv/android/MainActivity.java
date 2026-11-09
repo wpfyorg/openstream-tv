@@ -391,7 +391,7 @@ public final class MainActivity extends Activity {
         tvPlaylistViews.add(copyButton); tvPlaylistViews.add(saveM3uButton); tvPlaylistViews.add(openButton);
         settingsButton = tvAction("Provider settings", 70, 711, 840, 40, false);
         settingsButton.setOnClickListener(v -> openSettings());
-        tvConfigViews.add(settingsButton);
+        tvPlaylistViews.add(settingsButton);
 
         tvConfigViews.add(tvLabel("Configuration & backup", 70, 757, 810, 39, 32, TV_TEXT, true));
         tvConfigViews.add(tvLabel("Import or export configuration files on this device", 70, 796, 840, 33, 20, TV_MUTED, false));
@@ -1407,15 +1407,37 @@ public final class MainActivity extends Activity {
         }
     }
     private void openSettings() {
-        if (playlistUrl.isEmpty()) {
-            say("Start the local server, then open provider settings.");
-            return;
-        }
-        String url = playlistUrl.replace("playlist.m3u", "") + "#/settings";
         rememberTvReturnFocus(settingsButton);
-        Intent intent = new Intent(this, SettingsActivity.class);
-        intent.putExtra(SettingsActivity.EXTRA_SETTINGS_URL, url);
-        startActivity(intent);
+        io.execute(() -> {
+            boolean ready = false;
+            String url = null;
+            try {
+                // Re-read the key so a rotation since the dashboard link was
+                // built does not make the Settings request return 401.
+                String path = runKeyShow();
+                playlistUrl = PlaylistLink.loopbackUrl(path, LocalServerEndpoint.port(this));
+                showPlaylistUrl();
+                if (serverHealthy()) {
+                    url = LocalServerEndpoint.baseUrl(this) + keyedPrefix + "#/settings";
+                    ready = true;
+                }
+            } catch (Exception e) {
+                android.util.Log.e("JioTVGo", "Cannot open provider settings", e);
+            }
+            final boolean serverReady = ready;
+            final String settingsUrl = url;
+            runOnUiThread(() -> {
+                if (activityDestroyed) return;
+                if (!serverReady || settingsUrl == null) {
+                    say("Start the local server, then open provider settings.");
+                    restoreTvReturnFocus();
+                    return;
+                }
+                Intent intent = new Intent(this, SettingsActivity.class);
+                intent.putExtra(SettingsActivity.EXTRA_SETTINGS_URL, settingsUrl);
+                startActivity(intent);
+            });
+        });
     }
     private void openUrl() {
         if (playlistUrl.isEmpty()) return;
