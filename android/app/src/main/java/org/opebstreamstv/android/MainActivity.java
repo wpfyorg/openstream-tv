@@ -152,6 +152,16 @@ public final class MainActivity extends Activity {
     private String playlistUrl = "", keyedPrefix = "";
     private boolean television;
     private RadioButton jiotvProvider, tvPlusProvider;
+    private final java.util.LinkedHashMap<String, Button> providerSwitches = new java.util.LinkedHashMap<>();
+    private JSONObject lastProviderStatus;
+    private static final String[][] PROVIDERS = {
+            {"jiotv", "JioTV"},
+            {"jiotv_plus", "JioTV+"},
+            {"fastway", "Fastway"},
+            {"playbox", "PlayboxTV"},
+            {"vzy", "VZY"},
+            {"tataplay", "Tata Play"},
+    };
     private ScrollView tvScroll;
     private View pendingTvReturnFocus;
     private EditText activeTvEditField;
@@ -183,7 +193,7 @@ public final class MainActivity extends Activity {
         super.onResume();
         refreshPermissionButtons();
         restoreTvReturnFocus();
-        if (television) io.execute(() -> refreshServerAndAccount());
+        if (!io.isShutdown()) io.execute(() -> refreshServerAndAccount());
     }
     @Override public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
@@ -218,6 +228,14 @@ public final class MainActivity extends Activity {
                 refreshPermissionButtons();
             } else say("Could not save the auto-start setting.");
         });
+        addText(left, "Active provider", television ? 19 : 20, 0xffffffff);
+        addText(left, "Switch the provider whose channels are listed. Only one is active at a time.", television ? 13 : 13, 0xff91a0b3);
+        for (String[] provider : PROVIDERS) {
+            Button switchButton = button(left, provider[1]);
+            providerSwitches.put(provider[0], switchButton);
+            switchButton.setOnClickListener(v -> onProviderSwitch(provider[0]));
+        }
+        addText(left, "Sign-in account", television ? 19 : 20, 0xffffffff);
         RadioGroup providers = new RadioGroup(this); providers.setOrientation(RadioGroup.HORIZONTAL); left.addView(providers, spacedParams(0, 0));
         jiotvProvider = providerChoice("JioTV", true); tvPlusProvider = providerChoice("JioTV+", false);
         providers.addView(jiotvProvider); providers.addView(tvPlusProvider);
@@ -269,6 +287,13 @@ public final class MainActivity extends Activity {
         states.addState(new int[]{android.R.attr.state_focused}, tvSurface(0xff203b40, TV_ACCENT, 12));
         states.addState(new int[]{android.R.attr.state_pressed}, tvSurface(0xff203b40, TV_ACCENT, 12));
         states.addState(new int[]{}, tvSurface(fill, 0, 12));
+        return states;
+    }
+    private StateListDrawable tvProviderSwitchSurface(boolean active) {
+        StateListDrawable states = new StateListDrawable();
+        states.addState(new int[]{android.R.attr.state_focused}, tvSurface(0xff203b40, TV_ACCENT, 12));
+        states.addState(new int[]{android.R.attr.state_pressed}, tvSurface(0xff203b40, TV_ACCENT, 12));
+        states.addState(new int[]{}, tvSurface(active ? 0xff173a33 : 0xff1b2b3b, active ? 0xff2f8f74 : 0, 12));
         return states;
     }
     private StateListDrawable tvBorderedActionSurface(int fill) {
@@ -406,15 +431,26 @@ public final class MainActivity extends Activity {
         View divider = new View(this); divider.setBackgroundColor(TV_BORDER);
         tvPlace(divider, 958, 181, 2, 755);
         tvProviderHeading = tvLabel("Provider", 1010, 180, 680, 38, 32, TV_TEXT, true);
-        tvProviderHelper = tvLabel("Select the account you want to use", 1010, 220, 825, 32, 20, TV_MUTED, false);
+        tvProviderHelper = tvLabel("Switch the provider whose channels are listed", 1010, 220, 825, 32, 20, TV_MUTED, false);
+        for (int index = 0; index < PROVIDERS.length; index++) {
+            String id = PROVIDERS[index][0];
+            int column = index % 2, row = index / 2;
+            Button switchButton = tvAction(PROVIDERS[index][1], 1010 + column * 430, 252 + row * 68, 410, 60, true);
+            switchButton.setTextSize(TypedValue.COMPLEX_UNIT_PX, tvPx(21));
+            switchButton.setBackground(tvOutlinedFocusSurface(0xff1b2b3b));
+            switchButton.setPadding(tvPx(18), 0, tvPx(10), 0);
+            switchButton.setOnClickListener(v -> onProviderSwitch(id));
+            providerSwitches.put(id, switchButton);
+        }
+
         RadioGroup providers = new RadioGroup(this); providers.setOrientation(RadioGroup.HORIZONTAL);
-        tvPlace(providers, 1010, 258, 840, 62);
+        tvPlace(providers, 1010, 536, 840, 54);
         jiotvProvider = providerChoice("JioTV", true); tvPlusProvider = providerChoice("JioTV+", false);
         for (RadioButton choice : new RadioButton[]{jiotvProvider, tvPlusProvider}) {
-            choice.setTextSize(TypedValue.COMPLEX_UNIT_PX, tvPx(23));
+            choice.setTextSize(TypedValue.COMPLEX_UNIT_PX, tvPx(22));
             choice.setBackground(tvOutlinedFocusSurface(0xff1b2b3b));
             choice.setPadding(tvPx(18), 0, tvPx(10), 0);
-            RadioGroup.LayoutParams option = new RadioGroup.LayoutParams(tvPx(410), tvPx(62));
+            RadioGroup.LayoutParams option = new RadioGroup.LayoutParams(tvPx(410), tvPx(54));
             if (choice == tvPlusProvider) option.leftMargin = tvPx(20);
             providers.addView(choice, option);
             tvRightControls.add(choice);
@@ -431,12 +467,12 @@ public final class MainActivity extends Activity {
             if (!io.isShutdown()) io.execute(() -> refreshServerAndAccount());
         });
 
-        tvAccountCard = tvCard(1010, 263, 840, 160);
+        tvAccountCard = tvCard(1010, 464, 840, 160);
         tvAccountCard.setBackground(tvSurface(0xff182b33, 0, 14));
-        tvLoginHeading = tvLabel("Provider login", 1010, 370, 800, 39, 32, TV_TEXT, true);
-        tvLoginHelper = tvLabel("Enter your mobile number to receive an OTP", 1010, 411, 840, 33, 20, TV_MUTED, false);
-        tvMobileLabel = tvLabel("Mobile number", 1010, 471, 810, 30, 22, TV_TEXT, true);
-        number = tvInput("10-digit mobile number", 1010, 503, 840);
+        tvLoginHeading = tvLabel("Provider login", 1010, 464, 800, 39, 32, TV_TEXT, true);
+        tvLoginHelper = tvLabel("Enter your mobile number to receive an OTP", 1010, 500, 840, 33, 20, TV_MUTED, false);
+        tvMobileLabel = tvLabel("Mobile number", 1010, 606, 810, 30, 22, TV_TEXT, true);
+        number = tvInput("10-digit mobile number", 1010, 638, 840);
         number.setInputType(InputType.TYPE_CLASS_NUMBER);
         number.setFilters(new InputFilter[]{new InputFilter.LengthFilter(10)});
         number.addTextChangedListener(new TextWatcher() {
@@ -449,8 +485,8 @@ public final class MainActivity extends Activity {
                 updateTvLoginState();
             }
         });
-        tvOtpLabel = tvLabel("One-time password", 1010, 590, 800, 30, 22, TV_TEXT, true);
-        otp = tvInput("6-digit OTP", 1010, 622, 840);
+        tvOtpLabel = tvLabel("One-time password", 1010, 718, 800, 30, 22, TV_TEXT, true);
+        otp = tvInput("6-digit OTP", 1010, 750, 840);
         otp.setInputType(InputType.TYPE_CLASS_NUMBER);
         otp.setFilters(new InputFilter[]{new InputFilter.LengthFilter(6)});
         otp.addTextChangedListener(new TextWatcher() {
@@ -458,20 +494,20 @@ public final class MainActivity extends Activity {
             @Override public void onTextChanged(CharSequence s, int start, int before, int count) { }
             @Override public void afterTextChanged(Editable s) { updateTvLoginActionLabel(); }
         });
-        tvOtpHint = tvLabel("", 1010, 785, 810, 28, 17, TV_MUTED, false);
-        send = tvAction("Send OTP", 1010, 708, 840, 62, true);
+        tvOtpHint = tvLabel("", 1010, 896, 810, 28, 17, TV_MUTED, false);
+        send = tvAction("Send OTP", 1010, 718, 840, 62, true);
         send.setOnClickListener(v -> otpRequest(tvOtpRequested && !otp.getText().toString().trim().isEmpty()));
         verify = send; // TV uses one changing action; phone retains separate buttons.
-        tvAccountName = tvLabel("JioTV", 1040, 289, 470, 39, 30, TV_TEXT, true);
-        tvAccountNote = tvLabel("●  Signed in", 1040, 333, 500, 30, 21, 0xff98e5c7, true);
-        logoutButton = tvAction("Log out", 1570, 303, 245, 65, true);
+        tvAccountName = tvLabel("JioTV", 1040, 490, 470, 39, 30, TV_TEXT, true);
+        tvAccountNote = tvLabel("●  Signed in", 1040, 534, 500, 30, 21, 0xff98e5c7, true);
+        logoutButton = tvAction("Log out", 1570, 504, 245, 65, true);
         logoutButton.setGravity(Gravity.CENTER);
         logoutButton.setBackground(tvPrimaryActionSurface());
         logoutButton.setTextColor(new android.content.res.ColorStateList(
                 new int[][]{{-android.R.attr.state_enabled}, {}},
                 new int[]{TV_MUTED, 0xff071e1b}));
         logoutButton.setOnClickListener(v -> confirmLogoutProvider());
-        tvAccountRetentionNote = tvLabel("Your login remains saved on this device.", 1010, 471, 840, 32, 20, TV_MUTED, false);
+        tvAccountRetentionNote = tvLabel("Your login remains saved on this device.", 1010, 672, 840, 32, 20, TV_MUTED, false);
         setContentView(tvScroll);
         configureTvFocus(tvScroll);
         updateTvLoginState();
@@ -482,8 +518,8 @@ public final class MainActivity extends Activity {
     private void updateTvLoginState() {
         if (!television || tvAccountCard == null) return;
         View focused = getCurrentFocus();
-        tvProviderHeading.setText(tvAuthenticated ? "Provider account" : "Provider");
-        tvProviderHelper.setText(tvAuthenticated ? "Your provider is connected." : "Select the account you want to use");
+        tvProviderHeading.setText("Provider");
+        tvProviderHelper.setText("Switch the provider whose channels are listed");
         tvLoginHeading.setText(tvAuthenticated ? "Connected account" : "Provider login");
         tvLoginHelper.setText(tvAuthenticated ? "You're signed in and ready to watch" :
                 tvOtpRequested ? "OTP requested · Enter the six-digit code" : "Enter your mobile number to receive an OTP");
@@ -502,7 +538,7 @@ public final class MainActivity extends Activity {
         logoutButton.setEnabled(!tvLogoutDisabled);
         logoutButton.setFocusable(!tvLogoutDisabled);
         // Move the action directly below the mobile field until an OTP is requested.
-        tvMove(send, tvOtpRequested ? 708 : 590);
+        tvMove(send, tvOtpRequested ? 826 : 718);
         tvCanvas.post(this::updateTvFocusGraph);
         if (focused != null && !isTvFocusable(focused))
             requestTvFocus(firstTvFocusable(tvAuthenticated ? logoutButton : send, number, jiotvProvider, service));
@@ -548,7 +584,9 @@ public final class MainActivity extends Activity {
         } catch (Exception ignored) { }
         JSONObject current = response;
         runOnUiThread(() -> {
-            if (activityDestroyed || !television) return;
+            if (activityDestroyed) return;
+            updateProviderSwitches(current);
+            if (!television) return;
             boolean healthy = current != null && current.has("jiotv");
             updateServerBadge(healthy);
             if (healthy) {
@@ -562,6 +600,109 @@ public final class MainActivity extends Activity {
                 tvAuthenticated = false;
             }
             updateTvLoginState();
+        });
+    }
+    private String providerLabel(String id) {
+        for (String[] provider : PROVIDERS) if (provider[0].equals(id)) return provider[1];
+        return id;
+    }
+    private boolean providerBeta(String id) {
+        return "playbox".equals(id) || "vzy".equals(id) || "tataplay".equals(id);
+    }
+    private String activeNameFor(String id) {
+        if ("jiotv".equals(id)) return "tv";
+        if ("jiotv_plus".equals(id)) return "extras";
+        return id;
+    }
+    private JSONObject providerStatus(JSONObject status, String id) {
+        if (status == null) return null;
+        if ("jiotv".equals(id)) return status.optJSONObject("jiotv");
+        if ("jiotv_plus".equals(id)) return status.optJSONObject("extras");
+        return status.optJSONObject(id);
+    }
+    private boolean providerEnabled(JSONObject status, String id) {
+        if ("jiotv".equals(id)) return true;
+        JSONObject provider = providerStatus(status, id);
+        return provider == null || provider.optBoolean("enabled", true);
+    }
+    private boolean providerConnected(JSONObject status, String id) {
+        JSONObject provider = providerStatus(status, id);
+        if (provider == null) return false;
+        return "jiotv".equals(id) ? provider.optBoolean("loggedIn", false) : provider.optBoolean("connected", false);
+    }
+    private void updateProviderSwitches(JSONObject status) {
+        lastProviderStatus = status;
+        String active = "";
+        JSONObject catalogue = status == null ? null : status.optJSONObject("catalogue");
+        if (catalogue != null) active = catalogue.optString("activeProduct", "");
+        for (String[] provider : PROVIDERS) {
+            String id = provider[0];
+            Button button = providerSwitches.get(id);
+            if (button == null) continue;
+            if (status == null) {
+                button.setVisibility(View.VISIBLE);
+                button.setEnabled(false);
+                button.setFocusable(false);
+                button.setText(provider[1] + " · Server stopped");
+                if (television) button.setBackground(tvProviderSwitchSurface(false));
+                continue;
+            }
+            if (!providerEnabled(status, id)) {
+                button.setVisibility(View.GONE);
+                continue;
+            }
+            button.setVisibility(View.VISIBLE);
+            if ("tataplay".equals(id)) {
+                button.setText(provider[1] + " (Beta) · Diagnostic only");
+                button.setEnabled(false);
+                button.setFocusable(false);
+                if (television) button.setBackground(tvProviderSwitchSurface(false));
+                continue;
+            }
+            boolean connected = providerConnected(status, id);
+            boolean isActive = connected && active.equals(activeNameFor(id));
+            String state = isActive ? "Active"
+                    : "vzy".equals(id) && connected ? "Free tier"
+                    : connected ? "Connected" : "Not connected";
+            button.setText(provider[1] + (providerBeta(id) ? " (Beta)" : "") + " · " + state);
+            button.setEnabled(true);
+            button.setFocusable(true);
+            if (television) button.setBackground(tvProviderSwitchSurface(isActive));
+        }
+        if (television && tvCanvas != null) tvCanvas.post(this::updateTvFocusGraph);
+    }
+    private void onProviderSwitch(String id) {
+        if ("tataplay".equals(id)) {
+            say("Tata Play is diagnostic only and is not part of the channel catalogue.");
+            return;
+        }
+        if (!providerConnected(lastProviderStatus, id)) {
+            if ("jiotv".equals(id) || "jiotv_plus".equals(id)) {
+                ("jiotv_plus".equals(id) ? tvPlusProvider : jiotvProvider).setChecked(true);
+                say("Sign in to " + providerLabel(id) + " below to connect it.");
+                if (television) requestTvFocus(number);
+            } else {
+                say("Open Provider settings to sign in to " + providerLabel(id) + ".");
+            }
+            return;
+        }
+        activateProvider(id);
+    }
+    private void activateProvider(String id) {
+        say("Switching to " + providerLabel(id) + "…");
+        io.execute(() -> {
+            try {
+                if (keyedPrefix.isEmpty()) runKeyShow();
+                JSONObject body = new JSONObject();
+                body.put("provider", id);
+                JSONObject response = post(keyedPrefix + "api/providers/activate", body);
+                boolean switched = activeNameFor(id).equals(response.optString("activeProduct", ""));
+                runOnUiThread(() -> say(switched ? providerLabel(id) + " is now the active provider."
+                        : providerLabel(id) + " is saved but not active. Connect it in Provider settings."));
+                refreshServerAndAccount();
+            } catch (Exception e) {
+                runOnUiThread(() -> say("Could not switch provider. Check the server and try again."));
+            }
         });
     }
     private void requestBootPermission() {
