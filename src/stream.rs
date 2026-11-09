@@ -400,6 +400,34 @@ fn shared_media_key(rendition_key: &str, original_token: &str) -> String {
     )
 }
 
+/// Merge a manifest token into provider headers as the `__hdnea__` cookie.
+/// Airtel returns its own cookie/headers with the playback descriptor, so add
+/// the token to that cookie instead of sending a second `Cookie` header.
+fn merge_hdnea_cookie(mut headers: Vec<(String, String)>, token: &str) -> Vec<(String, String)> {
+    let token = token.trim();
+    if token.is_empty() {
+        return headers;
+    }
+    if let Some((_, value)) = headers
+        .iter_mut()
+        .find(|(name, _)| name.eq_ignore_ascii_case("cookie"))
+    {
+        let has_token = value
+            .split(';')
+            .any(|part| part.trim().starts_with("__hdnea__="));
+        if !has_token {
+            if !value.is_empty() {
+                value.push_str("; ");
+            }
+            value.push_str("__hdnea__=");
+            value.push_str(token);
+        }
+    } else {
+        headers.push(("Cookie".to_string(), format!("__hdnea__={token}")));
+    }
+    headers
+}
+
 /// Fetch one manifest or segment for `channel_id`. PlayboxTV carries its
 /// media headers with the resolved playback URL; every other product uses the
 /// JioTV cookie flow.
@@ -421,6 +449,7 @@ pub(crate) async fn fetch_media(
     }
     if crate::airtel::is_airtel_channel(channel_id) {
         let headers = state.airtel.media_headers(&state.store, channel_id).await;
+        let headers = merge_hdnea_cookie(headers, token);
         return state.tv.render_with_headers(url, "", &headers).await;
     }
     state.tv.render(url, token).await
@@ -730,7 +759,10 @@ async fn live_impl_inner(
             .is_some();
         let via_playbox = crate::playbox::is_playbox_channel(id);
         let via_vzy = crate::vzy::is_vzy_channel(id);
-        if (via_fastway || via_extras || via_playbox || via_vzy) && television::has_dash(&live) {
+        let via_airtel = crate::airtel::is_airtel_channel(id);
+        if (via_fastway || via_extras || via_playbox || via_vzy || via_airtel)
+            && television::has_dash(&live)
+        {
             let prefix_str = prefix.as_ref().map(|p| p.0 .0.clone()).unwrap_or_default();
             return Redirect::to(&format!("{prefix_str}/live/mpd/{id}?q={quality}"))
                 .into_response();
@@ -1485,7 +1517,9 @@ async fn proxy_segment(
             .header(header::USER_AGENT, "okhttp/4.12.0")
             .header(header::ACCEPT, "*/*");
     } else if crate::airtel::is_airtel_channel(channel_id) {
-        for (name, value) in state.airtel.media_headers(&state.store, channel_id).await {
+        let headers = state.airtel.media_headers(&state.store, channel_id).await;
+        let headers = merge_hdnea_cookie(headers, hdnea.unwrap_or_default());
+        for (name, value) in headers {
             req = req.header(name.as_str(), value.as_str());
         }
     } else {
@@ -1557,11 +1591,10 @@ pub async fn render_key_handler(
             .header(header::USER_AGENT, "okhttp/4.12.0")
             .header(header::ACCEPT, "*/*");
     } else if crate::airtel::is_airtel_channel(&channel_id) {
-        for (name, value) in state.airtel.media_headers(&state.store, &channel_id).await {
+        let headers = state.airtel.media_headers(&state.store, &channel_id).await;
+        let headers = merge_hdnea_cookie(headers, hdnea.as_deref().unwrap_or_default());
+        for (name, value) in headers {
             req = req.header(name.as_str(), value.as_str());
-        }
-        if let Some(t) = &hdnea {
-            req = req.header(header::COOKIE, format!("__hdnea__={t}"));
         }
     } else {
         req = req.header(header::USER_AGENT, television::PLAYER_USER_AGENT);
@@ -1628,6 +1661,35 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn airtel_hdnea_token_is_merged_into_provider_cookie() {
+        let merged = merge_hdnea_cookie(
+            vec![
+                ("x-cdn".to_string(), "a".to_string()),
+                ("Cookie".to_string(), "session=1".to_string()),
+            ],
+            "tok",
+        );
+        assert_eq!(
+            merged,
+            vec![
+                ("x-cdn".to_string(), "a".to_string()),
+                ("Cookie".to_string(), "session=1; __hdnea__=tok".to_string()),
+            ]
+        );
+        assert_eq!(
+            merge_hdnea_cookie(Vec::new(), "tok"),
+            vec![("Cookie".to_string(), "__hdnea__=tok".to_string())]
+        );
+        assert_eq!(
+            merge_hdnea_cookie(
+                vec![("cookie".to_string(), "__hdnea__=old".to_string())],
+                "tok"
+            ),
+            vec![("cookie".to_string(), "__hdnea__=old".to_string())]
+        );
+    }
 
     #[test]
     fn hdnea_cache_key_is_scoped_to_hls_rendition() {

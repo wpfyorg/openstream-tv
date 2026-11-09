@@ -29,6 +29,9 @@ pub struct AirtelState {
     generation: AtomicU64,
     commit: Mutex<()>,
     locks: KeyedLocks,
+    /// Serializes login/logout transitions so an in-flight OTP exchange cannot
+    /// restore the account after a logout has succeeded.
+    account_transition: tokio::sync::Mutex<()>,
 }
 
 impl AirtelState {
@@ -43,6 +46,7 @@ impl AirtelState {
             generation: AtomicU64::new(0),
             commit: Mutex::new(()),
             locks: KeyedLocks::default(),
+            account_transition: tokio::sync::Mutex::new(()),
         }
     }
 
@@ -101,7 +105,10 @@ impl AirtelState {
         self.playback.write().unwrap().clear();
     }
 
-    pub fn logout(&self, store: &crate::store::Store) -> anyhow::Result<()> {
+    pub async fn logout(&self, store: &crate::store::Store) -> anyhow::Result<()> {
+        // Wait for any OTP exchange that is already running, then clear the
+        // account. A login that starts afterwards is a new user action.
+        let _transition = self.account_transition.lock().await;
         if let Some(client) = self.client() {
             let mut guard = client.creds.write().unwrap();
             *guard = None;
@@ -111,6 +118,21 @@ impl AirtelState {
         }
         self.clear();
         Ok(())
+    }
+
+    /// Run the OTP exchange under the same account transition lock as logout,
+    /// so a verification that is still in flight cannot reinstall credentials
+    /// after the user has logged out.
+    pub async fn verify_otp(
+        &self,
+        client: &Client,
+        store: &crate::store::Store,
+        msisdn: &str,
+        otp: &str,
+        on_installed: impl FnOnce(),
+    ) -> anyhow::Result<crate::airtel::Credentials> {
+        let _transition = self.account_transition.lock().await;
+        client.verify_otp(store, msisdn, otp, on_installed).await
     }
 
     /// Loads the account's entitled channel list. Returns false when the
@@ -392,6 +414,21 @@ impl AirtelState {
             .is_some_and(|(p, _)| p.is_dash)
     }
 
+    /// Whether a cold playlist may emit this channel yet. The playlist is
+    /// rendered before segment requests, so a channel whose metadata could not
+    /// be resolved has no reliable HLS/DASH classification.
+    pub fn playlist_ready(&self, channel_id: &str) -> bool {
+        let Some(content_id) = parse_channel_id(channel_id) else {
+            return false;
+        };
+        let key = crate::airtel::channel_id(content_id);
+        self.playback
+            .read()
+            .unwrap()
+            .get(&key)
+            .is_some_and(|(_, at)| at.elapsed() < PLAYBACK_TTL)
+    }
+
     /// Channel display names plus the guide entries for the next few hours.
     pub async fn epg_source(
         &self,
@@ -611,7 +648,7 @@ mod tests {
         let refresh_store = store.clone();
         let refresh = tokio::spawn(async move { client.refresh(&refresh_store).await });
         refresh_started.notified().await;
-        state.logout(&store).unwrap();
+        state.logout(&store).await.unwrap();
         let error = refresh.await.unwrap().unwrap_err();
         assert!(error
             .to_string()
@@ -648,9 +685,61 @@ mod tests {
         assert!(state.ensure_catalogue(&store).await);
         assert!(!state.is_drm("airtel_2002"));
         assert!(!state.is_dash("airtel_2002"));
+        assert!(!state.playlist_ready("airtel_2002"));
         state.prepare_playlist_metadata(store.clone()).await;
         assert!(state.is_drm("airtel_2002"));
         assert!(state.is_dash("airtel_2002"));
+        assert!(state.playlist_ready("airtel_2002"));
+    }
+
+    #[tokio::test]
+    async fn logout_during_login_does_not_restore_the_account() {
+        use tokio::sync::Notify;
+        use wiremock::Request;
+
+        let server = MockServer::start().await;
+        let login_started = Arc::new(Notify::new());
+        let login_started_for_response = login_started.clone();
+        Mock::given(method("POST"))
+            .and(path("/v8/user/login"))
+            .respond_with(move |_request: &Request| {
+                login_started_for_response.notify_one();
+                ResponseTemplate::new(200)
+                    .set_delay(Duration::from_millis(100))
+                    .set_body_raw(
+                        r#"{"success":true,"uid":"uid","token":"token"}"#,
+                        "application/json",
+                    )
+            })
+            .expect(1)
+            .mount(&server)
+            .await;
+        let state = Arc::new(AirtelState::new(true));
+        let client = client_for(&server);
+        state.set_client_for_test(client.clone());
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(crate::store::Store::open(dir.path().to_str().unwrap()).unwrap());
+
+        let verify_state = state.clone();
+        let verify_store = store.clone();
+        let verify_client = client.clone();
+        let verify = tokio::spawn(async move {
+            verify_state
+                .verify_otp(
+                    &verify_client,
+                    &verify_store,
+                    "+919999999999",
+                    "123456",
+                    || {},
+                )
+                .await
+        });
+        login_started.notified().await;
+        state.logout(&store).await.unwrap();
+        let creds = verify.await.unwrap().unwrap();
+        assert_eq!(creds.uid, "uid");
+        assert!(crate::airtel::Credentials::load(&store).is_none());
+        assert!(!state.connected());
     }
 
     #[tokio::test]
@@ -697,7 +786,7 @@ mod tests {
         }
         .save(&store)
         .unwrap();
-        state.logout(&store).unwrap();
+        state.logout(&store).await.unwrap();
         assert!(crate::airtel::Credentials::load(&store).is_none());
         assert!(!state.connected());
     }

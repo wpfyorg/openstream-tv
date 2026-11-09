@@ -443,6 +443,8 @@ async fn channels_or_playlist(
         |id| {
             if crate::playbox::is_playbox_channel(id) {
                 state.playbox.playlist_ready(id)
+            } else if crate::airtel::is_airtel_channel(id) {
+                state.airtel.playlist_ready(id)
             } else {
                 state.is_playable(id)
             }

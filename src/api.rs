@@ -1028,8 +1028,9 @@ pub async fn airtel_verify_otp(
         );
     };
     let installed = std::sync::atomic::AtomicBool::new(false);
-    let result = client
-        .verify_otp(&state.store, &msisdn, body.otp.trim(), || {
+    let result = state
+        .airtel
+        .verify_otp(&client, &state.store, &msisdn, body.otp.trim(), || {
             installed.store(true, std::sync::atomic::Ordering::SeqCst);
             state.invalidate_context();
         })
@@ -1057,7 +1058,7 @@ pub async fn airtel_logout(State(state): State<SharedState>) -> Response {
         return err(StatusCode::FORBIDDEN, "logout is disabled");
     }
     state.invalidate_context();
-    match state.airtel.logout(&state.store) {
+    match state.airtel.logout(&state.store).await {
         Ok(()) => {
             state.invalidate_context();
             crate::epg::trigger_regeneration(&state);

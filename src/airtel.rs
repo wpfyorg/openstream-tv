@@ -607,10 +607,14 @@ impl Client {
             .is_some_and(|c| !c.uid.is_empty() && !c.token.is_empty())
     }
 
-    fn sign(&self, method: &str, path: &str, query: &str, body: &str) -> String {
-        let creds = self.credentials();
+    fn sign_with(
+        creds: Option<&Credentials>,
+        method: &str,
+        path: &str,
+        query: &str,
+        body: &str,
+    ) -> String {
         let (uid, token) = creds
-            .as_ref()
             .filter(|c| !c.uid.is_empty() && !c.token.is_empty())
             .map(|c| (c.uid.clone(), c.token.clone()))
             .unwrap_or_else(|| (FALLBACK_UID.to_string(), FALLBACK_TOKEN.to_string()));
@@ -621,11 +625,23 @@ impl Client {
     /// the account's content properties, which the interceptor does on the
     /// catalogue, EPG, content and package hosts only.
     fn request(&self, spec: RequestSpec<'_>) -> reqwest::RequestBuilder {
+        let creds = self.credentials();
+        self.request_as(spec, creds.as_ref())
+    }
+
+    /// Like [`Client::request`], but signs with the credentials the caller
+    /// captured. Refresh uses this so the request and the later replacement
+    /// check refer to the same login.
+    fn request_as(
+        &self,
+        spec: RequestSpec<'_>,
+        creds: Option<&Credentials>,
+    ) -> reqwest::RequestBuilder {
         let mut pairs: Vec<(String, String)> = Vec::with_capacity(spec.query.len() + 8);
         pairs.push(("appId".to_string(), APP_ID.to_string()));
         pairs.extend(spec.query);
         if spec.properties {
-            if let Some(creds) = self.credentials() {
+            if let Some(creds) = creds {
                 for (key, value) in creds.properties() {
                     if key != "appId" {
                         pairs.push((key, value));
@@ -644,7 +660,7 @@ impl Client {
         } else {
             format!("{}{}?{query_string}", spec.base, spec.path)
         };
-        let utkn = self.sign(spec.method.as_str(), spec.path, &query_string, &body);
+        let utkn = Self::sign_with(creds, spec.method.as_str(), spec.path, &query_string, &body);
         let mut req = self
             .http
             .request(spec.method, &url)
@@ -656,7 +672,7 @@ impl Client {
         if !body.is_empty() {
             req = req.body(body);
         }
-        if let Some(creds) = self.credentials() {
+        if let Some(creds) = creds {
             if !creds.language_or_default().is_empty() {
                 req = req.header("x-atv-lang", creds.language_or_default());
             }
@@ -835,11 +851,11 @@ impl Client {
             "requireOtp": "false",
         })
         .to_string();
-        let req = self.request(RequestSpec::post(
-            &self.api_base,
-            "/v2/user/session/refreshAuthToken",
-            body,
-        ));
+        let original = self.credentials();
+        let req = self.request_as(
+            RequestSpec::post(&self.api_base, "/v2/user/session/refreshAuthToken", body),
+            original.as_ref(),
+        );
         let (status, bytes) = self.send(req, "refresh").await?;
         let parsed: LoginResponse = serde_json::from_slice(&bytes).unwrap_or_default();
         let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap_or_default();
@@ -849,10 +865,16 @@ impl Client {
                 upstream_error(status, &value)
             );
         }
+        let Some(original) = original else {
+            anyhow::bail!("airtel: account logged out during token refresh");
+        };
         let mut guard = self.creds.write().unwrap();
         let Some(creds) = guard.as_mut() else {
             anyhow::bail!("airtel: account logged out during token refresh");
         };
+        if creds.uid != original.uid || creds.token != original.token {
+            anyhow::bail!("airtel: credentials changed during token refresh");
+        }
         if !parsed.uid.is_empty() {
             creds.uid = parsed.uid;
         }
@@ -1484,6 +1506,57 @@ mod tests {
         assert_eq!(creds.uid, "uid-1");
         assert_eq!(creds.token, "new-token");
         assert_eq!(creds.auth_token, "stkn-1");
+    }
+
+    #[tokio::test]
+    async fn refresh_rejects_credentials_replaced_by_a_login() {
+        use tokio::sync::Notify;
+        use wiremock::Request;
+
+        let server = MockServer::start().await;
+        let refresh_started = std::sync::Arc::new(Notify::new());
+        let refresh_started_for_response = refresh_started.clone();
+        Mock::given(method("POST"))
+            .and(path("/v2/user/session/refreshAuthToken"))
+            .respond_with(move |_request: &Request| {
+                refresh_started_for_response.notify_one();
+                ResponseTemplate::new(200)
+                    .set_delay(Duration::from_millis(100))
+                    .set_body_raw(
+                        r#"{"success":true,"token":"refreshed-token"}"#,
+                        "application/json",
+                    )
+            })
+            .expect(1)
+            .mount(&server)
+            .await;
+        let client = std::sync::Arc::new(client(&server));
+        *client.creds.write().unwrap() = Some(Credentials {
+            uid: "uid-1".into(),
+            token: "old-token".into(),
+            ..Default::default()
+        });
+        let dir = tempfile::tempdir().unwrap();
+        let store =
+            std::sync::Arc::new(crate::store::Store::open(dir.path().to_str().unwrap()).unwrap());
+
+        let refresh_store = store.clone();
+        let refresh_client = client.clone();
+        let refresh = tokio::spawn(async move { refresh_client.refresh(&refresh_store).await });
+        refresh_started.notified().await;
+        let login = Credentials {
+            uid: "uid-2".into(),
+            token: "login-token".into(),
+            ..Default::default()
+        };
+        login.save(&store).unwrap();
+        *client.creds.write().unwrap() = Some(login);
+        let error = refresh.await.unwrap().unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("credentials changed during token refresh"));
+        assert_eq!(client.credentials().unwrap().token, "login-token");
+        assert_eq!(Credentials::load(&store).unwrap().token, "login-token");
     }
 
     #[tokio::test]
