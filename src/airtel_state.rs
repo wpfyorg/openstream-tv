@@ -452,9 +452,9 @@ impl AirtelState {
             .as_millis() as i64;
         let day = 86_400_000i64;
         let local = now + crate::epg::IST_OFFSET_MS;
-        let start =
-            local - local.rem_euclid(day) - crate::epg::IST_OFFSET_MS + offset_days.max(0) * day;
-        let end = start + day;
+        let start = (local - local.rem_euclid(day) - crate::epg::IST_OFFSET_MS)
+            .saturating_add(offset_days.max(0).saturating_mul(day));
+        let end = start.saturating_add(day);
         let guide = client.epg(store, start, end).await?;
         Ok(guide.get(content_id).cloned().unwrap_or_default())
     }
@@ -651,6 +651,26 @@ mod tests {
         state.prepare_playlist_metadata(store.clone()).await;
         assert!(state.is_drm("airtel_2002"));
         assert!(state.is_dash("airtel_2002"));
+    }
+
+    #[tokio::test]
+    async fn web_epg_saturates_an_extreme_day_offset() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/app/v3/content/epg"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_raw(r#"{"programGuide":{"1001":[]}}"#, "application/json"),
+            )
+            .mount(&server)
+            .await;
+        let state = AirtelState::new(true);
+        state.set_client_for_test(client_for(&server));
+        let dir = tempfile::tempdir().unwrap();
+        let store = crate::store::Store::open(dir.path().to_str().unwrap()).unwrap();
+        // A huge offset from the URL must not overflow the day arithmetic.
+        assert!(state.web_epg(&store, "airtel_1001", i64::MAX).await.is_ok());
+        assert!(state.web_epg(&store, "airtel_1001", 0).await.is_ok());
     }
 
     #[tokio::test]

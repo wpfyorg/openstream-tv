@@ -173,7 +173,7 @@ wait_for "Which build?" "$tmp/out-airtel"; enter
 wait_for "Which account are you setting up?" "$tmp/out-airtel"; send "$(printf '\033[B\033[B\033[B')"; enter
 wait_for "This machine's address" "$tmp/out-airtel"; send '192.168.1.9'; enter
 wait_for "Open OpenStream TV beyond your LAN?" "$tmp/out-airtel"; enter
-wait_for "Airtel mobile number" "$tmp/out-airtel"; send '9876543210'; enter
+wait_for "Airtel mobile number" "$tmp/out-airtel"; send '+91 98765 43210'; enter
 wait_for "Enter the OTP" "$tmp/out-airtel"; send '135790'; enter
 wait_for "Choose an admin password" "$tmp/out-airtel"; send 'secret'; enter
 wait_for "Installation complete" "$tmp/out-airtel"
@@ -181,6 +181,8 @@ finish_flow
 if [ "${OPENSTREAM_TEST_SHOW:-0}" = 1 ]; then sed 's/\r$//' "$tmp/out-airtel"; fi
 
 grep -F "Signed in to Airtel Xstream" "$tmp/out-airtel" >/dev/null
+# The formatted number typed above is normalised before it reaches the CLI.
+grep -F "OTP sent to +919876543210" "$tmp/out-airtel" >/dev/null
 grep -F "account   Airtel Xstream" "$tmp/out-airtel" >/dev/null
 airtel_env="$tmp/install-airtel/home/.config/openstream/installer.env"
 grep -F "export OPENSTREAM_AIRTEL='true'" "$airtel_env" >/dev/null

@@ -618,6 +618,9 @@ ob_creds_airtel() {
   ui_step "Sign in to Airtel Xstream"
   ui_input "Airtel mobile number (+91)" ""
   ob_number=$ui_result
+  # Accept formatted input such as "+91 98765 43210", matching install.ps1 and
+  # the CLI's normalize_msisdn.
+  ob_number=$(printf '%s' "$ob_number" | tr -dc '0-9')
   case "$ob_number" in
     [6-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]) ;;
     91[6-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]) ob_number=${ob_number#91} ;;
