@@ -249,6 +249,7 @@ public final class MainActivity extends Activity {
         phoneLoginHeading = addText(right, "Provider login", television ? 19 : 20, 0xffffffff);
         phoneLoginHelper = addText(right, "Select a provider to sign in.", television ? 13 : 13, 0xff91a0b3);
         number = field(right, "Mobile number"); number.setInputType(3); otp = field(right, "OTP"); otp.setInputType(2);
+        configureOtpIme();
         LinearLayout loginActions = new LinearLayout(this); loginActions.setOrientation(LinearLayout.HORIZONTAL); right.addView(loginActions, spacedParams(0, 0));
         send = button(loginActions, "Send OTP"); send.setOnClickListener(v -> otpRequest(false));
         verify = button(loginActions, "Verify OTP"); verify.setOnClickListener(v -> otpRequest(true));
@@ -257,6 +258,7 @@ public final class MainActivity extends Activity {
         fastwayUser = field(right, "Fastway username");
         fastwayPassLabel = addText(right, "Fastway password", television ? 13 : 13, 0xff91a0b3);
         fastwayPass = field(right, "Password"); fastwayPass.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        configureFastwayIme();
         fastwayConnect = button(right, "Connect Fastway"); fastwayConnect.setOnClickListener(v -> fastwayLogin());
         fastwayHint = addText(right, "", television ? 13 : 13, 0xff91a0b3);
         vzyInfo = addText(right, "VZY free tier needs no account.", television ? 13 : 13, 0xff91a0b3);
@@ -477,6 +479,7 @@ public final class MainActivity extends Activity {
             @Override public void onTextChanged(CharSequence s, int start, int before, int count) { }
             @Override public void afterTextChanged(Editable s) { updateTvLoginActionLabel(); }
         });
+        configureOtpIme();
         tvOtpHint = tvLabel("", 1010, 840, 810, 28, 17, TV_MUTED, false);
         send = tvAction("Send OTP", 1010, 765, 840, 62, true);
         send.setOnClickListener(v -> otpRequest(tvOtpRequested && !otp.getText().toString().trim().isEmpty()));
@@ -486,6 +489,7 @@ public final class MainActivity extends Activity {
         fastwayPassLabel = tvLabel("Fastway password", 1010, 655, 810, 30, 22, TV_TEXT, true);
         fastwayPass = tvInput("Password", 1010, 687, 840);
         fastwayPass.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        configureFastwayIme();
         fastwayConnect = tvAction("Connect Fastway", 1010, 765, 840, 62, true);
         fastwayConnect.setOnClickListener(v -> fastwayLogin());
         fastwayHint = tvLabel("", 1010, 840, 810, 28, 17, TV_MUTED, false);
@@ -592,6 +596,46 @@ public final class MainActivity extends Activity {
         boolean hasOtp = otp != null && !otp.getText().toString().trim().isEmpty();
         send.setText(tvLoginBusy ? (tvOtpRequested && hasOtp ? "Logging in…" : "Sending OTP…") :
                 tvOtpRequested ? (hasOtp ? "Login" : "Resend OTP") : "Send OTP");
+    }
+    private void configureOtpIme() {
+        number.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEND);
+        number.setOnEditorActionListener((view, actionId, event) -> {
+            boolean enter = event != null && event.getKeyCode() == android.view.KeyEvent.KEYCODE_ENTER
+                    && event.getAction() == android.view.KeyEvent.ACTION_DOWN;
+            if (enter || actionId == android.view.inputmethod.EditorInfo.IME_ACTION_SEND
+                    || actionId == android.view.inputmethod.EditorInfo.IME_ACTION_DONE
+                    || actionId == android.view.inputmethod.EditorInfo.IME_ACTION_GO) {
+                otpRequest(tvOtpRequested && !otp.getText().toString().trim().isEmpty());
+                return true;
+            }
+            return false;
+        });
+        otp.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_DONE);
+        otp.setOnEditorActionListener((view, actionId, event) -> {
+            boolean enter = event != null && event.getKeyCode() == android.view.KeyEvent.KEYCODE_ENTER
+                    && event.getAction() == android.view.KeyEvent.ACTION_DOWN;
+            if (enter || actionId == android.view.inputmethod.EditorInfo.IME_ACTION_DONE
+                    || actionId == android.view.inputmethod.EditorInfo.IME_ACTION_GO) {
+                otpRequest(true);
+                return true;
+            }
+            return false;
+        });
+    }
+    private void configureFastwayIme() {
+        if (fastwayUser != null) fastwayUser.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_NEXT);
+        if (fastwayPass == null) return;
+        fastwayPass.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_DONE);
+        fastwayPass.setOnEditorActionListener((view, actionId, event) -> {
+            boolean enter = event != null && event.getKeyCode() == android.view.KeyEvent.KEYCODE_ENTER
+                    && event.getAction() == android.view.KeyEvent.ACTION_DOWN;
+            if (enter || actionId == android.view.inputmethod.EditorInfo.IME_ACTION_DONE
+                    || actionId == android.view.inputmethod.EditorInfo.IME_ACTION_GO) {
+                fastwayLogin();
+                return true;
+            }
+            return false;
+        });
     }
     private void tvMove(View view, int y) {
         if (view == null) return;
@@ -1097,14 +1141,21 @@ public final class MainActivity extends Activity {
         final int inputType = field.getInputType();
         field.setShowSoftInputOnFocus(false);
         field.setCursorVisible(false);
-        field.setInputType(android.text.InputType.TYPE_NULL);
+        field.setRawInputType(android.text.InputType.TYPE_NULL);
         field.setOnFocusChangeListener((v, focused) -> {
             if (focused) scrollTvFocusIntoView(v);
             else if (activeTvEditField == field) exitTvEditMode(field);
         });
         field.setOnKeyListener((v, key, event) -> {
             if (key == KeyEvent.KEYCODE_DPAD_CENTER || key == KeyEvent.KEYCODE_ENTER) {
-                if (event.getAction() == KeyEvent.ACTION_UP && activeTvEditField != field) enterTvEditMode(field, inputType);
+                if (activeTvEditField == field) {
+                    // While editing, OK presses the on-screen keyboard. A
+                    // hardware Enter submits the field's action instead.
+                    if (key == KeyEvent.KEYCODE_ENTER && event.getAction() == KeyEvent.ACTION_UP)
+                        performTvFieldAction(field);
+                    return true;
+                }
+                if (event.getAction() == KeyEvent.ACTION_UP) enterTvEditMode(field, inputType);
                 return true;
             }
             if (event.getAction() != KeyEvent.ACTION_DOWN || activeTvEditField == field) return false;
@@ -1123,7 +1174,7 @@ public final class MainActivity extends Activity {
     }
     private void enterTvEditMode(EditText field, int inputType) {
         activeTvEditField = field;
-        field.setInputType(inputType);
+        field.setRawInputType(inputType);
         field.setCursorVisible(true);
         field.setShowSoftInputOnFocus(true);
         field.setSelection(field.length());
@@ -1134,9 +1185,18 @@ public final class MainActivity extends Activity {
         if (activeTvEditField == field) activeTvEditField = null;
         field.setShowSoftInputOnFocus(false);
         field.setCursorVisible(false);
-        field.setInputType(android.text.InputType.TYPE_NULL);
+        field.setRawInputType(android.text.InputType.TYPE_NULL);
         InputMethodManager keyboard = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
         keyboard.hideSoftInputFromWindow(field.getWindowToken(), 0);
+    }
+    private void performTvFieldAction(EditText field) {
+        if (field == number) {
+            otpRequest(tvOtpRequested && !otp.getText().toString().trim().isEmpty());
+        } else if (field == otp) {
+            otpRequest(true);
+        } else if (field == fastwayPass) {
+            fastwayLogin();
+        }
     }
     @Override public boolean dispatchKeyEvent(KeyEvent event) {
         if (television && activeTvEditField != null && event.getKeyCode() == KeyEvent.KEYCODE_BACK) {
