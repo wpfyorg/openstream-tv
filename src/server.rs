@@ -119,6 +119,19 @@ fn api_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/api/vzy/play/:id", get(crate::api::vzy_play))
         .route("/api/vzy/epg/:id", get(crate::api::vzy_epg))
         .route("/api/vzy/logout", post(crate::api::vzy_logout))
+        .route("/api/airtel/status", get(crate::api::airtel_status))
+        .route(
+            "/api/airtel/login/sendOTP",
+            post(crate::api::airtel_send_otp),
+        )
+        .route(
+            "/api/airtel/login/verifyOTP",
+            post(crate::api::airtel_verify_otp),
+        )
+        .route("/api/airtel/logout", post(crate::api::airtel_logout))
+        .route("/api/airtel/channels", get(crate::api::airtel_channels))
+        .route("/api/airtel/play/:id", get(crate::api::airtel_play))
+        .route("/api/airtel/epg/:id", get(crate::api::airtel_epg))
         .route("/api/tataplay/status", get(crate::api::tataplay_status))
         .route(
             "/api/tataplay/login/sendOTP",
@@ -139,6 +152,7 @@ fn api_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
             "/api/tataplay/entitlement",
             get(crate::api::tataplay_entitlement),
         )
+        .route("/api/tataplay/channels", get(crate::api::tataplay_channels))
         .route("/api/tataplay/play/:id", get(crate::api::tataplay_play))
         .route("/api/ott/search", get(crate::vod::api_ott_search))
         .route("/api/ott/screen/:id", get(crate::vod::api_ott_screen))
@@ -408,6 +422,18 @@ async fn channels_or_playlist(
     if matches!(state.active_product(), crate::state::ActiveProduct::Playbox) {
         state.playbox.prepare_playlist_metadata().await;
     }
+    if matches!(state.active_product(), crate::state::ActiveProduct::Airtel) {
+        state
+            .airtel
+            .prepare_playlist_metadata(state.store.clone())
+            .await;
+    }
+    if matches!(
+        state.active_product(),
+        crate::state::ActiveProduct::TataPlay
+    ) {
+        state.tataplay.ensure_catalogue().await;
+    }
 
     let host_url = base_url(&state, &https, &prefix, &headers);
     let empty = String::new();
@@ -427,6 +453,10 @@ async fn channels_or_playlist(
         |id| {
             if crate::playbox::is_playbox_channel(id) {
                 state.playbox.playlist_ready(id)
+            } else if crate::airtel::is_airtel_channel(id) {
+                state.airtel.playlist_ready(id)
+            } else if crate::tataplay::is_tataplay_channel(id) {
+                state.tataplay.playlist_ready(id)
             } else {
                 state.is_playable(id)
             }
@@ -562,7 +592,9 @@ mod tests {
             extras: Arc::new(crate::extras_state::ExtrasState::new(false, None)),
             fastway: Arc::new(crate::fastway_state::FastwayState::new(false)),
             playbox: Arc::new(crate::playbox_state::PlayboxState::new(false)),
+            tataplay: Arc::new(crate::tataplay_state::TataplayState::new(false)),
             vzy: Arc::new(crate::vzy_state::VzyState::new(false)),
+            airtel: Arc::new(crate::airtel_state::AirtelState::new(false)),
             vod_state: Default::default(),
             public_ip: Arc::new(crate::unlock::PublicIp::new(reqwest::Client::new())),
             unlock_limiter: Arc::new(crate::unlock::AttemptLimiter::default()),

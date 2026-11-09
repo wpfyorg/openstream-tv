@@ -31,10 +31,11 @@ The installer uses `/usr/local/bin` when run as root and writable; otherwise it 
 Run the installer from a terminal and it walks through setup instead of only dropping a binary in place:
 
 1. **Build** — `full` (browser interface plus IPTV) or `slim` (IPTV only). Use the arrow keys and press Enter.
-2. **Account** — JioTV, JioTV+ or Fastway. The installer describes JioTV as a mobile-number OTP flow, JioTV+ as needing an eligible JioFiber/AirFiber login, and Fastway as needing credentials accepted by its provider. ACT eligibility, where offered, depends on the provider. Only providers supported by the downloaded release are listed.
+2. **Account** — JioTV, JioTV+, Fastway or Airtel Xstream (beta). The installer describes JioTV and Airtel Xstream as mobile-number OTP flows, JioTV+ as needing an eligible JioFiber/AirFiber login, and Fastway as needing credentials accepted by its provider. ACT eligibility, where offered, depends on the provider. Only providers supported by the downloaded release are listed.
 3. **Address** — the LAN address other devices will use, pre-filled with the detected one. Press Enter to accept it.
 4. **Remote access** — LAN only, a temporary Cloudflare URL, or a permanent Cloudflare tunnel with a token.
-5. **Credentials** — the sign-in for the account you chose, then an admin password for the `full` build.
+5. **Programme guide** — whether to turn on the XMLTV guide. It is off by default; answering Yes runs `ost epg on` and prints the guide URL in the summary.
+6. **Credentials** — the sign-in for the account you chose, then an admin password for the `full` build.
 
 Piping the script into `sh` still works: every prompt reads `/dev/tty`, never the `curl` pipe. When there is no terminal — Docker, CI, cron, redirected output — the flow is skipped and the installer behaves exactly as it did before.
 
@@ -75,10 +76,11 @@ The guided setup can be scripted with environment variables, which also skip the
 | Setting | Values | Effect |
 | --- | --- | --- |
 | `OPENSTREAM_ONBOARD` | `auto`, `always`, `never` | `auto` asks when a terminal is available; `never` keeps the plain install; `always` cannot invent a terminal, so it still degrades to the plain install when there is none. |
-| `OPENSTREAM_PROVIDER` | `jiotv`, `tv+`, `fastway` | Account to configure (the previous value `extras` is still accepted). Ignored when the downloaded release does not support it. |
+| `OPENSTREAM_PROVIDER` | `jiotv`, `tv+`, `fastway`, `airtel` | Account to configure; `airtel` is beta (the previous value `extras` is still accepted). Ignored when the downloaded release does not support it. |
 | `OPENSTREAM_PUBLIC_HOST` | address | LAN address shown in the summary instead of the detected one. |
 | `OPENSTREAM_TUNNEL` | `none`, `temp`, `named` | LAN only, a temporary Cloudflare URL, or a named tunnel. |
 | `OPENSTREAM_TUNNEL_TOKEN` | token | Token for the named tunnel. Never pass it as a command-line argument. |
+| `OPENSTREAM_EPG` | `true`, `false` | Turns the programme guide on or off and skips the guide question. Leave it unset to be asked. |
 
 
 ## Verify and troubleshoot

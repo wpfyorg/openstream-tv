@@ -16,24 +16,28 @@ OpenStream TV can hold several provider accounts, but only one provider catalogu
 | **Fastway** | Fastway credentials accepted by the provider | Fastway live TV only |
 | **PlayboxTV** (Beta) | A PlayboxTV mobile number that can complete the OTP flow | PlayboxTV live channels |
 | **VZY** (Beta) | No account | VZY's free-tier live channels |
-| **Tata Play** (Beta, diagnostic) | A Tata Play Smart account | Diagnostic login/EPG tools only; not added to the channel list or playback yet |
+| **Airtel Xstream** (Beta) | An Airtel Xstream account that can complete the OTP flow | Airtel Xstream live channels |
+| **Tata Play** (Beta) | A Tata Play Smart account | Tata Play live channels, once signed in |
 
-**JioTV, JioTV+ and Fastway** are stable providers. **PlayboxTV, VZY and Tata Play** are beta.
+**JioTV, JioTV+ and Fastway** are stable providers. **PlayboxTV, VZY, Airtel Xstream and Tata Play** are beta.
 
 - **JioTV** is the default provider flow. OpenStream TV does not add a fixed-line-network gate to this login, but the provider still decides account and content availability.
 - **JioTV+** is the optional second source. It is off until `tv_plus = true` (or `JIOTV_TVPLUS=true` / `OPENSTREAM_TVPLUS=true`) is set, and it needs its own sign-in with the JioFiber or AirFiber number, separate from JioTV.
 - **Fastway** is enabled with `fastway = true` (or `OPENSTREAM_FASTWAY=true`) and connected with credentials accepted by the provider. ACT eligibility, where offered, depends on the provider and plan. Fastway supplies live TV, not the on-demand catalogue. See [Connect Fastway Live TV](../account-fastway/index.md).
 - **PlayboxTV** is enabled with `playbox = true` (or `OPENSTREAM_PLAYBOX=true`) and uses its own OTP login. See [PlayboxTV](../ott-provider-playbox/index.md).
 - **VZY** is enabled with `vzy = true` (or `OPENSTREAM_VZY=true`) and uses an anonymous free-tier session; premium channels are not advertised. See [VZY](../ott-provider-vzy/index.md).
-- **Tata Play** is enabled with `tataplay = true` for diagnostics only. It is deliberately not part of the shared catalogue, playlist, `/live` or DRM proxy. See [Tata Play Smart](../ott-provider-tataplay/index.md).
+- **Tata Play** is enabled with `tataplay = true` (or `OPENSTREAM_TATAPLAY=true`) and uses its own OTP login. Once signed in it supplies live channels, playlist entries and DASH playback. See [Tata Play Smart](../ott-provider-tataplay/index.md).
+- **Airtel Xstream** is enabled with `airtel = true` (or `OPENSTREAM_AIRTEL=true`) and uses its own OTP login. See [Airtel Xstream](../ott-provider-airtel/index.md).
 
 The installers list only the accounts the downloaded release supports and print this same hint above the account menu. The older name **Extras** may still appear in older guides and error messages. `ost extras login` remains a command alias; `ost tv+ login` is the current spelling.
+
+Airtel Xstream, Tata Play Smart, PlayboxTV and VZY are beta integrations in the `1.6.0-beta.*` line while their remaining runtime contracts are validated. The installers can set up Airtel Xstream. Enable Tata Play Smart, PlayboxTV and VZY with `tataplay`, `playbox` and `vzy`; see the [configuration reference](../configuration-reference/index.md) for their keys and the [Airtel Xstream](../ott-provider-airtel/index.md), [PlayboxTV](../ott-provider-playbox/index.md), [Tata Play Smart](../ott-provider-tataplay/index.md) and [VZY](../ott-provider-vzy/index.md) provider records for their current limits.
 
 ## Check which provider is active
 
 1. Open **Settings** in the web interface.
 2. Each enabled provider card shows whether it is logged in or connected and whether it is the **Active** provider.
-3. Only one provider can be active at a time. Signing in to a provider makes it active; use **Use JioTV**, **Use JioTV+**, **Use Fastway**, **Use PlayboxTV** or **Use VZY** on a connected card to switch.
+3. Only one provider can be active at a time. Signing in to a provider makes it active; use **Use JioTV**, **Use JioTV+**, **Use Fastway**, **Use PlayboxTV**, **Use VZY**, **Use Airtel Xstream** or **Use Tata Play** on a connected card to switch.
 4. Open **Channels**. The list, IPTV playlist and programme guide show only the active provider's catalogue. Custom channels remain available.
 
 ![Settings showing a disconnected JioTV card and a connected JioTV+ card](../images/settings-jiotv-plus.png)

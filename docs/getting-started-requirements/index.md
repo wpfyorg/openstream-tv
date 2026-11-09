@@ -7,7 +7,7 @@ keywords: [requirements, CPU architecture, OpenWrt, Android, Raspberry Pi, brows
 
 # Requirements and Supported Devices
 
-You need a device that can run the Rust `ost` binary, network access to the content service, and a modern web browser or compatible IPTV application. Watching account-restricted streams requires an eligible JioTV, JioTV+ or Fastway account.
+You need a device that can run the Rust `ost` binary, network access to the content service, and a modern web browser or compatible IPTV application. Watching account-restricted streams requires an eligible provider account, such as JioTV, JioTV+, Fastway, Airtel Xstream (beta), Tata Play Smart (beta), PlayboxTV (beta) or VZY (beta).
 
 ## Where you can run the server
 

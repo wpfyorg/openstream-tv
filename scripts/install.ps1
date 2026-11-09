@@ -35,11 +35,58 @@ $Onboard = Get-OpenStreamEnv 'OPENSTREAM_ONBOARD' 'JIOTV_ONBOARD' 'auto'
 if ($Onboard -notin @('auto', 'always', 'never')) { throw 'OPENSTREAM_ONBOARD must be auto, always or never' }
 $Provider = Get-OpenStreamEnv 'OPENSTREAM_PROVIDER' 'JIOTV_PROVIDER'
 if ($Provider -in @('tv+', 'tvplus')) { $Provider = 'extras' }
-if ($Provider -notin @('', 'jiotv', 'extras', 'fastway')) { throw 'OPENSTREAM_PROVIDER must be jiotv, tv+ or fastway' }
+if ($Provider -notin @('', 'jiotv', 'extras', 'fastway', 'airtel')) { throw 'OPENSTREAM_PROVIDER must be jiotv, tv+, fastway or airtel' }
 $PublicHost = Get-OpenStreamEnv 'OPENSTREAM_PUBLIC_HOST' 'JIOTV_PUBLIC_HOST'
 $Tunnel = Get-OpenStreamEnv 'OPENSTREAM_TUNNEL' 'JIOTV_TUNNEL'
 if ($Tunnel -notin @('', 'none', 'temp', 'named')) { throw 'OPENSTREAM_TUNNEL must be none, temp, or named' }
 $TunnelToken = Get-OpenStreamEnv 'OPENSTREAM_TUNNEL_TOKEN' 'JIOTV_TUNNEL_TOKEN'
+# Empty means the wizard asks; true or false answers the question and skips it.
+$Epg = Get-OpenStreamEnv 'OPENSTREAM_EPG' 'JIOTV_EPG'
+if ($Epg -notin @('', 'true', 'false')) { throw 'OPENSTREAM_EPG must be true or false' }
+
+# The store the binary reads. Mirrors src/main.rs path_prefix resolution: the
+# environment, then path_prefix in the current directory's openstream.toml,
+# then the platform default. A "no" only clears an override an earlier "yes"
+# stored: pinning "no" on a fresh install would hide later config changes.
+function Get-OpenStreamConfigPathPrefix {
+    $config = Join-Path (Get-Location) 'openstream.toml'
+    if (-not (Test-Path -LiteralPath $config)) { return '' }
+    $line = Select-String -LiteralPath $config -Pattern '^\s*path_prefix\s*=' -CaseSensitive | Select-Object -Last 1
+    if (-not $line) { return '' }
+    $value = ($line.Line -replace '^\s*path_prefix\s*=\s*', '').Trim()
+    if ($value -match '^"([^"]*)"') { return $Matches[1] }
+    if ($value -match "^'([^']*)'") { return $Matches[1] }
+    return ($value -split '#')[0].Trim()
+}
+
+function Get-OpenStreamHome {
+    $value = Get-OpenStreamEnv 'HOME'
+    if ($value) { return $value }
+    $value = Get-OpenStreamEnv 'USERPROFILE'
+    if ($value) { return $value }
+    $drive = Get-OpenStreamEnv 'HOMEDRIVE'
+    $path = Get-OpenStreamEnv 'HOMEPATH'
+    if ($drive -and $path) { return "$drive$path" }
+    return ''
+}
+
+function Get-OpenStreamDataDir {
+    $prefix = Get-OpenStreamEnv 'OPENSTREAM_PATH_PREFIX' 'JIOTV_PATH_PREFIX'
+    if (-not $prefix) { $prefix = Get-OpenStreamConfigPathPrefix }
+    if ($prefix) { return $prefix }
+    $homeDir = Get-OpenStreamHome
+    if (-not $homeDir) { throw 'cannot resolve the user profile directory' }
+    $current = Join-Path $homeDir '.openstream-tv'
+    $legacy = Join-Path $homeDir '.jiotv_go'
+    if ((Test-Path -LiteralPath $current) -or -not (Test-Path -LiteralPath $legacy)) { return $current }
+    return $legacy
+}
+
+function Test-EpgOverrideEnabled {
+    $store = Join-Path (Get-OpenStreamDataDir) 'store_v4.toml'
+    if (-not (Test-Path -LiteralPath $store)) { return $false }
+    return [bool](Select-String -LiteralPath $store -Pattern '^\s*epg_enabled\s*=\s*"true"' -Quiet)
+}
 
 # Same rule as the shell installer: only a real console drives the flow, so
 # redirected runs (CI, scheduled tasks) keep the old non-interactive output.
@@ -286,6 +333,29 @@ function Connect-Extras {
     return $false
 }
 
+function Connect-Airtel {
+    param([string]$Exe)
+    Write-Step 'Sign in to Airtel Xstream'
+    $number = Read-Text 'Airtel mobile number (+91)'
+    $digits = $number -replace '[^0-9]', ''
+    if ($digits -match '^91([6-9][0-9]{9})$') { $number = $Matches[1] }
+    elseif ($digits -match '^[6-9][0-9]{9}$') { $number = $digits }
+    else { Write-Fail 'Enter a 10-digit Indian mobile number'; return $false }
+    $dialog = New-Dialog $Exe 'airtel login'
+    Send-Dialog $dialog $number
+    if (Wait-Dialog $dialog 'OTP:') {
+        Write-Ok "OTP sent to +91$number"
+        Send-Dialog $dialog (Read-Secret 'Enter the OTP')
+    }
+    if ((Complete-Dialog $dialog) -and ($dialog.Text.ToString() -match 'Airtel login saved')) {
+        Write-Ok 'Signed in to Airtel Xstream'
+        return $true
+    }
+    Show-Dialog $dialog
+    Write-Fail 'Airtel sign-in did not complete'
+    return $false
+}
+
 function Connect-Fastway {
     param([string]$Exe)
     Write-Step 'Sign in to Fastway'
@@ -314,6 +384,7 @@ function Connect-Provider {
         try {
             if ($Provider -eq 'extras') { $ok = Connect-Extras $Exe }
             elseif ($Provider -eq 'fastway') { $ok = Connect-Fastway $Exe }
+            elseif ($Provider -eq 'airtel') { $ok = Connect-Airtel $Exe }
             else { $ok = Connect-JioTv $Exe }
         }
         catch {
@@ -440,6 +511,7 @@ try {
         $providers = @(@{ Value = 'jiotv'; Label = 'JioTV       live channels and programme guide - mobile-number OTP' })
         if ($TvPlusCmd) { $providers += @{ Value = 'extras'; Label = 'JioTV+      extra channels, movies and shows - eligible JioFiber/AirFiber login' } }
         if ($help -match 'fastway login') { $providers += @{ Value = 'fastway'; Label = 'Fastway     live TV - Fastway-accepted credentials' } }
+        if ($help -match 'airtel login') { $providers += @{ Value = 'airtel'; Label = 'Airtel      Airtel Xstream live TV - mobile-number OTP' } }
 
         if (-not ($providers.Value -contains $Provider)) { $Provider = '' }
         if (-not $Provider) {
@@ -449,7 +521,7 @@ try {
                 Write-Step "Using $only (the only provider this build supports)"
             }
             else {
-                Write-Host '  JioTV signs in with a mobile-number OTP. JioTV+ needs an eligible' -ForegroundColor DarkGray
+                Write-Host '  JioTV and Airtel sign in with a mobile-number OTP. JioTV+ needs an eligible' -ForegroundColor DarkGray
                 Write-Host '  JioFiber or AirFiber login. Fastway needs credentials its provider accepts.' -ForegroundColor DarkGray
                 Write-Host '  ACT eligibility, where offered, depends on the provider.' -ForegroundColor DarkGray
                 $Provider = Select-Option 'Which account are you setting up?' $providers
@@ -481,12 +553,23 @@ try {
         elseif ($Tunnel -eq 'temp') {
             Write-Warn2 'Anyone with the address can reach the sign-in page. Keep the admin password strong.'
         }
+        if (-not $Epg) {
+            Write-Step 'Programme guide'
+            Write-Host '  The guide downloads channel schedules and serves them next to the' -ForegroundColor DarkGray
+            Write-Host '  playlist as XMLTV, for IPTV apps and the browser interface.' -ForegroundColor DarkGray
+            $Epg = Select-Option 'Turn on the programme guide (EPG)?' @(
+                @{ Value = 'true'; Label = 'Yes' },
+                @{ Value = 'false'; Label = 'No' }
+            ) 1
+        }
         if ($Tunnel -ne 'none') { $serveLine += ' --tunnel' }
 
         $tvPlusEnabled = if ($Provider -eq 'extras') { 'true' } else { 'false' }
         $fastwayEnabled = if ($Provider -eq 'fastway') { 'true' } else { 'false' }
+        $airtelEnabled = if ($Provider -eq 'airtel') { 'true' } else { 'false' }
         Set-UserEnvironment 'OPENSTREAM_TVPLUS' $tvPlusEnabled
         Set-UserEnvironment 'OPENSTREAM_FASTWAY' $fastwayEnabled
+        Set-UserEnvironment 'OPENSTREAM_AIRTEL' $airtelEnabled
         if ($Tunnel -eq 'named' -and $TunnelToken) {
             Set-UserEnvironment 'OPENSTREAM_TUNNEL_TOKEN' $TunnelToken
         }
@@ -494,9 +577,10 @@ try {
             Set-UserEnvironment 'OPENSTREAM_TUNNEL_TOKEN' $null
         }
         $providerEnv = switch ($Provider) {
-            'extras'  { "`$env:OPENSTREAM_TVPLUS = 'true'; `$env:OPENSTREAM_FASTWAY = 'false'; " }
-            'fastway' { "`$env:OPENSTREAM_TVPLUS = 'false'; `$env:OPENSTREAM_FASTWAY = 'true'; " }
-            default   { "`$env:OPENSTREAM_TVPLUS = 'false'; `$env:OPENSTREAM_FASTWAY = 'false'; " }
+            'extras'  { "`$env:OPENSTREAM_TVPLUS = 'true'; `$env:OPENSTREAM_FASTWAY = 'false'; `$env:OPENSTREAM_AIRTEL = 'false'; " }
+            'fastway' { "`$env:OPENSTREAM_TVPLUS = 'false'; `$env:OPENSTREAM_FASTWAY = 'true'; `$env:OPENSTREAM_AIRTEL = 'false'; " }
+            'airtel'  { "`$env:OPENSTREAM_TVPLUS = 'false'; `$env:OPENSTREAM_FASTWAY = 'false'; `$env:OPENSTREAM_AIRTEL = 'true'; " }
+            default   { "`$env:OPENSTREAM_TVPLUS = 'false'; `$env:OPENSTREAM_FASTWAY = 'false'; `$env:OPENSTREAM_AIRTEL = 'false'; " }
         }
         $serveLine = "$providerEnv$serveLine"
 
@@ -506,6 +590,7 @@ try {
         $loginCmd = switch ($Provider) {
             'extras' { $TvPlusCmd }
             'fastway' { 'fastway login' }
+            'airtel' { 'airtel login' }
             default { 'login otp' }
         }
         if ($signedIn) { Write-Ok 'Signed in' }
@@ -522,12 +607,27 @@ try {
             else { Write-Warn2 'No password set; run: ost admin password' }
         }
 
+        if ($Epg -eq 'true') {
+            Set-UserEnvironment 'OPENSTREAM_EPG' 'true'
+            & $ost epg on | Out-Null
+            if ($LASTEXITCODE -eq 0) { Write-Ok 'Programme guide enabled' }
+            else { Write-Warn2 'Could not enable the programme guide; run: ost epg on' }
+        }
+        elseif ($Epg -eq 'false') {
+            Set-UserEnvironment 'OPENSTREAM_EPG' 'false'
+            if (Test-EpgOverrideEnabled) {
+                & $ost epg off | Out-Null
+                if ($LASTEXITCODE -eq 0) { Write-Ok 'Programme guide disabled' }
+                else { Write-Warn2 'Could not disable the programme guide; run: ost epg off' }
+            }
+        }
+
         Write-Host ''
         Write-Rule
         Write-Host '  Installation complete' -ForegroundColor Green
         Write-Rule
         Write-Host "  build     $Variant $target" -ForegroundColor DarkGray
-        Write-Host "  account   $(if ($Provider -eq 'extras') { 'JioTV+' } else { $Provider })"
+        Write-Host "  account   $(if ($Provider -eq 'extras') { 'JioTV+' } elseif ($Provider -eq 'airtel') { 'Airtel Xstream' } else { $Provider })"
         if (-not $signedIn) { Write-Warn2 "  Not signed in yet: run 'ost $loginCmd'" }
         if ($Variant -eq 'full') {
             if ($NoTls) { Write-Host "  browser   http://${PublicHost}:5001/" }
@@ -548,6 +648,11 @@ try {
         }
         if ($playlistUrl) { Write-Host "  playlist  $playlistUrl" }
         else { Write-Warn2 "Could not get the authenticated playlist URL; run 'ost key show' after starting the server" }
+        if ($Epg -eq 'true') {
+            if ($playlistUrl -match 'playlist\.m3u$') { Write-Host "  guide     $($playlistUrl -replace 'playlist\.m3u$', 'epg.xml.gz')" }
+            else { Write-Host '  guide     on' }
+        }
+        elseif ($Epg -eq 'false') { Write-Host '  guide     off' }
         if ($Tunnel -ne 'none') { Write-Host '  remote    a Cloudflare tunnel address' }
         Write-Host ''
         if ($TunnelToken) {

@@ -19,9 +19,9 @@ Close and reopen PowerShell if `ost` is not found.
 
 ## Guided setup
 
-In a PowerShell window, the installer switches to a guided setup after downloading: build (`full` or `slim`), account (JioTV, JioTV+, or Fastway when the release supports it), the address other devices will use, whether to expose the server through Cloudflare, and then the account sign-in. Use the arrow keys (or `j`/`k`, or the number keys) and press Enter.
+In a PowerShell window, the installer switches to a guided setup after downloading: build (`full` or `slim`), account (JioTV, JioTV+, Fastway, or Airtel Xstream beta when the release supports it), the address other devices will use, whether to expose the server through Cloudflare, whether to turn on the programme guide, and then the account sign-in. Use the arrow keys (or `j`/`k`, or the number keys) and press Enter.
 
-The sign-in step asks for the mobile number and one-time password inside the wizard. The OTP is masked, and provider output is captured rather than printed over the screen. For JioTV+ the wizard lists registered connections and asks which one to use; Fastway signs in with a username and password instead. The installer does not store the mobile number or OTP. It saves the selected provider and any named-tunnel token in your Windows user environment. A failed sign-in leaves the binary installed and prints a retry command.
+The sign-in step asks JioTV and Airtel Xstream for the mobile number and one-time password inside the wizard. The OTP is masked, and provider output is captured rather than printed over the screen. For JioTV+ the wizard lists registered connections and asks which one to use; Fastway signs in with a username and password instead. The installer does not store the mobile number or OTP. It saves the selected provider, any named-tunnel token, and the guide choice in your Windows user environment. A failed sign-in leaves the binary installed and prints a retry command.
 
 Skip the questions by setting the environment before running the script, or turn the flow off entirely:
 
@@ -29,6 +29,7 @@ Skip the questions by setting the environment before running the script, or turn
 $env:OPENSTREAM_VARIANT = 'slim'
 $env:OPENSTREAM_PROVIDER = 'jiotv'
 $env:OPENSTREAM_TUNNEL = 'none'
+$env:OPENSTREAM_EPG = 'true'
 ```
 
 `$env:OPENSTREAM_ONBOARD = 'never'` keeps the plain non-interactive install. Redirected output (CI, scheduled tasks) skips the flow automatically.
@@ -64,7 +65,7 @@ For the full web build, set the admin password before `serve`:
 ost admin password
 ```
 
-Open `https://localhost:5443/` on the same PC and accept the self-signed certificate warning. Other devices on your trusted LAN can use `https://<this-PC-ip>:5443/`; find the address with `ipconfig`. IPTV players use the authenticated playlist URL printed by the installer. The `slim` build has no browser interface.
+Open `https://localhost:5443/` on the same PC and accept the self-signed certificate warning. Other devices on your trusted LAN can use `https://<this-PC-ip>:5443/`; find the address with `ipconfig`. IPTV players use the authenticated playlist URL printed by the installer. When the guide is on, the installer prints its URL below the playlist. The `slim` build has no browser interface.
 
 The installer accepts `-Variant full|slim`, `-Version latest|<version>`, `-InstallDir <directory>`, and `-Repo <owner/repository>`. For example, to install a specific release in a custom directory:
 

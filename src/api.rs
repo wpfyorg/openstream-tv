@@ -549,7 +549,7 @@ pub async fn providers_activate(
     let Some(product) = crate::state::ActiveProduct::from_name(body.provider.trim()) else {
         return err(
             StatusCode::BAD_REQUEST,
-            "provider must be jiotv, jiotv_plus, fastway, playbox or vzy",
+            "provider must be jiotv, jiotv_plus, fastway, playbox, vzy, airtel or tataplay",
         );
     };
     let enabled = match product {
@@ -558,6 +558,8 @@ pub async fn providers_activate(
         crate::state::ActiveProduct::Fastway => state.fastway.enabled(),
         crate::state::ActiveProduct::Playbox => state.playbox.enabled(),
         crate::state::ActiveProduct::Vzy => state.vzy.enabled(),
+        crate::state::ActiveProduct::Airtel => state.airtel.enabled(),
+        crate::state::ActiveProduct::TataPlay => state.tataplay.enabled(),
     };
     if !enabled {
         return err(
@@ -1025,6 +1027,221 @@ pub async fn vzy_epg(Path(id): Path<String>, State(state): State<SharedState>) -
     }
 }
 
+/// `GET /api/airtel/status`
+pub async fn airtel_status(State(state): State<SharedState>) -> Response {
+    Json(json!({
+        "status": true,
+        "airtel": {
+            "enabled": state.airtel.enabled(),
+            "connected": state.airtel.connected(),
+            "tier": "live",
+            "artifact": {
+                "package": crate::airtel::PACKAGE,
+                "version": crate::airtel::VERSION_NAME,
+                "versionCode": crate::airtel::VERSION_CODE,
+                "sha256": crate::airtel::ARTIFACT_SHA256,
+            }
+        }
+    }))
+    .into_response()
+}
+
+/// `POST /api/airtel/login/sendOTP`. Airtel only accepts an Indian mobile
+/// number, so the handler normalises `+91` before calling the app's own
+/// `generateOtp` route.
+pub async fn airtel_send_otp(
+    State(state): State<SharedState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    Json(body): Json<ProviderSendOtpBody>,
+) -> Response {
+    if let Some(response) = airtel_enabled(&state) {
+        return response;
+    }
+    if playbox_otp_attempt("airtel-send", addr).is_none() {
+        return err(
+            StatusCode::TOO_MANY_REQUESTS,
+            "too many Airtel OTP attempts, try again later",
+        );
+    }
+    let Some(msisdn) = crate::airtel::normalize_msisdn(&body.number) else {
+        return err(
+            StatusCode::BAD_REQUEST,
+            "enter a 10-digit Indian mobile number",
+        );
+    };
+    let Some(client) = state.airtel.client() else {
+        return err(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "airtel client failed to initialise; check the server log",
+        );
+    };
+    match client.send_otp(&msisdn).await {
+        Ok(message) => Json(json!({"status": true, "message": message})).into_response(),
+        Err(e) => err(StatusCode::BAD_REQUEST, e.to_string()),
+    }
+}
+
+/// `POST /api/airtel/login/verifyOTP`. Airtel keeps a single device slot per
+/// number; logging in rotates the whole context so no previous account's
+/// catalogue, manifests or license URLs survive.
+pub async fn airtel_verify_otp(
+    State(state): State<SharedState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    Json(body): Json<ProviderVerifyOtpBody>,
+) -> Response {
+    if let Some(response) = airtel_enabled(&state) {
+        return response;
+    }
+    let attempt_key = match playbox_otp_attempt("airtel-verify", addr) {
+        Some(key) => key,
+        None => {
+            return err(
+                StatusCode::TOO_MANY_REQUESTS,
+                "too many Airtel OTP attempts, try again later",
+            )
+        }
+    };
+    let Some(msisdn) = crate::airtel::normalize_msisdn(&body.number) else {
+        return err(
+            StatusCode::BAD_REQUEST,
+            "enter a 10-digit Indian mobile number",
+        );
+    };
+    let Some(client) = state.airtel.client() else {
+        return err(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "airtel client failed to initialise; check the server log",
+        );
+    };
+    let installed = std::sync::atomic::AtomicBool::new(false);
+    let result = state
+        .airtel
+        .verify_otp(&client, &state.store, &msisdn, body.otp.trim(), || {
+            installed.store(true, std::sync::atomic::Ordering::SeqCst);
+            state.invalidate_context();
+        })
+        .await;
+    // Rotate again once the exchange has finished and the final credentials
+    // are in place. A rejected OTP never installs anything, so it neither
+    // rotates here nor cuts off existing viewers.
+    if installed.load(std::sync::atomic::Ordering::SeqCst) {
+        state.invalidate_context();
+        state.airtel.ensure_catalogue(&state.store).await;
+        crate::epg::trigger_regeneration(&state);
+    }
+    match result {
+        Ok(_) => {
+            playbox_otp_limiter().record_success(&attempt_key);
+            Json(json!({"status": true, "airtel": airtel_summary(&state)})).into_response()
+        }
+        Err(e) => err(StatusCode::BAD_REQUEST, e.to_string()),
+    }
+}
+
+/// `POST /api/airtel/logout`
+pub async fn airtel_logout(State(state): State<SharedState>) -> Response {
+    if state.config.disable_logout {
+        return err(StatusCode::FORBIDDEN, "logout is disabled");
+    }
+    state.invalidate_context();
+    match state.airtel.logout(&state.store).await {
+        Ok(()) => {
+            state.invalidate_context();
+            crate::epg::trigger_regeneration(&state);
+            Json(json!({"status": true})).into_response()
+        }
+        Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    }
+}
+
+/// `GET /api/airtel/channels`
+pub async fn airtel_channels(State(state): State<SharedState>) -> Response {
+    if let Some(response) = airtel_enabled(&state) {
+        return response;
+    }
+    if !state.airtel.connected() {
+        return err(StatusCode::UNAUTHORIZED, "airtel is not logged in");
+    }
+    if !state.airtel.ensure_catalogue(&state.store).await {
+        return err(
+            StatusCode::BAD_GATEWAY,
+            "airtel: the channel catalogue could not be loaded",
+        );
+    }
+    let channels: Vec<_> = state
+        .airtel
+        .channels()
+        .into_iter()
+        .map(|ch| json!({"id": ch.id, "name": ch.name, "logo": ch.logo_url, "hd": ch.is_hd}))
+        .collect();
+    Json(json!({"status": true, "channels": channels})).into_response()
+}
+
+/// `GET /api/airtel/play/:id`
+pub async fn airtel_play(Path(id): Path<String>, State(state): State<SharedState>) -> Response {
+    if let Some(response) = airtel_enabled(&state) {
+        return response;
+    }
+    if crate::airtel::parse_channel_id(&id).is_none() {
+        return err(StatusCode::NOT_FOUND, "not an airtel channel");
+    }
+    if !state.channel_allowed(&id).await {
+        return err(
+            StatusCode::NOT_FOUND,
+            format!("Channel {id} is not available for the active account"),
+        );
+    }
+    match state.airtel.live(&id, &state.store).await {
+        Ok(out) => {
+            let dash = !out.mpd.auto.is_empty();
+            Json(json!({"status": true, "dash": dash, "license": out.is_drm})).into_response()
+        }
+        Err(e) => err(StatusCode::BAD_GATEWAY, e.to_string()),
+    }
+}
+
+/// `GET /api/airtel/epg/:id` — today's programmes for one channel.
+pub async fn airtel_epg(Path(id): Path<String>, State(state): State<SharedState>) -> Response {
+    if let Some(response) = airtel_enabled(&state) {
+        return response;
+    }
+    if crate::airtel::parse_channel_id(&id).is_none() {
+        return err(StatusCode::NOT_FOUND, "not an airtel channel");
+    }
+    match state.airtel.web_epg(&state.store, &id, 0).await {
+        Ok(programmes) => {
+            let rows: Vec<_> = programmes
+                .into_iter()
+                .map(|p| {
+                    json!({
+                        "start": crate::epg::format_xmltv_time(p.start_millis()),
+                        "stop": crate::epg::format_xmltv_time(p.end_millis()),
+                        "title": p.title,
+                        "desc": p.subtitle,
+                    })
+                })
+                .collect();
+            Json(json!({"status": true, "programmes": rows})).into_response()
+        }
+        Err(e) => err(StatusCode::BAD_GATEWAY, e.to_string()),
+    }
+}
+
+fn airtel_enabled(state: &AppState) -> Option<Response> {
+    if state.airtel.enabled() {
+        None
+    } else {
+        Some(err(StatusCode::BAD_REQUEST, "airtel is not enabled"))
+    }
+}
+
+fn airtel_summary(state: &AppState) -> serde_json::Value {
+    json!({
+        "enabled": state.airtel.enabled(),
+        "connected": state.airtel.connected(),
+    })
+}
+
 /// Tata Play Smart beta status. The provider is deliberately excluded from
 /// shared catalogue selection and the /live pipeline.
 pub async fn tataplay_status(State(state): State<SharedState>) -> Response {
@@ -1076,10 +1293,10 @@ pub struct TataplayPlayQuery {
 }
 
 fn tataplay_enabled(state: &AppState) -> Option<Response> {
-    if state.config.tataplay {
+    if state.tataplay.enabled() {
         None
     } else {
-        Some(err(StatusCode::BAD_REQUEST, "tataplay beta is not enabled"))
+        Some(err(StatusCode::BAD_REQUEST, "tataplay is not enabled"))
     }
 }
 
@@ -1087,26 +1304,48 @@ fn tataplay_connected(state: &AppState) -> Option<Response> {
     if let Some(response) = tataplay_enabled(state) {
         return Some(response);
     }
-    if crate::tataplay::Credentials::load(&state.store).is_some() {
+    if state.tataplay.connected() {
         None
     } else {
         Some(err(StatusCode::UNAUTHORIZED, "tataplay is not logged in"))
     }
 }
 
+fn tataplay_otp_limiter() -> &'static crate::unlock::AttemptLimiter {
+    static LIMITER: OnceLock<crate::unlock::AttemptLimiter> = OnceLock::new();
+    LIMITER.get_or_init(crate::unlock::AttemptLimiter::default)
+}
+
+fn tataplay_otp_attempt(kind: &str, addr: SocketAddr) -> Option<String> {
+    let key = format!("{kind}:{}", addr.ip());
+    let now = SystemTime::now();
+    let limiter = tataplay_otp_limiter();
+    if !limiter.allowed(&key, now) {
+        return None;
+    }
+    // Count before forwarding upstream so failed requests are limited too.
+    limiter.record_failure(&key, now);
+    Some(key)
+}
+
 pub async fn tataplay_send_otp(
     State(state): State<SharedState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
     Json(body): Json<TataplaySendOtpBody>,
 ) -> Response {
     if let Some(response) = tataplay_enabled(&state) {
         return response;
     }
-    let client = match crate::tataplay::Client::from_store(state.http.clone(), &state.store) {
-        Ok(client) => client,
-        Err(e) => return err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-    };
-    match client
+    if tataplay_otp_attempt("send", addr).is_none() {
+        return err(
+            StatusCode::TOO_MANY_REQUESTS,
+            "too many Tata Play OTP attempts, try again later",
+        );
+    }
+    match state
+        .tataplay
         .send_otp(
+            &state.http,
             &state.store,
             &body.number,
             body.sid.as_deref().unwrap_or(""),
@@ -1120,20 +1359,46 @@ pub async fn tataplay_send_otp(
 
 pub async fn tataplay_verify_otp(
     State(state): State<SharedState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
     Json(body): Json<TataplayVerifyOtpBody>,
 ) -> Response {
     if let Some(response) = tataplay_enabled(&state) {
         return response;
     }
-    let client = match crate::tataplay::Client::from_store(state.http.clone(), &state.store) {
-        Ok(client) => client,
-        Err(e) => return err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    let attempt_key = match tataplay_otp_attempt("verify", addr) {
+        Some(key) => key,
+        None => {
+            return err(
+                StatusCode::TOO_MANY_REQUESTS,
+                "too many Tata Play OTP attempts, try again later",
+            )
+        }
     };
-    match client
-        .verify_otp(&state.store, &body.otp, &body.ref_id, body.ref_id_mode)
-        .await
-    {
-        Ok(_) => Json(json!({"status": true, "connected": true})).into_response(),
+    let installed = std::sync::atomic::AtomicBool::new(false);
+    let result = state
+        .tataplay
+        .verify_otp(
+            &state.http,
+            &state.store,
+            &body.otp,
+            &body.ref_id,
+            body.ref_id_mode,
+            || {
+                installed.store(true, std::sync::atomic::Ordering::SeqCst);
+                state.invalidate_context();
+            },
+        )
+        .await;
+    if installed.load(std::sync::atomic::Ordering::SeqCst) {
+        state.invalidate_context();
+        crate::epg::trigger_regeneration(&state);
+    }
+    match result {
+        Ok(true) => {
+            tataplay_otp_limiter().record_success(&attempt_key);
+            Json(json!({"status": true, "connected": true})).into_response()
+        }
+        Ok(false) => err(StatusCode::BAD_REQUEST, "wrong OTP"),
         Err(e) => err(StatusCode::BAD_REQUEST, e.to_string()),
     }
 }
@@ -1142,12 +1407,11 @@ pub async fn tataplay_refresh(State(state): State<SharedState>) -> Response {
     if let Some(response) = tataplay_connected(&state) {
         return response;
     }
-    let client = match crate::tataplay::Client::from_store(state.http.clone(), &state.store) {
-        Ok(client) => client,
-        Err(e) => return err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-    };
-    match client.refresh(&state.store).await {
-        Ok(_) => Json(json!({"status": true})).into_response(),
+    match state.tataplay.refresh(&state.store).await {
+        Ok(()) => {
+            state.invalidate_context();
+            Json(json!({"status": true})).into_response()
+        }
         Err(e) => err(StatusCode::BAD_GATEWAY, e.to_string()),
     }
 }
@@ -1159,10 +1423,35 @@ pub async fn tataplay_logout(State(state): State<SharedState>) -> Response {
     if let Some(response) = tataplay_enabled(&state) {
         return response;
     }
-    match crate::tataplay::logout(&state.store).await {
-        Ok(()) => Json(json!({"status": true})).into_response(),
+    state.invalidate_context();
+    match state.tataplay.logout(&state.store).await {
+        Ok(()) => {
+            state.invalidate_context();
+            crate::epg::trigger_regeneration(&state);
+            Json(json!({"status": true})).into_response()
+        }
         Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
     }
+}
+
+/// `GET /api/tataplay/channels` — the provider catalogue in the shared shape.
+pub async fn tataplay_channels(State(state): State<SharedState>) -> Response {
+    if let Some(response) = tataplay_connected(&state) {
+        return response;
+    }
+    if !state.tataplay.ensure_catalogue().await {
+        return err(
+            StatusCode::BAD_GATEWAY,
+            "tataplay: the channel catalogue could not be loaded",
+        );
+    }
+    let channels: Vec<_> = state
+        .tataplay
+        .channels()
+        .into_iter()
+        .map(|ch| json!({"id": ch.id, "name": ch.name, "logo": ch.logo_url}))
+        .collect();
+    Json(json!({"status": true, "channels": channels})).into_response()
 }
 
 pub async fn tataplay_catalogue_seed(
@@ -1393,7 +1682,9 @@ mod tests {
             extras,
             fastway,
             playbox: Arc::new(crate::playbox_state::PlayboxState::new(false)),
+            tataplay: Arc::new(crate::tataplay_state::TataplayState::new(false)),
             vzy: Arc::new(crate::vzy_state::VzyState::new(false)),
+            airtel: Arc::new(crate::airtel_state::AirtelState::new(false)),
             vod_state: Default::default(),
             public_ip: Arc::new(crate::unlock::PublicIp::new(reqwest::Client::new())),
             unlock_limiter: Arc::new(crate::unlock::AttemptLimiter::default()),
@@ -2034,7 +2325,7 @@ mod tests {
         assert!(json.get("vzy").is_some());
         assert_eq!(json["playbox"]["connected"], false);
         assert_eq!(json["tataplay"]["enabled"], false);
-        assert_eq!(json["tataplay"]["sharedPlayback"], false);
+        assert_eq!(json["tataplay"]["sharedPlayback"], true);
         assert_eq!(json["vzy"]["connected"], false);
     }
 
@@ -2054,6 +2345,7 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
         let resp = tataplay_send_otp(
             State(s),
+            test_connect_info(11),
             Json(TataplaySendOtpBody {
                 number: "9876543210".into(),
                 sid: None,
@@ -2089,7 +2381,9 @@ mod tests {
             extras: Arc::new(crate::extras_state::ExtrasState::new(false, None)),
             fastway: Arc::new(crate::fastway_state::FastwayState::new(false)),
             playbox: Arc::new(state),
+            tataplay: Arc::new(crate::tataplay_state::TataplayState::new(false)),
             vzy: Arc::new(crate::vzy_state::VzyState::new(false)),
+            airtel: Arc::new(crate::airtel_state::AirtelState::new(false)),
             vod_state: Default::default(),
             public_ip: Arc::new(crate::unlock::PublicIp::new(reqwest::Client::new())),
             unlock_limiter: Arc::new(crate::unlock::AttemptLimiter::default()),
@@ -2224,7 +2518,9 @@ mod tests {
             extras: Arc::new(crate::extras_state::ExtrasState::new(false, None)),
             fastway: Arc::new(crate::fastway_state::FastwayState::new(false)),
             playbox: Arc::new(crate::playbox_state::PlayboxState::new(true)),
+            tataplay: Arc::new(crate::tataplay_state::TataplayState::new(false)),
             vzy: Arc::new(crate::vzy_state::VzyState::new(false)),
+            airtel: Arc::new(crate::airtel_state::AirtelState::new(false)),
             vod_state: Default::default(),
             public_ip: Arc::new(crate::unlock::PublicIp::new(reqwest::Client::new())),
             unlock_limiter: Arc::new(crate::unlock::AttemptLimiter::default()),
@@ -2244,16 +2540,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn tataplay_status_reports_isolated_beta_capabilities() {
+    async fn tataplay_status_reports_a_shared_provider() {
         let s = state();
         let json = response_json(tataplay_status(State(s)).await).await;
         assert_eq!(json["tataplay"]["enabled"], false);
-        assert_eq!(json["tataplay"]["beta"], true);
+        assert_eq!(json["tataplay"]["sharedPlayback"], true);
         assert_eq!(json["tataplay"]["implemented"]["login"], true);
         assert_eq!(json["tataplay"]["implemented"]["catalogueSeed"], true);
-        assert_eq!(json["tataplay"]["implemented"]["sharedCatalogue"], false);
-        assert_eq!(json["tataplay"]["implemented"]["liveProxy"], false);
-        assert_eq!(json["tataplay"]["implemented"]["licenseProxy"], false);
+        assert_eq!(json["tataplay"]["implemented"]["sharedCatalogue"], true);
+        assert_eq!(json["tataplay"]["implemented"]["liveProxy"], true);
+        assert_eq!(json["tataplay"]["implemented"]["licenseProxy"], true);
     }
 
     #[tokio::test]

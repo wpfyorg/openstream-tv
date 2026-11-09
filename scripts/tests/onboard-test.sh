@@ -33,6 +33,7 @@ case "${1:-}" in
     echo "  ost login otp"
     echo "  ost tv+ login | tv+ logout"
     echo "  ost fastway login"
+    echo "  ost airtel login"
     echo "  ost admin password"
     ;;
   login)
@@ -60,10 +61,22 @@ case "${1:-}" in
     read otp
     echo "JioTV+ login saved. Restart the server to use it."
     ;;
+  airtel)
+    printf 'Airtel mobile number (+91): '
+    read number
+    printf 'OTP sent to your mobile number\n'
+    printf 'Airtel OTP: '
+    read otp
+    echo "Airtel login saved for +91$number. Restart the server to use it."
+    ;;
   admin)
     printf 'New admin password: '
     read pass
     [ -n "$pass" ]
+    ;;
+  epg)
+    echo "epg $2" >>"$OPENSTREAM_TEST_STUB_LOG"
+    if [ "$2" = on ]; then echo "EPG enabled permanently."; fi
     ;;
   autostart)
     echo "service installation unavailable" >&2
@@ -126,11 +139,13 @@ start_flow() {
   # The installer needs a terminal, so it runs under `script`. macOS ships BSD
   # script, which rejects a FIFO on stdin but accepts a pipe, so `cat` turns the
   # FIFO into one. util-linux script takes the command with -c instead.
+  # The guide question only appears when no EPG setting is inherited, so every
+  # flow starts from an unset OPENSTREAM_EPG and JIOTV_EPG.
   if script --version 2>/dev/null | grep -qi 'util-linux'; then
-    OPENSTREAM_INSTALL_DIR="$flow_dir" HOME="$flow_dir/home" XDG_CONFIG_HOME="$flow_dir/home/.config" OPENSTREAM_TUNNEL="${OPENSTREAM_TEST_TUNNEL:-}" OPENSTREAM_TUNNEL_TOKEN="${OPENSTREAM_TEST_TUNNEL_TOKEN:-}" PATH="$tmp/bin:$PATH" \
+    OPENSTREAM_INSTALL_DIR="$flow_dir" HOME="$flow_dir/home" XDG_CONFIG_HOME="$flow_dir/home/.config" OPENSTREAM_EPG='' JIOTV_EPG='' OPENSTREAM_TUNNEL="${OPENSTREAM_TEST_TUNNEL:-}" OPENSTREAM_TUNNEL_TOKEN="${OPENSTREAM_TEST_TUNNEL_TOKEN:-}" PATH="$tmp/bin:$PATH" \
       sh -c 'cat "$1" | script -q -c "sh $2" /dev/null >"$3" 2>&1' _ "$tmp/in" "$root/scripts/install.sh" "$flow_out" &
   else
-    OPENSTREAM_INSTALL_DIR="$flow_dir" HOME="$flow_dir/home" XDG_CONFIG_HOME="$flow_dir/home/.config" OPENSTREAM_TUNNEL="${OPENSTREAM_TEST_TUNNEL:-}" OPENSTREAM_TUNNEL_TOKEN="${OPENSTREAM_TEST_TUNNEL_TOKEN:-}" PATH="$tmp/bin:$PATH" \
+    OPENSTREAM_INSTALL_DIR="$flow_dir" HOME="$flow_dir/home" XDG_CONFIG_HOME="$flow_dir/home/.config" OPENSTREAM_EPG='' JIOTV_EPG='' OPENSTREAM_TUNNEL="${OPENSTREAM_TEST_TUNNEL:-}" OPENSTREAM_TUNNEL_TOKEN="${OPENSTREAM_TEST_TUNNEL_TOKEN:-}" PATH="$tmp/bin:$PATH" \
       sh -c 'cat "$1" | script -q /dev/null sh "$2" >"$3" 2>&1' _ "$tmp/in" "$root/scripts/install.sh" "$flow_out" &
   fi
   flow_pid=$!
@@ -141,11 +156,15 @@ enter() { printf '\r' >&6; }
 finish_flow() { exec 6>&-; wait "$flow_pid"; }
 
 # ---- default path: full build, JioTV account ------------------------------
+OPENSTREAM_TEST_STUB_LOG="$tmp/stub-calls.log"
+export OPENSTREAM_TEST_STUB_LOG
+: >"$OPENSTREAM_TEST_STUB_LOG"
 start_flow "$tmp/install" "$tmp/out"
 wait_for "Which build?" "$tmp/out"; enter
 wait_for "Which account are you setting up?" "$tmp/out"; enter
 wait_for "This machine's address" "$tmp/out"; send '192.168.1.9'; enter
 wait_for "Open OpenStream TV beyond your LAN?" "$tmp/out"; enter
+wait_for "Turn on the programme guide (EPG)?" "$tmp/out"; enter
 wait_for "Mobile number registered with JioTV" "$tmp/out"; send '9999999999'; enter
 wait_for "Enter the OTP" "$tmp/out"; send '123456'; enter
 wait_for "Choose an admin password" "$tmp/out"; send 'secret'; enter
@@ -154,9 +173,62 @@ finish_flow
 
 grep -F "Signed in to JioTV" "$tmp/out" >/dev/null
 grep -F "http://192.168.1.9:5001/k/secret-key/playlist.m3u" "$tmp/out" >/dev/null
+grep -F "guide     off" "$tmp/out" >/dev/null
+if grep -F "epg" "$OPENSTREAM_TEST_STUB_LOG" >/dev/null; then
+  echo "declining the programme guide on a fresh install changed the EPG setting" >&2
+  exit 1
+fi
+grep -F "export OPENSTREAM_EPG='false'" "$tmp/install/home/.config/openstream/installer.env" >/dev/null
 test -x "$tmp/install/ost"
 if [ "${OPENSTREAM_TEST_SHOW:-0}" = 1 ]; then sed 's/\r$//' "$tmp/out"; fi
 echo "onboarding default flow OK"
+
+# ---- declining clears an override an earlier enable stored ---------------
+mkdir -p "$tmp/install-epg/home/.openstream-tv"
+printf '[data]\nepg_enabled = "true"\n' >"$tmp/install-epg/home/.openstream-tv/store_v4.toml"
+: >"$OPENSTREAM_TEST_STUB_LOG"
+start_flow "$tmp/install-epg" "$tmp/out-epg"
+wait_for "Which build?" "$tmp/out-epg"; enter
+wait_for "Which account are you setting up?" "$tmp/out-epg"; enter
+wait_for "This machine's address" "$tmp/out-epg"; send '192.168.1.9'; enter
+wait_for "Open OpenStream TV beyond your LAN?" "$tmp/out-epg"; enter
+wait_for "Turn on the programme guide (EPG)?" "$tmp/out-epg"; enter
+wait_for "Mobile number registered with JioTV" "$tmp/out-epg"; send '9999999999'; enter
+wait_for "Enter the OTP" "$tmp/out-epg"; send '123456'; enter
+wait_for "Choose an admin password" "$tmp/out-epg"; send 'secret'; enter
+wait_for "Installation complete" "$tmp/out-epg"
+finish_flow
+
+grep -F "Programme guide disabled" "$tmp/out-epg" >/dev/null
+grep -F "epg off" "$OPENSTREAM_TEST_STUB_LOG" >/dev/null
+grep -F "guide     off" "$tmp/out-epg" >/dev/null
+grep -F "export OPENSTREAM_EPG='false'" "$tmp/install-epg/home/.config/openstream/installer.env" >/dev/null
+if [ "${OPENSTREAM_TEST_SHOW:-0}" = 1 ]; then sed 's/\r$//' "$tmp/out-epg"; fi
+echo "onboarding clears an earlier stored programme guide override OK"
+
+# ---- Airtel: OTP sign-in writes the provider flag ------------------------
+start_flow "$tmp/install-airtel" "$tmp/out-airtel"
+wait_for "Which build?" "$tmp/out-airtel"; enter
+wait_for "Which account are you setting up?" "$tmp/out-airtel"; send "$(printf '\033[B\033[B\033[B')"; enter
+wait_for "This machine's address" "$tmp/out-airtel"; send '192.168.1.9'; enter
+wait_for "Open OpenStream TV beyond your LAN?" "$tmp/out-airtel"; enter
+wait_for "Turn on the programme guide (EPG)?" "$tmp/out-airtel"; enter
+wait_for "Airtel mobile number" "$tmp/out-airtel"; send '+91 98765 43210'; enter
+wait_for "Enter the OTP" "$tmp/out-airtel"; send '135790'; enter
+wait_for "Choose an admin password" "$tmp/out-airtel"; send 'secret'; enter
+wait_for "Installation complete" "$tmp/out-airtel"
+finish_flow
+if [ "${OPENSTREAM_TEST_SHOW:-0}" = 1 ]; then sed 's/\r$//' "$tmp/out-airtel"; fi
+
+grep -F "Signed in to Airtel Xstream" "$tmp/out-airtel" >/dev/null
+# The formatted number typed above is normalised before it reaches the CLI.
+grep -F "OTP sent to +919876543210" "$tmp/out-airtel" >/dev/null
+grep -F "account   Airtel Xstream" "$tmp/out-airtel" >/dev/null
+airtel_env="$tmp/install-airtel/home/.config/openstream/installer.env"
+grep -F "export OPENSTREAM_AIRTEL='true'" "$airtel_env" >/dev/null
+grep -F "export OPENSTREAM_FASTWAY='false'" "$airtel_env" >/dev/null
+env -i PATH="$PATH" sh -c '. "$1"; test "$OPENSTREAM_AIRTEL" = true' _ "$airtel_env"
+echo "onboarding Airtel flow OK"
 
 # ---- arrow keys: slim build, JioTV+ with a connection picker --------------
 start_flow "$tmp/install-slim" "$tmp/out2"
@@ -164,6 +236,7 @@ wait_for "Which build?" "$tmp/out2"; send "$(printf '\033[B')"; enter
 wait_for "Which account are you setting up?" "$tmp/out2"; send "$(printf '\033[B')"; enter
 wait_for "This machine's address" "$tmp/out2"; send '192.168.1.9'; enter
 wait_for "Open OpenStream TV beyond your LAN?" "$tmp/out2"; enter
+wait_for "Turn on the programme guide (EPG)?" "$tmp/out2"; send '1'; enter
 wait_for "Mobile number registered to the fibre account" "$tmp/out2"; send '9999999999'; enter
 wait_for "Choose the connection" "$tmp/out2"; send '2'; enter
 wait_for "OTP" "$tmp/out2"; send '123456'; enter
@@ -172,6 +245,10 @@ finish_flow
 
 grep -F "Office, JioFiber" "$tmp/out2" >/dev/null
 grep -F "Signed in to JioTV+" "$tmp/out2" >/dev/null
+grep -F "Programme guide enabled" "$tmp/out2" >/dev/null
+grep -F "guide     http://192.168.1.9:5001/k/secret-key/epg.xml.gz" "$tmp/out2" >/dev/null
+grep -F "epg on" "$OPENSTREAM_TEST_STUB_LOG" >/dev/null
+grep -F "export OPENSTREAM_EPG='true'" "$tmp/install-slim/home/.config/openstream/installer.env" >/dev/null
 grep -F "http://192.168.1.9:5001/k/secret-key/playlist.m3u" "$tmp/out2" >/dev/null
 grep -F "The slim build has no browser interface" "$tmp/out2" >/dev/null
 if grep -F "Choose an admin password" "$tmp/out2" >/dev/null; then
@@ -189,6 +266,7 @@ wait_for "Which build?" "$tmp/out3"; enter
 wait_for "Which account are you setting up?" "$tmp/out3"; send "$(printf '\033[B')"; enter
 wait_for "This machine's address" "$tmp/out3"; send '192.168.1.9'; enter
 wait_for "Open OpenStream TV beyond your LAN?" "$tmp/out3"; send "$(printf '\033[B\033[B')"; enter
+wait_for "Turn on the programme guide (EPG)?" "$tmp/out3"; enter
 wait_for "Mobile number registered to the fibre account" "$tmp/out3"; send '9999999999'; enter
 wait_for "Enter the OTP" "$tmp/out3"; send '123456'; enter
 wait_for "Choose an admin password" "$tmp/out3"; send 'secret'; enter
