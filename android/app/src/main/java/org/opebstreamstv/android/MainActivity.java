@@ -1437,7 +1437,7 @@ public final class MainActivity extends Activity {
                 boolean running=false;
                 try { String path=runKeyShow(); playlistUrl=PlaylistLink.loopbackUrl(path, LocalServerEndpoint.port(this)); showPlaylistUrl(); running=serverHealthy(); } catch(Exception ignored) {}
                 if (activityDestroyed) return;
-                if(running) { say("Server is running. Log in to load channels."); return; }
+                if(running) { io.execute(this::refreshServerAndAccount); say("Server is running. Log in to load channels."); return; }
                 if(attempt<12) {
                     synchronized (serverPollLock) {
                         if (!activityDestroyed) serverPollHandler.postDelayed(() -> pollServer(attempt+1),750);
