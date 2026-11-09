@@ -38,7 +38,7 @@ The **full** build serves the web interface. A **slim** build has no web interfa
 
 If you need reproducible deployments, pin a release or container tag instead of following `latest`.
 
-The Linux, macOS, Windows and OpenWrt installers run a guided setup when they have a terminal: choose the build, choose the account (JioTV, JioTV+, Fastway, or Airtel Xstream beta when the release supports it), confirm the LAN address, decide whether to use a Cloudflare tunnel, and sign in. Docker and unattended installs skip it and use the documented environment variables instead.
+The Linux, macOS, Windows and OpenWrt installers run a guided setup when they have a terminal: choose the build, choose the account (JioTV, JioTV+, Fastway, or Airtel Xstream beta when the release supports it), confirm the LAN address, decide whether to use a Cloudflare tunnel, decide whether to turn on the programme guide, and sign in. Docker and unattended installs skip it and use the documented environment variables instead.
 
 Which provider you can use depends on the account: JioTV and Airtel Xstream use mobile-number OTP flows, JioTV+ needs an eligible JioFiber or AirFiber login, and Fastway needs credentials accepted by the provider. ACT eligibility, where offered, depends on the provider.
 

@@ -50,7 +50,7 @@ Save, start with `ost --config ./openstream.toml serve`, then open `http://local
 | `drm` | `JIOTV_DRM`, `OPENSTREAM_DRM` | `true` | Boolean. Allow the protected DASH pathway; does not bypass DRM. |
 | `tv_plus` | `JIOTV_TVPLUS`, `OPENSTREAM_TVPLUS` | `false` | Boolean. Enable the optional JioTV+ account. Needs a JioFiber or AirFiber login. |
 | `fastway` | `JIOTV_FASTWAY`, `OPENSTREAM_FASTWAY` | `false` | Boolean. Enable the optional Fastway Live TV provider. Connect an account with `ost fastway login` or Settings before channels appear. |
-| `airtel` | `OPENSTREAM_AIRTEL`, `JIOTV_AIRTEL` | `false` | **Beta.** Enable the Airtel Xstream live TV provider. Connect an account with `ost airtel login` or Settings; its channels then join the shared catalogue, M3U playlist, XMLTV channel list and `/live` playback. |
+| `airtel` | `OPENSTREAM_AIRTEL`, `JIOTV_AIRTEL` | `false` | **Beta.** Enable the Airtel Xstream live TV provider. Connect an account with `ost airtel login`; its channels then join the shared catalogue, M3U playlist, XMLTV channel list and `/live` playback. |
 | `playbox` | `OPENSTREAM_PLAYBOX`, `JIOTV_PLAYBOX` | `false` | **Beta.** Enable the PlayboxTV account. Sign in with `POST /api/playbox/login/sendOTP` then `POST /api/playbox/login/verifyOTP`; the channel catalogue and live playback then use the normal `/live/...` routes. |
 | `tataplay` | `OPENSTREAM_TATAPLAY`, `JIOTV_TATAPLAY` | `false` | **Beta.** Enable the Tata Play Smart live TV provider. After OTP login its channels join the shared catalogue, M3U playlist, XMLTV channel list and `/live` DASH playback, including the Widevine license proxy. Playback and license URLs stay server-side. |
 | `vzy` | `OPENSTREAM_VZY`, `JIOTV_VZY` | `false` | **Beta.** Enable the VZY (Dish/Watcho white-label) **free tier**. It uses an anonymous Kaltura session; no account or OTP is needed. Only `EntitlementType=Free` channels are exposed. Premium/login-required channels are not advertised. |
@@ -72,7 +72,7 @@ The TOML key is `tv_plus`; `JIOTV_TVPLUS` and `OPENSTREAM_TVPLUS` are accepted, 
 
 When more than one source is connected, catalogue precedence is **Fastway > JioTV+ > PlayboxTV (beta) > VZY (beta) > Airtel Xstream (beta) > Tata Play Smart (beta) > JioTV**. JioTV remains the normal fallback source. See [Connect Fastway Live TV](../account-fastway/index.md).
 
-`airtel` / `OPENSTREAM_AIRTEL` (legacy alias `JIOTV_AIRTEL`) enables the **beta** Airtel Xstream provider. Sign in with `ost airtel login` or Settings; when connected it supplies the catalogue only if Fastway, JioTV+, PlayboxTV and VZY are not connected. Its channel IDs start with `airtel_`.
+`airtel` / `OPENSTREAM_AIRTEL` (legacy alias `JIOTV_AIRTEL`) enables the **beta** Airtel Xstream provider. Sign in with `ost airtel login`; when connected it supplies the catalogue only if Fastway, JioTV+, PlayboxTV and VZY are not connected. Its channel IDs start with `airtel_`.
 
 `playbox` / `OPENSTREAM_PLAYBOX` (legacy alias `JIOTV_PLAYBOX`) enables the **beta** PlayboxTV integration. When a PlayboxTV session is signed in it supplies the catalogue only if Fastway and JioTV+ are not connected; it takes precedence over VZY and JioTV. Its channel IDs start with `pb_`. EPG for PlayboxTV is not published because the client's guide response has no programme end time.
 

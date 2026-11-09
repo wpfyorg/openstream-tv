@@ -16,7 +16,7 @@ Run `ost --help` to see the installed binary's command list. These commands are 
 | `ost login reset` | Clear JioTV login state. |
 | `ost tv+ login` / `ost tv+ logout` | Connect/disconnect the optional JioTV+ account when `tv_plus` is enabled. `ost extras login` is still accepted. |
 | `ost fastway login` / `ost fastway logout` | Connect/disconnect the optional Fastway provider when `fastway = true` / `OPENSTREAM_FASTWAY=true`. |
-| `ost airtel login` / `ost airtel logout` | Connect/disconnect the beta Airtel Xstream provider when `airtel = true` / `OPENSTREAM_AIRTEL=true`. |
+| `ost airtel login` / `ost airtel logout` | Connect/disconnect the beta Airtel Xstream provider when `airtel = true` / `OPENSTREAM_AIRTEL=true`. Stop the server before `ost airtel logout` and start it again afterward; a running server keeps the Airtel session in memory and can save it back. |
 | `ost admin password` | Set an admin password from the CLI. |
 | `ost key show` / `ost key rotate` | Show or replace the IPTV access key. Treat its output as confidential. |
 | `ost epg on` / `ost epg off` | Permanently enable or disable automatic EPG generation for this data directory. Running managed OpenWrt/systemd services restart automatically; stopped services stay stopped and use the setting on their next start. `epg on` also prints the EPG URL. Restart manually only for an unmanaged foreground/background server. |
