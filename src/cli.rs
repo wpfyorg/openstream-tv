@@ -10,6 +10,10 @@ pub enum Command {
     FastwayLogout,
     AirtelLogin,
     AirtelLogout,
+    PlayboxLogin,
+    PlayboxLogout,
+    TataplayLogin,
+    TataplayLogout,
     AdminPassword,
     KeyShow,
     KeyRotate,
@@ -149,6 +153,20 @@ pub fn parse() -> anyhow::Result<Args> {
                 Some("logout") => Command::AirtelLogout,
                 other => anyhow::bail!("usage: ost airtel login|logout (got {other:?})"),
             },
+            Some("playbox") | Some("playboxtv") => {
+                match positionals.get(1).map(String::as_str) {
+                    Some("login") => Command::PlayboxLogin,
+                    Some("logout") => Command::PlayboxLogout,
+                    other => anyhow::bail!("usage: ost playbox login|logout (got {other:?})"),
+                }
+            }
+            Some("tataplay") | Some("tata-play") => {
+                match positionals.get(1).map(String::as_str) {
+                    Some("login") => Command::TataplayLogin,
+                    Some("logout") => Command::TataplayLogout,
+                    other => anyhow::bail!("usage: ost tataplay login|logout (got {other:?})"),
+                }
+            }
             Some("admin") => match positionals.get(1).map(String::as_str) {
                 Some("password") => Command::AdminPassword,
                 other => anyhow::bail!("usage: ost admin password (got {other:?})"),
