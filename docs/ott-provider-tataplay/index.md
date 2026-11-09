@@ -1,11 +1,11 @@
 ---
-title: Tata Play Smart Provider Evidence
+title: Tata Play Smart Beta Provider Evidence
 description: Recovered Tata Play Smart API contracts, live provider behaviour, runtime gaps and verification notes.
 category: Provider Reference
 keywords: [Tata Play Smart, provider, OTP, EPG, entitlement, DASH, Widevine]
 ---
 
-# OTT provider: Tata Play Smart
+# Beta OTT provider: Tata Play Smart
 
 This record covers two app generations: the older `com.ryzmedia.tatasky`
 509.0/894 installed on the A15, and the newer `com.tataplay.livetv` 1.0.10/101

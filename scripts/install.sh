@@ -17,6 +17,9 @@ provider=${OPENSTREAM_PROVIDER:-${JIOTV_PROVIDER:-}}
 public_host=${OPENSTREAM_PUBLIC_HOST:-${JIOTV_PUBLIC_HOST:-}}
 tunnel=${OPENSTREAM_TUNNEL:-${JIOTV_TUNNEL:-}}
 tunnel_token=${OPENSTREAM_TUNNEL_TOKEN:-${JIOTV_TUNNEL_TOKEN:-}}
+# Empty means the guided setup asks; true or false answers the question and
+# skips it.
+epg=${OPENSTREAM_EPG:-${JIOTV_EPG:-}}
 case "$ready_timeout" in ''|*[!0-9]*) echo "OPENSTREAM_READY_TIMEOUT must be a number of seconds" >&2; exit 2 ;; esac
 # Readiness needs two consecutive good checks, so fewer than two seconds can never succeed.
 [ "$ready_timeout" -ge 2 ] || ready_timeout=2
@@ -30,6 +33,7 @@ case "$onboard" in auto|always|never) ;; *) echo "OPENSTREAM_ONBOARD must be aut
 case "$provider" in tv+|tvplus) provider=extras ;; esac
 case "$provider" in ''|jiotv|extras|fastway|airtel) ;; *) echo "OPENSTREAM_PROVIDER must be jiotv, tv+, fastway or airtel" >&2; exit 2 ;; esac
 case "$tunnel" in ''|none|temp|named) ;; *) echo "OPENSTREAM_TUNNEL must be none, temp or named" >&2; exit 2 ;; esac
+case "$epg" in ''|true|false) ;; *) echo "OPENSTREAM_EPG must be true or false" >&2; exit 2 ;; esac
 
 sys=$(uname -s 2>/dev/null || echo unknown)
 machine=$(uname -m 2>/dev/null || echo unknown)
@@ -477,6 +481,16 @@ ob_choose_tunnel() {
   esac
 }
 
+# The guide is off by default, so the question offers to turn it on rather than
+# silently changing the default install.
+ob_choose_epg() {
+  [ -z "$epg" ] || return 0
+  ui_step "Programme guide"
+  ui_note "The guide downloads channel schedules and serves them next to the"
+  ui_note "playlist as XMLTV, for IPTV apps and the browser interface."
+  if ui_confirm "Turn on the programme guide (EPG)?" no; then epg=true; else epg=false; fi
+}
+
 # ---------------------------------------------------------------------------
 # Credentials
 #
@@ -685,6 +699,7 @@ ob_write_uci() {
   uci set openstream.main.tv_plus="$( [ "$provider" = extras ] && echo 1 || echo 0 )"
   uci set openstream.main.fastway="$( [ "$provider" = fastway ] && echo 1 || echo 0 )"
   uci set openstream.main.airtel="$( [ "$provider" = airtel ] && echo 1 || echo 0 )"
+  [ -z "$epg" ] || uci set openstream.main.epg="$( [ "$epg" = true ] && echo 1 || echo 0 )"
   case "$tunnel" in
     none) uci set openstream.main.tunnel=0; uci delete openstream.main.tunnel_token 2>/dev/null || true ;;
     temp) uci set openstream.main.tunnel=1; uci delete openstream.main.tunnel_token 2>/dev/null || true ;;
@@ -723,6 +738,7 @@ ob_write_shell_env() {
       printf 'export OPENSTREAM_TVPLUS=%s\n' "$(ob_shell_quote "$ob_tvplus_enabled")"
       printf 'export OPENSTREAM_FASTWAY=%s\n' "$(ob_shell_quote "$ob_fastway_enabled")"
       printf 'export OPENSTREAM_AIRTEL=%s\n' "$(ob_shell_quote "$ob_airtel_enabled")"
+      [ -z "$epg" ] || printf 'export OPENSTREAM_EPG=%s\n' "$(ob_shell_quote "$epg")"
       [ -z "$tunnel_token" ] || printf 'export OPENSTREAM_TUNNEL_TOKEN=%s\n' "$(ob_shell_quote "$tunnel_token")"
     } >"$ob_env_file"
   )
@@ -736,6 +752,7 @@ ob_install_service() {
   OPENSTREAM_FASTWAY=$( [ "$provider" = fastway ] && echo true || echo false )
   OPENSTREAM_AIRTEL=$( [ "$provider" = airtel ] && echo true || echo false )
   export OPENSTREAM_TVPLUS OPENSTREAM_FASTWAY OPENSTREAM_AIRTEL
+  [ -z "$epg" ] || export OPENSTREAM_EPG="$epg"
   if [ -n "$tunnel_token" ]; then export OPENSTREAM_TUNNEL_TOKEN="$tunnel_token"; fi
   ob_write_shell_env
   [ "$start_service" = 1 ] || return 0
@@ -747,6 +764,82 @@ ob_install_service() {
     ob_service=0
     if [ -n "${ob_stopped_service:-}" ]; then ob_restart_existing_service >/dev/null 2>&1 || true; fi
     ui_warn "Could not install a boot service here; use the start command in the summary"
+  fi
+}
+
+# The store the binary reads. Mirrors src/main.rs path_prefix resolution: the
+# environment, then path_prefix in the current directory's openstream.toml,
+# then the platform default. A "no" only clears an override an earlier "yes"
+# stored: pinning "no" on a fresh install would hide later config changes.
+ob_config_path_prefix() {
+  [ -f openstream.toml ] || return 1
+  ob_config_line=$(grep -E '^[[:space:]]*path_prefix[[:space:]]*=' openstream.toml | tail -n 1) || return 1
+  [ -n "$ob_config_line" ] || return 1
+  ob_config_value=${ob_config_line#*=}
+  ob_config_value=$(printf '%s\n' "$ob_config_value" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+  case $ob_config_value in
+    \"*) ob_config_value=${ob_config_value#\"}; ob_config_value=${ob_config_value%%\"*} ;;
+    \'*) ob_config_value=${ob_config_value#\'}; ob_config_value=${ob_config_value%%\'*} ;;
+    *) ob_config_value=${ob_config_value%%#*}; ob_config_value=$(printf '%s\n' "$ob_config_value" | sed -e 's/[[:space:]]*$//') ;;
+  esac
+  [ -n "$ob_config_value" ] || return 1
+  printf '%s\n' "$ob_config_value"
+}
+
+ob_epg_store_prefix() {
+  ob_store_prefix=${OPENSTREAM_PATH_PREFIX:-${JIOTV_PATH_PREFIX:-}}
+  if [ -z "$ob_store_prefix" ]; then
+    ob_store_prefix=$(ob_config_path_prefix || true)
+  fi
+  if [ -z "$ob_store_prefix" ]; then
+    if [ "$openwrt" = true ]; then
+      if [ -d /etc/openstream ] || [ ! -d /etc/jiotv ]; then ob_store_prefix=/etc/openstream
+      else ob_store_prefix=/etc/jiotv
+      fi
+    else
+      ob_store_home=${HOME:-$install_dir}
+      if [ -d "$ob_store_home/.openstream-tv" ] || [ ! -d "$ob_store_home/.jiotv_go" ]; then
+        ob_store_prefix=$ob_store_home/.openstream-tv
+      else
+        ob_store_prefix=$ob_store_home/.jiotv_go
+      fi
+    fi
+  fi
+  printf '%s\n' "${ob_store_prefix%/}"
+}
+
+ob_epg_store_file() {
+  printf '%s/store_v4.toml\n' "$(ob_epg_store_prefix)"
+}
+
+ob_epg_override_on() {
+  ob_store_file=${1:-$(ob_epg_store_file)}
+  [ -f "$ob_store_file" ] &&
+    grep -Eq '^[[:space:]]*epg_enabled[[:space:]]*=[[:space:]]*"true"' "$ob_store_file"
+}
+
+# Stores the persistent "turn it on" answer so every start mode, including a
+# service installed by an older installer, picks the guide up. A "no" only
+# clears an override an earlier "yes" stored: pinning "no" on a fresh install
+# would hide later config changes. The prefix is scoped to these calls so the
+# override check and CLI read and write the service store, not whatever the
+# installer shell resolves for the rest of its work.
+ob_apply_epg() {
+  ob_epg_bin=$1
+  ob_epg_prefix=${2:-$(ob_epg_store_prefix)}
+  ob_epg_store=${ob_epg_prefix%/}/store_v4.toml
+  if [ "$epg" = true ]; then
+    if OPENSTREAM_PATH_PREFIX="$ob_epg_prefix" "$ob_epg_bin" epg on >"$tmp/epg.log" 2>&1; then
+      ui_ok "Programme guide enabled"
+    else
+      ui_warn "Could not enable the programme guide; run: ost epg on"
+    fi
+  elif [ "$epg" = false ] && ob_epg_override_on "$ob_epg_store"; then
+    if OPENSTREAM_PATH_PREFIX="$ob_epg_prefix" "$ob_epg_bin" epg off >"$tmp/epg.log" 2>&1; then
+      ui_ok "Programme guide disabled"
+    else
+      ui_warn "Could not disable the programme guide; run: ost epg off"
+    fi
   fi
 }
 
@@ -897,7 +990,16 @@ ob_summary() {
     esac
     printf '  %splaylist%s  %s\n' "$ui_dim" "$ui_reset" "$ob_playlist_url"
   else
+    ob_playlist_url=
     ui_warn "Could not get the authenticated playlist URL; run 'ost key show' after starting the server"
+  fi
+  if [ "$epg" = true ]; then
+    case "$ob_playlist_url" in
+      */playlist.m3u) printf '  %sguide%s     %s\n' "$ui_dim" "$ui_reset" "${ob_playlist_url%/playlist.m3u}/epg.xml.gz" ;;
+      *) printf '  %sguide%s     on\n' "$ui_dim" "$ui_reset" ;;
+    esac
+  elif [ -n "$epg" ]; then
+    printf '  %sguide%s     off\n' "$ui_dim" "$ui_reset"
   fi
   case "$tunnel" in
     temp) printf '  %sremote%s    a trycloudflare.com address, printed by the service each start\n' "$ui_dim" "$ui_reset" ;;
@@ -1029,6 +1131,10 @@ if [ "$openwrt" = true ]; then
     ob_choose_provider "$openwrt_bin"
     ob_choose_host
     ob_choose_tunnel
+    ob_choose_epg
+    # The packaged init script pins the service store to /etc/openstream, so
+    # scope that prefix to the EPG calls instead of the installer shell.
+    ob_apply_epg "$openwrt_bin" /etc/openstream
     if ob_credentials "$openwrt_bin"; then ob_creds_done=1; else
       ui_fail "The install is complete but the account is not connected"
     fi
@@ -1262,6 +1368,7 @@ if onboard_enabled; then
   ob_choose_provider "$ost_bin"
   ob_choose_host
   ob_choose_tunnel
+  ob_choose_epg
   if ! ob_stop_existing_service; then
     ui_fail "Could not stop the existing service; account setup was not started"
     exit 1
@@ -1272,6 +1379,7 @@ if onboard_enabled; then
   export OPENSTREAM_TVPLUS OPENSTREAM_FASTWAY OPENSTREAM_AIRTEL
   if [ -n "$tunnel_token" ]; then export OPENSTREAM_TUNNEL_TOKEN="$tunnel_token"; fi
   ob_write_shell_env
+  ob_apply_epg "$ost_bin" "$(ob_epg_store_prefix)"
   if ob_credentials "$ost_bin"; then
     ob_admin_password "$ost_bin"
     ob_install_service "$ost_bin"
