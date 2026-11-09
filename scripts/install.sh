@@ -835,6 +835,16 @@ ob_write_shell_env() {
   chmod 600 "$ob_env_file"
 }
 
+# The account chosen during installation has to be the active provider even
+# when the data directory still holds a login for a different provider. VZY has
+# no login command, so this is the only thing that selects it.
+ob_activate_provider() {
+  ob_bin=$1
+  ob_binary_supports "$ob_bin" 'provider use' || return 0
+  "$ob_bin" provider use "$provider" >/dev/null 2>&1 && return 0
+  ui_warn "Could not save $provider as the active provider; pick it in Settings after the server starts"
+}
+
 ob_install_service() {
   ob_bin=$1
   ob_service=0
@@ -1477,6 +1487,7 @@ if onboard_enabled; then
   ob_write_shell_env
   ob_apply_epg "$ost_bin" "$(ob_epg_store_prefix)"
   if ob_credentials "$ost_bin"; then
+    ob_activate_provider "$ost_bin"
     ob_admin_password "$ost_bin"
     ob_install_service "$ost_bin"
     ob_summary "$ost_bin"
@@ -1487,7 +1498,9 @@ if onboard_enabled; then
   case "$provider" in
     extras) ob_login_cmd=${ob_tvplus_args:-'extras login'} ;;
     fastway) ob_login_cmd='fastway login' ;;
+    playbox) ob_login_cmd='playbox login' ;;
     airtel) ob_login_cmd='airtel login' ;;
+    tataplay) ob_login_cmd='tataplay login' ;;
     *) ob_login_cmd='login otp' ;;
   esac
   if [ -n "${ob_env_file:-}" ]; then

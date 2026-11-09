@@ -671,6 +671,13 @@ try {
         }
         if ($signedIn) { Write-Ok 'Signed in' }
         else { Write-Fail "Sign-in did not complete; run 'ost $loginCmd' when you are ready" }
+        # The chosen account has to be the active provider even when the store
+        # still holds a login for a different one. VZY has no login command, so
+        # this is the only thing that selects it.
+        if ($signedIn -and $help -match 'provider use') {
+            & $ost provider use $Provider | Out-Null
+            if ($LASTEXITCODE -ne 0) { Write-Warn2 "Could not save $Provider as the active provider; pick it in Settings after the server starts" }
+        }
 
         if ($Variant -eq 'full') {
             Write-Step 'Protect the browser interface'

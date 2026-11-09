@@ -97,6 +97,7 @@ fn main() -> anyhow::Result<()> {
         cli::Command::PlayboxLogout => playbox_logout_cli(&store),
         cli::Command::TataplayLogin => runtime.block_on(tataplay_login_cli(&store)),
         cli::Command::TataplayLogout => runtime.block_on(tataplay_logout_cli(&store)),
+        cli::Command::ProviderUse(id) => provider_use(&store, &id),
         cli::Command::AdminPassword => admin_password(&access, &path_prefix),
         cli::Command::KeyShow => show_key(&access),
         cli::Command::KeyRotate => rotate_key(&access),
@@ -970,6 +971,20 @@ fn remember_cli_provider(
         .map_err(|e| anyhow::anyhow!("could not save the active provider: {e}"))
 }
 
+fn provider_use(store: &store::Store, id: &str) -> anyhow::Result<()> {
+    let product = state::ActiveProduct::from_name(id).ok_or_else(|| {
+        anyhow::anyhow!(
+            "unknown provider {id}; use jiotv, jiotv_plus, fastway, playbox, vzy, airtel or tataplay"
+        )
+    })?;
+    remember_cli_provider(store, product)?;
+    println!(
+        "Active provider set to {}. Restart the server to use it.",
+        product.store_name()
+    );
+    Ok(())
+}
+
 async fn login_otp(store: Arc<store::Store>) -> anyhow::Result<()> {
     print!("Enter your mobile number: +91 ");
     std::io::stdout().flush()?;
@@ -1211,10 +1226,13 @@ async fn tataplay_login_cli(store: &store::Store) -> anyhow::Result<()> {
         std::io::stdout().flush()?;
         let mut pick = String::new();
         std::io::stdin().read_line(&mut pick)?;
-        let index = pick.trim().parse::<usize>().unwrap_or(1);
-        refs.get(index.saturating_sub(1)).cloned().ok_or_else(|| {
-            anyhow::anyhow!("enter a number between 1 and {}", refs.len())
-        })?
+        let index = pick
+            .trim()
+            .parse::<usize>()
+            .ok()
+            .filter(|index| (1..=refs.len()).contains(index))
+            .ok_or_else(|| anyhow::anyhow!("enter a number between 1 and {}", refs.len()))?;
+        refs[index - 1].clone()
     };
     println!("OTP sent to {number}");
 
@@ -1359,7 +1377,9 @@ fn print_help() {
          airtel login | airtel logout (off by default; needs airtel = true / OPENSTREAM_AIRTEL=true)\n  \
           playbox login | playbox logout (off by default; needs playbox = true / OPENSTREAM_PLAYBOX=true)\n  \
           tataplay login | tataplay logout (off by default; needs tataplay = true / OPENSTREAM_TATAPLAY=true)\n  \
-          vzy has no login: it uses the anonymous free tier (needs vzy = true / OPENSTREAM_VZY=true)\n\n  \
+          vzy has no login: it uses the anonymous free tier (needs vzy = true / OPENSTREAM_VZY=true)\n  \
+         provider use <id>        make one provider active: jiotv, jiotv_plus, fastway,\n  \
+         \x20                      playbox, vzy, airtel or tataplay\n\n  \
          epg generate | epg delete | epg on | epg off\n  \
          admin password\n  \
          key show | key rotate\n  \
@@ -1373,6 +1393,29 @@ fn print_help() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn temp_store() -> (tempfile::TempDir, store::Store) {
+        let dir = tempfile::tempdir().unwrap();
+        let store = store::Store::open(dir.path().to_str().unwrap()).unwrap();
+        (dir, store)
+    }
+
+    #[test]
+    fn provider_use_saves_the_chosen_provider() {
+        let (_dir, store) = temp_store();
+        provider_use(&store, "vzy").unwrap();
+        assert_eq!(store.get(state::STORE_KEY_ACTIVE_PROVIDER).unwrap(), "vzy");
+        provider_use(&store, "tata_play").unwrap();
+        assert_eq!(store.get(state::STORE_KEY_ACTIVE_PROVIDER).unwrap(), "tataplay");
+    }
+
+    #[test]
+    fn provider_use_rejects_an_unknown_provider() {
+        let (_dir, store) = temp_store();
+        let error = provider_use(&store, "fastway-ish").unwrap_err().to_string();
+        assert!(error.contains("unknown provider fastway-ish"), "{error}");
+        assert!(store.get(state::STORE_KEY_ACTIVE_PROVIDER).is_err());
+    }
 
     #[cfg(unix)]
     mod service {

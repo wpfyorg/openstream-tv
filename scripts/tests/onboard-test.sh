@@ -38,6 +38,7 @@ case "${1:-}" in
     echo "  ost airtel login"
     echo "  ost tataplay login"
     echo "  ost admin password"
+    echo "  ost provider use <id>"
     ;;
   login)
     printf 'Enter your mobile number: +91 '
@@ -92,6 +93,9 @@ case "${1:-}" in
     printf 'Tata Play OTP: '
     read otp
     echo "Tata Play login saved. Restart the server to use it."
+    ;;
+  provider)
+    echo "provider $2 $3" >>"$OPENSTREAM_TEST_STUB_LOG"
     ;;
   admin)
     printf 'New admin password: '
@@ -301,6 +305,8 @@ if [ "${OPENSTREAM_TEST_SHOW:-0}" = 1 ]; then sed 's/\r$//' "$tmp/out-vzy"; fi
 
 grep -F "VZY needs no account" "$tmp/out-vzy" >/dev/null
 grep -F "account   VZY free tier (beta)" "$tmp/out-vzy" >/dev/null
+# VZY has no login command, so the installer itself has to select it.
+grep -F "provider use vzy" "$OPENSTREAM_TEST_STUB_LOG" >/dev/null
 vzy_env="$tmp/install-vzy/home/.config/openstream/installer.env"
 grep -F "export OPENSTREAM_VZY='true'" "$vzy_env" >/dev/null
 env -i PATH="$PATH" sh -c '. "$1"; test "$OPENSTREAM_VZY" = true' _ "$vzy_env"
