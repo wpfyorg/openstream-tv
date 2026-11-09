@@ -49,9 +49,9 @@ if ($Epg -notin @('', 'true', 'false')) { throw 'OPENSTREAM_EPG must be true or 
 function Get-OpenStreamDataDir {
     $prefix = Get-OpenStreamEnv 'OPENSTREAM_PATH_PREFIX' 'JIOTV_PATH_PREFIX'
     if ($prefix) { return $prefix }
-    $home = Get-OpenStreamEnv 'HOME' 'USERPROFILE'
-    $current = Join-Path $home '.openstream-tv'
-    $legacy = Join-Path $home '.jiotv_go'
+    $homeDir = Get-OpenStreamEnv 'USERPROFILE' 'HOME'
+    $current = Join-Path $homeDir '.openstream-tv'
+    $legacy = Join-Path $homeDir '.jiotv_go'
     if ((Test-Path -LiteralPath $current) -or -not (Test-Path -LiteralPath $legacy)) { return $current }
     return $legacy
 }
