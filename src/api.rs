@@ -204,6 +204,16 @@ pub async fn status(State(state): State<SharedState>) -> Response {
         "jiotv": {"loggedIn": state.tv.logged_in()},
         "extras": {"enabled": state.extras.enabled(), "connected": state.extras.connected()},
         "fastway": {"enabled": state.fastway.enabled(), "connected": state.fastway.connected()},
+        "airtel": {
+            "enabled": state.airtel.enabled(),
+            "connected": state.airtel.connected(),
+            "artifact": {
+                "package": crate::airtel::PACKAGE,
+                "version": crate::airtel::VERSION_NAME,
+                "versionCode": crate::airtel::VERSION_CODE,
+                "sha256": crate::airtel::ARTIFACT_SHA256,
+            }
+        },
         "playbox": {
             "enabled": state.playbox.enabled(),
             "connected": state.playbox.connected(),
