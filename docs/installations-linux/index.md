@@ -34,7 +34,8 @@ Run the installer from a terminal and it walks through setup instead of only dro
 2. **Account** — JioTV, JioTV+ or Fastway. The installer describes JioTV as a mobile-number OTP flow, JioTV+ as needing an eligible JioFiber/AirFiber login, and Fastway as needing credentials accepted by its provider. ACT eligibility, where offered, depends on the provider. Only providers supported by the downloaded release are listed.
 3. **Address** — the LAN address other devices will use, pre-filled with the detected one. Press Enter to accept it.
 4. **Remote access** — LAN only, a temporary Cloudflare URL, or a permanent Cloudflare tunnel with a token.
-5. **Credentials** — the sign-in for the account you chose, then an admin password for the `full` build.
+5. **Programme guide** — whether to turn on the XMLTV guide. It is off by default; answering Yes runs `ost epg on` and prints the guide URL in the summary.
+6. **Credentials** — the sign-in for the account you chose, then an admin password for the `full` build.
 
 Piping the script into `sh` still works: every prompt reads `/dev/tty`, never the `curl` pipe. When there is no terminal — Docker, CI, cron, redirected output — the flow is skipped and the installer behaves exactly as it did before.
 
@@ -79,6 +80,7 @@ The guided setup can be scripted with environment variables, which also skip the
 | `OPENSTREAM_PUBLIC_HOST` | address | LAN address shown in the summary instead of the detected one. |
 | `OPENSTREAM_TUNNEL` | `none`, `temp`, `named` | LAN only, a temporary Cloudflare URL, or a named tunnel. |
 | `OPENSTREAM_TUNNEL_TOKEN` | token | Token for the named tunnel. Never pass it as a command-line argument. |
+| `OPENSTREAM_EPG` | `true`, `false` | Turns the programme guide on or off and skips the guide question. Leave it unset to be asked. |
 
 
 ## Verify and troubleshoot

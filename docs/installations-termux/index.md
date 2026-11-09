@@ -15,9 +15,9 @@ pkg install curl
 curl -fsSL https://raw.githubusercontent.com/wpfyorg/openstream-tv/main/scripts/install.sh | sh
 ```
 
-The binary is installed in Termux's `$PREFIX/bin`. The installer also runs the guided setup in the Termux terminal: build (`full` or `slim`), account (JioTV, JioTV+, or Fastway when the release supports it), the address other devices will use, an optional Cloudflare tunnel, and the account sign-in. Arrow keys select and Enter confirms.
+The binary is installed in Termux's `$PREFIX/bin`. The installer also runs the guided setup in the Termux terminal: build (`full` or `slim`), account (JioTV, JioTV+, or Fastway when the release supports it), the address other devices will use, an optional Cloudflare tunnel, whether to turn on the programme guide, and the account sign-in. Arrow keys select and Enter confirms.
 
-Guided setup writes the selected provider settings to `installer.env`, but those values are not automatically loaded back into the Termux shell that launched the installer. Before a later manual sign-in or `serve`, source the generated environment file (or reuse the exact `Start it with:` command printed by the installer, which already sources it). Configuring autostart only affects future startup and does not load those settings into the current shell. If you skipped the questions with `OPENSTREAM_ONBOARD=never`, set the matching provider flags in the same Termux shell before signing in and keep that shell open for `serve`:
+Guided setup writes the selected provider settings and the guide choice to `installer.env`, but those values are not automatically loaded back into the Termux shell that launched the installer. Before a later manual sign-in or `serve`, source the generated environment file (or reuse the exact `Start it with:` command printed by the installer, which already sources it). Configuring autostart only affects future startup and does not load those settings into the current shell. If you skipped the questions with `OPENSTREAM_ONBOARD=never`, set the matching provider flags in the same Termux shell before signing in and keep that shell open for `serve`:
 
 ```sh
 # JioTV: mobile-number OTP

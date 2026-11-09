@@ -65,6 +65,10 @@ case "${1:-}" in
     read pass
     [ -n "$pass" ]
     ;;
+  epg)
+    echo "epg $2" >>"$OPENSTREAM_TEST_STUB_LOG"
+    if [ "$2" = on ]; then echo "EPG enabled permanently."; fi
+    ;;
   autostart)
     echo "service installation unavailable" >&2
     exit 1
@@ -141,11 +145,15 @@ enter() { printf '\r' >&6; }
 finish_flow() { exec 6>&-; wait "$flow_pid"; }
 
 # ---- default path: full build, JioTV account ------------------------------
+OPENSTREAM_TEST_STUB_LOG="$tmp/stub-calls.log"
+export OPENSTREAM_TEST_STUB_LOG
+: >"$OPENSTREAM_TEST_STUB_LOG"
 start_flow "$tmp/install" "$tmp/out"
 wait_for "Which build?" "$tmp/out"; enter
 wait_for "Which account are you setting up?" "$tmp/out"; enter
 wait_for "This machine's address" "$tmp/out"; send '192.168.1.9'; enter
 wait_for "Open OpenStream TV beyond your LAN?" "$tmp/out"; enter
+wait_for "Turn on the programme guide (EPG)?" "$tmp/out"; enter
 wait_for "Mobile number registered with JioTV" "$tmp/out"; send '9999999999'; enter
 wait_for "Enter the OTP" "$tmp/out"; send '123456'; enter
 wait_for "Choose an admin password" "$tmp/out"; send 'secret'; enter
@@ -154,16 +162,27 @@ finish_flow
 
 grep -F "Signed in to JioTV" "$tmp/out" >/dev/null
 grep -F "http://192.168.1.9:5001/k/secret-key/playlist.m3u" "$tmp/out" >/dev/null
+grep -F "guide     off" "$tmp/out" >/dev/null
+if grep -F "epg" "$OPENSTREAM_TEST_STUB_LOG" >/dev/null; then
+  echo "declining the programme guide still changed the EPG setting" >&2
+  exit 1
+fi
+if grep -F "OPENSTREAM_EPG" "$tmp/install/home/.config/openstream/installer.env" >/dev/null; then
+  echo "declining the programme guide still wrote OPENSTREAM_EPG" >&2
+  exit 1
+fi
 test -x "$tmp/install/ost"
 if [ "${OPENSTREAM_TEST_SHOW:-0}" = 1 ]; then sed 's/\r$//' "$tmp/out"; fi
 echo "onboarding default flow OK"
 
-# ---- arrow keys: slim build, JioTV+ with a connection picker --------------
+# ---- arrow keys: slim build, JioTV+ with a connection picker, EPG on ------
+: >"$OPENSTREAM_TEST_STUB_LOG"
 start_flow "$tmp/install-slim" "$tmp/out2"
 wait_for "Which build?" "$tmp/out2"; send "$(printf '\033[B')"; enter
 wait_for "Which account are you setting up?" "$tmp/out2"; send "$(printf '\033[B')"; enter
 wait_for "This machine's address" "$tmp/out2"; send '192.168.1.9'; enter
 wait_for "Open OpenStream TV beyond your LAN?" "$tmp/out2"; enter
+wait_for "Turn on the programme guide (EPG)?" "$tmp/out2"; send '1'; enter
 wait_for "Mobile number registered to the fibre account" "$tmp/out2"; send '9999999999'; enter
 wait_for "Choose the connection" "$tmp/out2"; send '2'; enter
 wait_for "OTP" "$tmp/out2"; send '123456'; enter
@@ -172,6 +191,10 @@ finish_flow
 
 grep -F "Office, JioFiber" "$tmp/out2" >/dev/null
 grep -F "Signed in to JioTV+" "$tmp/out2" >/dev/null
+grep -F "Programme guide enabled" "$tmp/out2" >/dev/null
+grep -F "guide     http://192.168.1.9:5001/k/secret-key/epg.xml.gz" "$tmp/out2" >/dev/null
+grep -F "epg on" "$OPENSTREAM_TEST_STUB_LOG" >/dev/null
+grep -F "export OPENSTREAM_EPG='true'" "$tmp/install-slim/home/.config/openstream/installer.env" >/dev/null
 grep -F "http://192.168.1.9:5001/k/secret-key/playlist.m3u" "$tmp/out2" >/dev/null
 grep -F "The slim build has no browser interface" "$tmp/out2" >/dev/null
 if grep -F "Choose an admin password" "$tmp/out2" >/dev/null; then
@@ -189,6 +212,7 @@ wait_for "Which build?" "$tmp/out3"; enter
 wait_for "Which account are you setting up?" "$tmp/out3"; send "$(printf '\033[B')"; enter
 wait_for "This machine's address" "$tmp/out3"; send '192.168.1.9'; enter
 wait_for "Open OpenStream TV beyond your LAN?" "$tmp/out3"; send "$(printf '\033[B\033[B')"; enter
+wait_for "Turn on the programme guide (EPG)?" "$tmp/out3"; enter
 wait_for "Mobile number registered to the fibre account" "$tmp/out3"; send '9999999999'; enter
 wait_for "Enter the OTP" "$tmp/out3"; send '123456'; enter
 wait_for "Choose an admin password" "$tmp/out3"; send 'secret'; enter

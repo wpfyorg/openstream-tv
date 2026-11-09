@@ -26,7 +26,7 @@ source ~/.zshrc
 
 ## Guided setup
 
-In a terminal, the installer also asks how the server should be set up: build (`full` or `slim`), account (JioTV, JioTV+, or Fastway when that release supports it), the LAN address other devices will use, whether to expose it through Cloudflare, and the account sign-in. Arrow keys select, Enter confirms, and Ctrl-C cancels without leaving the terminal in a broken state.
+In a terminal, the installer also asks how the server should be set up: build (`full` or `slim`), account (JioTV, JioTV+, or Fastway when that release supports it), the LAN address other devices will use, whether to expose it through Cloudflare, whether to turn on the programme guide, and the account sign-in. Arrow keys select, Enter confirms, and Ctrl-C cancels without leaving the terminal in a broken state.
 
 The same settings can be supplied up front to skip the questions:
 
@@ -34,7 +34,7 @@ The same settings can be supplied up front to skip the questions:
 curl -fsSL https://raw.githubusercontent.com/wpfyorg/openstream-tv/main/scripts/install.sh | OPENSTREAM_VARIANT=slim OPENSTREAM_PROVIDER=jiotv OPENSTREAM_TUNNEL=none sh
 ```
 
-`OPENSTREAM_ONBOARD=never` turns the flow off. Piping the script into `sh` is fine because prompts read `/dev/tty`, not the pipe; with no terminal the installer behaves exactly as it does without this option.
+`OPENSTREAM_ONBOARD=never` turns the flow off. Piping the script into `sh` is fine because prompts read `/dev/tty`, not the pipe; with no terminal the installer behaves exactly as it does without this option. Set `OPENSTREAM_EPG=true` to turn the programme guide on without the guide question; the default answer is off.
 
 ## First run
 

@@ -40,6 +40,9 @@ $PublicHost = Get-OpenStreamEnv 'OPENSTREAM_PUBLIC_HOST' 'JIOTV_PUBLIC_HOST'
 $Tunnel = Get-OpenStreamEnv 'OPENSTREAM_TUNNEL' 'JIOTV_TUNNEL'
 if ($Tunnel -notin @('', 'none', 'temp', 'named')) { throw 'OPENSTREAM_TUNNEL must be none, temp, or named' }
 $TunnelToken = Get-OpenStreamEnv 'OPENSTREAM_TUNNEL_TOKEN' 'JIOTV_TUNNEL_TOKEN'
+# Empty means the wizard asks; true or false answers the question and skips it.
+$Epg = Get-OpenStreamEnv 'OPENSTREAM_EPG' 'JIOTV_EPG'
+if ($Epg -notin @('', 'true', 'false')) { throw 'OPENSTREAM_EPG must be true or false' }
 
 # Same rule as the shell installer: only a real console drives the flow, so
 # redirected runs (CI, scheduled tasks) keep the old non-interactive output.
@@ -481,6 +484,15 @@ try {
         elseif ($Tunnel -eq 'temp') {
             Write-Warn2 'Anyone with the address can reach the sign-in page. Keep the admin password strong.'
         }
+        if (-not $Epg) {
+            Write-Step 'Programme guide'
+            Write-Host '  The guide downloads channel schedules and serves them next to the' -ForegroundColor DarkGray
+            Write-Host '  playlist as XMLTV, for IPTV apps and the browser interface.' -ForegroundColor DarkGray
+            $Epg = Select-Option 'Turn on the programme guide (EPG)?' @(
+                @{ Value = 'true'; Label = 'Yes' },
+                @{ Value = 'false'; Label = 'No' }
+            ) 1
+        }
         if ($Tunnel -ne 'none') { $serveLine += ' --tunnel' }
 
         $tvPlusEnabled = if ($Provider -eq 'extras') { 'true' } else { 'false' }
@@ -522,6 +534,13 @@ try {
             else { Write-Warn2 'No password set; run: ost admin password' }
         }
 
+        if ($Epg -eq 'true') {
+            Set-UserEnvironment 'OPENSTREAM_EPG' 'true'
+            & $ost epg on | Out-Null
+            if ($LASTEXITCODE -eq 0) { Write-Ok 'Programme guide enabled' }
+            else { Write-Warn2 'Could not enable the programme guide; run: ost epg on' }
+        }
+
         Write-Host ''
         Write-Rule
         Write-Host '  Installation complete' -ForegroundColor Green
@@ -548,6 +567,11 @@ try {
         }
         if ($playlistUrl) { Write-Host "  playlist  $playlistUrl" }
         else { Write-Warn2 "Could not get the authenticated playlist URL; run 'ost key show' after starting the server" }
+        if ($Epg -eq 'true') {
+            if ($playlistUrl -match 'playlist\.m3u$') { Write-Host "  guide     $($playlistUrl -replace 'playlist\.m3u$', 'epg.xml.gz')" }
+            else { Write-Host '  guide     on' }
+        }
+        elseif ($Epg -eq 'false') { Write-Host '  guide     off' }
         if ($Tunnel -ne 'none') { Write-Host '  remote    a Cloudflare tunnel address' }
         Write-Host ''
         if ($TunnelToken) {
