@@ -153,7 +153,7 @@ public final class MainActivity extends Activity {
     private String selectedProvider = "jiotv";
     private EditText fastwayUser, fastwayPass;
     private TextView fastwayUserLabel, fastwayPassLabel, fastwayHint, vzyInfo, tataInfo;
-    private Button fastwayConnect, vzyUse;
+    private Button fastwayConnect;
     private TextView phoneLoginHeading, phoneLoginHelper;
     private final java.util.LinkedHashMap<String, Button> providerSwitches = new java.util.LinkedHashMap<>();
     private JSONObject lastProviderStatus;
@@ -260,7 +260,6 @@ public final class MainActivity extends Activity {
         fastwayConnect = button(right, "Connect Fastway"); fastwayConnect.setOnClickListener(v -> fastwayLogin());
         fastwayHint = addText(right, "", television ? 13 : 13, 0xff91a0b3);
         vzyInfo = addText(right, "VZY free tier needs no account.", television ? 13 : 13, 0xff91a0b3);
-        vzyUse = button(right, "Use VZY"); vzyUse.setOnClickListener(v -> activateProvider("vzy"));
         tataInfo = addText(right, "Tata Play is diagnostic only and is not part of the channel catalogue.", television ? 13 : 13, 0xff91a0b3);
         addText(right, "Import", television ? 18 : 20, 0xffffffff);
         importConfigButton = button(right, "Import TOML config"); importConfigButton.setOnClickListener(v -> pickFile("application/toml", PICK_CONFIG));
@@ -492,10 +491,8 @@ public final class MainActivity extends Activity {
         fastwayHint = tvLabel("", 1010, 840, 810, 28, 17, TV_MUTED, false);
         vzyInfo = tvLabel("VZY free tier needs no account. It is available whenever the anonymous session is ready.", 1010, 545, 840, 90, 21, TV_MUTED, false);
         vzyInfo.setSingleLine(false); vzyInfo.setMaxLines(3);
-        vzyUse = tvAction("Use VZY", 1010, 765, 840, 62, true);
-        vzyUse.setOnClickListener(v -> activateProvider("vzy"));
         tataInfo = tvLabel("Tata Play is diagnostic only. It is not added to the channel list, playlist or playback yet.", 1010, 545, 840, 110, 21, TV_MUTED, false);
-        tataInfo.setSingleLine(false); tataInfo.setMaxLines(4);
+        tataInfo.setSingleLine(false); tataInfo.setMaxLines(4); tataInfo.setGravity(Gravity.TOP);
         tvAccountName = tvLabel("JioTV", 1040, 496, 470, 39, 30, TV_TEXT, true);
         tvAccountNote = tvLabel("●  Signed in", 1040, 540, 500, 30, 21, 0xff98e5c7, true);
         logoutButton = tvAction("Log out", 1570, 510, 245, 65, true);
@@ -519,30 +516,38 @@ public final class MainActivity extends Activity {
         boolean showAccount = connected && !tata;
         boolean showOtp = !connected && isOtpProvider(selectedProvider);
         boolean showFastway = !connected && "fastway".equals(selectedProvider);
-        boolean showVzy = !connected && "vzy".equals(selectedProvider);
         boolean showTata = tata;
         String label = providerLabel(selectedProvider);
-        String heading = showAccount ? "Connected account" : tata ? "Tata Play" : label + " login";
-        String helper = showAccount ? label + " is connected and ready."
-                : "playbox".equals(selectedProvider) ? "Enter the PlayboxTV mobile number to receive an OTP."
-                : "fastway".equals(selectedProvider) ? "Enter your Fastway username and password."
-                : tvOtpRequested ? "OTP requested · Enter the six-digit code"
-                : "Enter your mobile number to receive an OTP";
+        String heading = showAccount ? "Connected account"
+                : tata ? "Tata Play"
+                : "vzy".equals(selectedProvider) ? "VZY"
+                : label + " login";
+        String helper;
+        if (showAccount) helper = label + " is connected and ready to watch.";
+        else if (tata) helper = "Diagnostic beta · not in the channel catalogue";
+        else if ("vzy".equals(selectedProvider)) helper = "Free tier · no account needed";
+        else if ("playbox".equals(selectedProvider)) helper = "Enter the PlayboxTV mobile number to receive an OTP.";
+        else if ("fastway".equals(selectedProvider)) helper = "Enter your Fastway username and password.";
+        else if (tvOtpRequested) helper = "OTP requested · Enter the six-digit code";
+        else helper = "Enter your mobile number to receive an OTP";
 
         if (television && tvLoginHeading != null) {
             View focused = getCurrentFocus();
             tvLoginHeading.setText(heading);
             tvLoginHelper.setText(helper);
-            setVisible(tvLoginHeading, !showAccount && !showVzy && !showTata);
-            setVisible(tvLoginHelper, !showAccount && !showVzy && !showTata);
+            setVisible(tvLoginHeading, !showAccount);
+            setVisible(tvLoginHelper, !showAccount);
             setVisible(tvAccountCard, showAccount);
             setVisible(tvAccountName, showAccount);
             setVisible(tvAccountNote, showAccount);
             boolean canLogout = showAccount && !"vzy".equals(selectedProvider);
             setVisible(logoutButton, canLogout);
-            setVisible(tvAccountRetentionNote, canLogout);
+            setVisible(tvAccountRetentionNote, showAccount);
             tvAccountName.setText(label);
-            tvAccountNote.setText("vzy".equals(selectedProvider) ? "●  Free tier" : "●  Connected");
+            tvAccountNote.setText("●  Active · " + ("vzy".equals(selectedProvider) ? "Free tier" : "Connected"));
+            tvAccountRetentionNote.setText("vzy".equals(selectedProvider)
+                    ? "No account is required for the free tier."
+                    : "Your login remains saved on this device.");
             logoutButton.setEnabled(!tvLogoutDisabled);
             logoutButton.setFocusable(!tvLogoutDisabled);
             for (View view : new View[]{tvMobileLabel, number, send}) setVisible(view, showOtp);
@@ -552,14 +557,13 @@ public final class MainActivity extends Activity {
             for (View view : new View[]{fastwayUserLabel, fastwayUser, fastwayPassLabel, fastwayPass, fastwayConnect, fastwayHint})
                 setVisible(view, showFastway);
             fastwayHint.setText("");
-            setVisible(vzyInfo, showVzy);
-            setVisible(vzyUse, showVzy);
+            setVisible(vzyInfo, false);
             setVisible(tataInfo, showTata);
             updateTvLoginActionLabel();
             tvMove(send, tvOtpRequested ? 765 : 655);
             tvCanvas.post(this::updateTvFocusGraph);
             if (focused != null && !isTvFocusable(focused))
-                requestTvFocus(firstTvFocusable(showAccount ? logoutButton : showFastway ? fastwayConnect : showOtp ? send : vzyUse, number, fastwayUser, service));
+                requestTvFocus(firstTvFocusable(showAccount ? (canLogout ? logoutButton : null) : showFastway ? fastwayConnect : showOtp ? send : null, number, fastwayUser, service));
         }
         if (!television && phoneLoginHeading != null) {
             phoneLoginHeading.setText(heading);
@@ -571,8 +575,7 @@ public final class MainActivity extends Activity {
             for (View view : new View[]{fastwayUserLabel, fastwayUser, fastwayPassLabel, fastwayPass, fastwayConnect, fastwayHint})
                 setVisible(view, showFastway);
             fastwayHint.setText("");
-            setVisible(vzyInfo, showVzy);
-            setVisible(vzyUse, showVzy);
+            setVisible(vzyInfo, false);
             setVisible(tataInfo, showTata);
             setVisible(logoutButton, showAccount && !"vzy".equals(selectedProvider));
             if (logoutButton != null) logoutButton.setEnabled(!tvLogoutDisabled);
@@ -669,6 +672,10 @@ public final class MainActivity extends Activity {
     }
     private void updateProviderSwitches(JSONObject status) {
         lastProviderStatus = status;
+        if (television && tvProviderHelper != null)
+            tvProviderHelper.setText(status == null
+                    ? "Start the local server to manage providers"
+                    : "Select a provider to switch channels or sign in");
         String active = "";
         JSONObject catalogue = status == null ? null : status.optJSONObject("catalogue");
         if (catalogue != null) active = catalogue.optString("activeProduct", "");
@@ -680,7 +687,8 @@ public final class MainActivity extends Activity {
                 button.setVisibility(View.VISIBLE);
                 button.setEnabled(false);
                 button.setFocusable(false);
-                button.setText(provider[1] + " · Server stopped");
+                button.setText(provider[1] + (providerBeta(id) ? " (Beta)" : ""));
+                setProviderDot(button, 0xff4a5a6b);
                 if (television) button.setBackground(tvProviderSwitchSurface(false, id.equals(selectedProvider)));
                 continue;
             }
@@ -690,9 +698,10 @@ public final class MainActivity extends Activity {
             }
             button.setVisibility(View.VISIBLE);
             if ("tataplay".equals(id)) {
-                button.setText(provider[1] + " (Beta) · Diagnostic only");
+                button.setText(provider[1] + " (Beta) · Diagnostic");
                 button.setEnabled(true);
                 button.setFocusable(true);
+                setProviderDot(button, 0xffe0a458);
                 if (television) button.setBackground(tvProviderSwitchSurface(false, id.equals(selectedProvider)));
                 continue;
             }
@@ -700,13 +709,23 @@ public final class MainActivity extends Activity {
             boolean isActive = connected && active.equals(activeNameFor(id));
             String state = isActive ? "Active"
                     : "vzy".equals(id) && connected ? "Free tier"
-                    : connected ? "Connected" : "Not connected";
+                    : connected ? "Connected" : "Sign in";
             button.setText(provider[1] + (providerBeta(id) ? " (Beta)" : "") + " · " + state);
             button.setEnabled(true);
             button.setFocusable(true);
+            setProviderDot(button, isActive ? 0xff42d7ae : connected ? 0xff7fd7c0 : 0xff5f7387);
             if (television) button.setBackground(tvProviderSwitchSurface(isActive, id.equals(selectedProvider)));
         }
         if (television && tvCanvas != null) tvCanvas.post(this::updateTvFocusGraph);
+    }
+    private void setProviderDot(Button button, int color) {
+        if (!television) return;
+        GradientDrawable dot = new GradientDrawable();
+        dot.setShape(GradientDrawable.OVAL);
+        dot.setColor(color);
+        dot.setSize(tvPx(11), tvPx(11));
+        button.setCompoundDrawablesWithIntrinsicBounds(dot, null, null, null);
+        button.setCompoundDrawablePadding(tvPx(12));
     }
     private void onProviderSwitch(String id) {
         selectedProvider = id;
