@@ -786,7 +786,7 @@ ob_config_path_prefix() {
   printf '%s\n' "$ob_config_value"
 }
 
-ob_epg_store_file() {
+ob_epg_store_prefix() {
   ob_store_prefix=${OPENSTREAM_PATH_PREFIX:-${JIOTV_PATH_PREFIX:-}}
   if [ -z "$ob_store_prefix" ]; then
     ob_store_prefix=$(ob_config_path_prefix || true)
@@ -805,11 +805,15 @@ ob_epg_store_file() {
       fi
     fi
   fi
-  printf '%s/store_v4.toml\n' "${ob_store_prefix%/}"
+  printf '%s\n' "${ob_store_prefix%/}"
+}
+
+ob_epg_store_file() {
+  printf '%s/store_v4.toml\n' "$(ob_epg_store_prefix)"
 }
 
 ob_epg_override_on() {
-  ob_store_file=$(ob_epg_store_file)
+  ob_store_file=${1:-$(ob_epg_store_file)}
   [ -f "$ob_store_file" ] &&
     grep -Eq '^[[:space:]]*epg_enabled[[:space:]]*=[[:space:]]*"true"' "$ob_store_file"
 }
@@ -817,16 +821,21 @@ ob_epg_override_on() {
 # Stores the persistent "turn it on" answer so every start mode, including a
 # service installed by an older installer, picks the guide up. A "no" only
 # clears an override an earlier "yes" stored: pinning "no" on a fresh install
-# would hide later config changes.
+# would hide later config changes. The prefix is scoped to these calls so the
+# override check and CLI read and write the service store, not whatever the
+# installer shell resolves for the rest of its work.
 ob_apply_epg() {
+  ob_epg_bin=$1
+  ob_epg_prefix=${2:-$(ob_epg_store_prefix)}
+  ob_epg_store=${ob_epg_prefix%/}/store_v4.toml
   if [ "$epg" = true ]; then
-    if "$1" epg on >"$tmp/epg.log" 2>&1; then
+    if OPENSTREAM_PATH_PREFIX="$ob_epg_prefix" "$ob_epg_bin" epg on >"$tmp/epg.log" 2>&1; then
       ui_ok "Programme guide enabled"
     else
       ui_warn "Could not enable the programme guide; run: ost epg on"
     fi
-  elif [ "$epg" = false ] && ob_epg_override_on; then
-    if "$1" epg off >"$tmp/epg.log" 2>&1; then
+  elif [ "$epg" = false ] && ob_epg_override_on "$ob_epg_store"; then
+    if OPENSTREAM_PATH_PREFIX="$ob_epg_prefix" "$ob_epg_bin" epg off >"$tmp/epg.log" 2>&1; then
       ui_ok "Programme guide disabled"
     else
       ui_warn "Could not disable the programme guide; run: ost epg off"
@@ -1123,7 +1132,9 @@ if [ "$openwrt" = true ]; then
     ob_choose_host
     ob_choose_tunnel
     ob_choose_epg
-    ob_apply_epg "$openwrt_bin"
+    # The packaged init script pins the service store to /etc/openstream, so
+    # scope that prefix to the EPG calls instead of the installer shell.
+    ob_apply_epg "$openwrt_bin" /etc/openstream
     if ob_credentials "$openwrt_bin"; then ob_creds_done=1; else
       ui_fail "The install is complete but the account is not connected"
     fi
@@ -1368,7 +1379,7 @@ if onboard_enabled; then
   export OPENSTREAM_TVPLUS OPENSTREAM_FASTWAY OPENSTREAM_AIRTEL
   if [ -n "$tunnel_token" ]; then export OPENSTREAM_TUNNEL_TOKEN="$tunnel_token"; fi
   ob_write_shell_env
-  ob_apply_epg "$ost_bin"
+  ob_apply_epg "$ost_bin" "$(ob_epg_store_prefix)"
   if ob_credentials "$ost_bin"; then
     ob_admin_password "$ost_bin"
     ob_install_service "$ost_bin"
