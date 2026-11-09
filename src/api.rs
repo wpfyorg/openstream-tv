@@ -820,14 +820,16 @@ pub async fn playbox_verify_otp(
         })
         .await;
     if installed.load(std::sync::atomic::Ordering::SeqCst) {
+        // Activate before regenerating the guide, so the programmes belong to
+        // the provider that just signed in.
+        if let Err(e) = state.set_active_product(crate::state::ActiveProduct::Playbox) {
+            tracing::warn!("cannot save the active provider: {e}");
+        }
         state.invalidate_context();
         crate::epg::trigger_regeneration(&state);
     }
     match result {
         Ok(true) => {
-            if let Err(e) = state.set_active_product(crate::state::ActiveProduct::Playbox) {
-                tracing::warn!("cannot save the active provider: {e}");
-            }
             playbox_otp_limiter().record_success(&attempt_key);
             Json(json!({"status": true})).into_response()
         }
@@ -1135,6 +1137,11 @@ pub async fn airtel_verify_otp(
     // are in place. A rejected OTP never installs anything, so it neither
     // rotates here nor cuts off existing viewers.
     if installed.load(std::sync::atomic::Ordering::SeqCst) {
+        // Activate before regenerating the guide, so the programmes belong to
+        // the provider that just signed in.
+        if let Err(e) = state.set_active_product(crate::state::ActiveProduct::Airtel) {
+            tracing::warn!("cannot save the active provider: {e}");
+        }
         state.invalidate_context();
         state.airtel.ensure_catalogue(&state.store).await;
         crate::epg::trigger_regeneration(&state);
@@ -1400,6 +1407,11 @@ pub async fn tataplay_verify_otp(
         )
         .await;
     if installed.load(std::sync::atomic::Ordering::SeqCst) {
+        // Activate before regenerating the guide, so the programmes belong to
+        // the provider that just signed in.
+        if let Err(e) = state.set_active_product(crate::state::ActiveProduct::TataPlay) {
+            tracing::warn!("cannot save the active provider: {e}");
+        }
         state.invalidate_context();
         crate::epg::trigger_regeneration(&state);
     }
