@@ -58,7 +58,7 @@ Before login it signs with the shipped fallback identity
 `v72UE-WQrmdaed_gi53xZLV5pa02` / `FKmr3XQti5C8WyRi4tRNgzgVeMk=`, which reaches
 `content.airtel.tv` but not the account data.
 
-## 4. Login (partly verified live)
+## 4. Login (static evidence only)
 
 | Step | Contract |
 |---|---|
@@ -70,9 +70,9 @@ The login response carries `uid`, `token` (the signing key), `authToken` (sent
 as `x-atv-stkn` for playback), `success` and `userConfig.userContentProperties`,
 which becomes the `cp`/`cl`/`ln` query parameters.
 
-Verified live without an account: the OTP endpoints answer with Airtel's own
-error JSON, and the fallback identity is rejected for account data, so no login
-flow was completed during analysis. What was executed is recorded in section 7.
+The login contract above is taken from the app's own code and request
+interceptor. No login flow was completed during analysis, and no OTP request was
+executed for this record; section 7 lists only the calls that were actually run.
 
 ## 5. Catalogue, EPG and playback
 

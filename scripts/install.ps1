@@ -290,7 +290,10 @@ function Connect-Airtel {
     param([string]$Exe)
     Write-Step 'Sign in to Airtel Xstream'
     $number = Read-Text 'Airtel mobile number (+91)'
-    if (-not (Test-MobileNumber $number)) { Write-Fail 'A mobile number is required for the OTP'; return $false }
+    $digits = $number -replace '[^0-9]', ''
+    if ($digits -match '^91([6-9][0-9]{9})$') { $number = $Matches[1] }
+    elseif ($digits -match '^[6-9][0-9]{9}$') { $number = $digits }
+    else { Write-Fail 'Enter a 10-digit Indian mobile number'; return $false }
     $dialog = New-Dialog $Exe 'airtel login'
     Send-Dialog $dialog $number
     if (Wait-Dialog $dialog 'OTP:') {

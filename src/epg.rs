@@ -577,7 +577,7 @@ pub async fn epg_handler(State(state): State<Arc<AppState>>) -> Response {
 /// `GET /epg/:channelID/:offset` — proxies a single channel/day's schedule,
 /// mirroring `WebEPGHandler`'s day-offset correction (skipped here: this
 /// rewrite passes the upstream response straight through — see README).
-const IST_OFFSET_MS: i64 = 5 * 60 * 60 * 1000 + 30 * 60 * 1000;
+pub(crate) const IST_OFFSET_MS: i64 = 5 * 60 * 60 * 1000 + 30 * 60 * 1000;
 const DAY_MS: i64 = 24 * 60 * 60 * 1000;
 
 fn epg_day_offset_from_epoch(epoch_ms: i64) -> i64 {

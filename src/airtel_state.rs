@@ -102,9 +102,12 @@ impl AirtelState {
     }
 
     pub fn logout(&self, store: &crate::store::Store) -> anyhow::Result<()> {
-        crate::airtel::delete_credentials(store)?;
         if let Some(client) = self.client() {
-            *client.creds.write().unwrap() = None;
+            let mut guard = client.creds.write().unwrap();
+            *guard = None;
+            crate::airtel::delete_credentials(store)?;
+        } else {
+            crate::airtel::delete_credentials(store)?;
         }
         self.clear();
         Ok(())
@@ -254,14 +257,82 @@ impl AirtelState {
                 return Ok(playback.clone());
             }
         }
+        let generation = self.generation();
         let playback = client.playback(store, content_id).await?;
         let now = Instant::now();
-        let generation = self.generation();
         let cached = playback.clone();
         self.commit_if_current(generation, || {
             self.playback.write().unwrap().insert(key, (cached, now));
         });
         Ok(playback)
+    }
+
+    /// Resolve enough playback metadata for a cold M3U request to classify
+    /// Airtel channels as HLS/DASH and clear/DRM before the playlist is
+    /// rendered. Work is bounded so a large catalogue cannot create an
+    /// unbounded burst of upstream requests.
+    pub async fn prepare_playlist_metadata(&self, store: Arc<crate::store::Store>) {
+        let _guard = self.locks.lock("playlist-metadata").await;
+        let generation = self.generation();
+        let Some(client) = self.client() else {
+            return;
+        };
+        if !client.is_logged_in() || self.generation() != generation {
+            return;
+        }
+        let work: Vec<String> = self
+            .catalogue
+            .read()
+            .unwrap()
+            .iter()
+            .filter_map(|item| {
+                let key = channel_id(&item.id);
+                let fresh = self
+                    .playback
+                    .read()
+                    .unwrap()
+                    .get(&key)
+                    .is_some_and(|(_, at)| at.elapsed() < PLAYBACK_TTL);
+                (!fresh).then(|| item.id.clone())
+            })
+            .collect();
+
+        const MAX_IN_FLIGHT: usize = 8;
+        let mut pending = work.into_iter();
+        let mut tasks = tokio::task::JoinSet::new();
+        for _ in 0..MAX_IN_FLIGHT {
+            let Some(content_id) = pending.next() else {
+                break;
+            };
+            let client = client.clone();
+            let store = store.clone();
+            tasks.spawn(async move {
+                let playback = client.playback(&store, &content_id).await;
+                (content_id, playback)
+            });
+        }
+
+        while let Some(joined) = tasks.join_next().await {
+            if self.generation() != generation {
+                tasks.abort_all();
+                return;
+            }
+            if let Ok((content_id, Ok(playback))) = joined {
+                let now = Instant::now();
+                let key = channel_id(&content_id);
+                let _ = self.commit_if_current(generation, || {
+                    self.playback.write().unwrap().insert(key, (playback, now));
+                });
+            }
+            if let Some(content_id) = pending.next() {
+                let client = client.clone();
+                let store = store.clone();
+                tasks.spawn(async move {
+                    let playback = client.playback(&store, &content_id).await;
+                    (content_id, playback)
+                });
+            }
+        }
     }
 
     /// The CDN headers the app sends for this channel's manifest/segments.
@@ -380,7 +451,9 @@ impl AirtelState {
             .unwrap_or_default()
             .as_millis() as i64;
         let day = 86_400_000i64;
-        let start = now - (now % day) + offset_days.max(0) * day;
+        let local = now + crate::epg::IST_OFFSET_MS;
+        let start =
+            local - local.rem_euclid(day) - crate::epg::IST_OFFSET_MS + offset_days.max(0) * day;
         let end = start + day;
         let guide = client.epg(store, start, end).await?;
         Ok(guide.get(content_id).cloned().unwrap_or_default())
@@ -497,6 +570,87 @@ mod tests {
             .any(|(k, _)| k.eq_ignore_ascii_case("user-agent")));
         let license = state.license(&store, "airtel_2002").await.unwrap();
         assert_eq!(license.url, "https://play.airtel.tv/drm");
+    }
+
+    #[tokio::test]
+    async fn logout_during_refresh_does_not_restore_the_account() {
+        use tokio::sync::Notify;
+        use wiremock::Request;
+
+        let server = MockServer::start().await;
+        let refresh_started = std::sync::Arc::new(Notify::new());
+        let refresh_started_for_response = refresh_started.clone();
+        Mock::given(method("POST"))
+            .and(path("/v2/user/session/refreshAuthToken"))
+            .respond_with(move |_request: &Request| {
+                refresh_started_for_response.notify_one();
+                ResponseTemplate::new(200)
+                    .set_delay(Duration::from_millis(100))
+                    .set_body_raw(
+                        r#"{"success":true,"token":"new-token"}"#,
+                        "application/json",
+                    )
+            })
+            .expect(1)
+            .mount(&server)
+            .await;
+        let state = AirtelState::new(true);
+        let client = client_for(&server);
+        state.set_client_for_test(client.clone());
+        let dir = tempfile::tempdir().unwrap();
+        let store =
+            std::sync::Arc::new(crate::store::Store::open(dir.path().to_str().unwrap()).unwrap());
+        crate::airtel::Credentials {
+            uid: "uid".into(),
+            token: "token".into(),
+            ..Default::default()
+        }
+        .save(&store)
+        .unwrap();
+
+        let refresh_store = store.clone();
+        let refresh = tokio::spawn(async move { client.refresh(&refresh_store).await });
+        refresh_started.notified().await;
+        state.logout(&store).unwrap();
+        let error = refresh.await.unwrap().unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("logged out during token refresh"));
+        assert!(crate::airtel::Credentials::load(&store).is_none());
+        assert!(!state.connected());
+    }
+
+    #[tokio::test]
+    async fn prepare_playlist_metadata_classifies_playback_before_export() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/app/v3/content/channels"))
+            .respond_with(ResponseTemplate::new(200).set_body_raw(
+                r#"{"channels":[{"id":"2002","title":"Star Movies","hd":true}]}"#,
+                "application/json",
+            ))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/v4/user/content/playback"))
+            .and(query_param("contentId", "2002"))
+            .respond_with(ResponseTemplate::new(200).set_body_raw(
+                r#"{"success":true,"playback":{"playUrl":"https://cdn/2002/manifest.mpd"},"drm":{"licenceUrl":"https://play.airtel.tv/drm"}}"#,
+                "application/json",
+            ))
+            .mount(&server)
+            .await;
+        let state = AirtelState::new(true);
+        state.set_client_for_test(client_for(&server));
+        let dir = tempfile::tempdir().unwrap();
+        let store =
+            std::sync::Arc::new(crate::store::Store::open(dir.path().to_str().unwrap()).unwrap());
+        assert!(state.ensure_catalogue(&store).await);
+        assert!(!state.is_drm("airtel_2002"));
+        assert!(!state.is_dash("airtel_2002"));
+        state.prepare_playlist_metadata(store.clone()).await;
+        assert!(state.is_drm("airtel_2002"));
+        assert!(state.is_dash("airtel_2002"));
     }
 
     #[tokio::test]

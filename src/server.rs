@@ -418,6 +418,12 @@ async fn channels_or_playlist(
     if matches!(state.active_product(), crate::state::ActiveProduct::Playbox) {
         state.playbox.prepare_playlist_metadata().await;
     }
+    if matches!(state.active_product(), crate::state::ActiveProduct::Airtel) {
+        state
+            .airtel
+            .prepare_playlist_metadata(state.store.clone())
+            .await;
+    }
 
     let host_url = base_url(&state, &https, &prefix, &headers);
     let empty = String::new();

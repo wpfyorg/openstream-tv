@@ -336,6 +336,17 @@ mod tests {
     }
 
     #[test]
+    fn openstream_airtel_wins_over_legacy() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::set_var("OPENSTREAM_AIRTEL", "true");
+        std::env::set_var("JIOTV_AIRTEL", "false");
+        let cfg = Config::load(None).unwrap();
+        assert!(cfg.airtel);
+        std::env::remove_var("OPENSTREAM_AIRTEL");
+        std::env::remove_var("JIOTV_AIRTEL");
+    }
+
+    #[test]
     fn toml_airtel_key_is_read() {
         let _guard = ENV_LOCK.lock().unwrap();
         let dir = tempfile::tempdir().unwrap();

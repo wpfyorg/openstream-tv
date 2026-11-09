@@ -971,15 +971,12 @@ pub async fn airtel_send_otp(
     if let Some(response) = airtel_enabled(&state) {
         return response;
     }
-    let attempt_key = match playbox_otp_attempt("airtel-send", addr) {
-        Some(key) => key,
-        None => {
-            return err(
-                StatusCode::TOO_MANY_REQUESTS,
-                "too many Airtel OTP attempts, try again later",
-            )
-        }
-    };
+    if playbox_otp_attempt("airtel-send", addr).is_none() {
+        return err(
+            StatusCode::TOO_MANY_REQUESTS,
+            "too many Airtel OTP attempts, try again later",
+        );
+    }
     let Some(msisdn) = crate::airtel::normalize_msisdn(&body.number) else {
         return err(
             StatusCode::BAD_REQUEST,
@@ -987,13 +984,13 @@ pub async fn airtel_send_otp(
         );
     };
     let Some(client) = state.airtel.client() else {
-        return err(StatusCode::BAD_REQUEST, "airtel is not enabled");
+        return err(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "airtel client failed to initialise; check the server log",
+        );
     };
     match client.send_otp(&msisdn).await {
-        Ok(message) => {
-            playbox_otp_limiter().record_success(&attempt_key);
-            Json(json!({"status": true, "message": message})).into_response()
-        }
+        Ok(message) => Json(json!({"status": true, "message": message})).into_response(),
         Err(e) => err(StatusCode::BAD_REQUEST, e.to_string()),
     }
 }
@@ -1025,18 +1022,29 @@ pub async fn airtel_verify_otp(
         );
     };
     let Some(client) = state.airtel.client() else {
-        return err(StatusCode::BAD_REQUEST, "airtel is not enabled");
+        return err(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "airtel client failed to initialise; check the server log",
+        );
     };
-    state.invalidate_context();
-    match client
-        .verify_otp(&state.store, &msisdn, body.otp.trim())
-        .await
-    {
+    let installed = std::sync::atomic::AtomicBool::new(false);
+    let result = client
+        .verify_otp(&state.store, &msisdn, body.otp.trim(), || {
+            installed.store(true, std::sync::atomic::Ordering::SeqCst);
+            state.invalidate_context();
+        })
+        .await;
+    // Rotate again once the exchange has finished and the final credentials
+    // are in place. A rejected OTP never installs anything, so it neither
+    // rotates here nor cuts off existing viewers.
+    if installed.load(std::sync::atomic::Ordering::SeqCst) {
+        state.invalidate_context();
+        state.airtel.ensure_catalogue(&state.store).await;
+        crate::epg::trigger_regeneration(&state);
+    }
+    match result {
         Ok(_) => {
             playbox_otp_limiter().record_success(&attempt_key);
-            state.invalidate_context();
-            state.airtel.ensure_catalogue(&state.store).await;
-            crate::epg::trigger_regeneration(&state);
             Json(json!({"status": true, "airtel": airtel_summary(&state)})).into_response()
         }
         Err(e) => err(StatusCode::BAD_REQUEST, e.to_string()),

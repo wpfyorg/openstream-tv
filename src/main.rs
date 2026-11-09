@@ -1072,7 +1072,7 @@ async fn airtel_login_cli(store: &store::Store) -> anyhow::Result<()> {
     let mut otp = String::new();
     std::io::stdin().read_line(&mut otp)?;
 
-    match client.verify_otp(store, &msisdn, otp.trim()).await {
+    match client.verify_otp(store, &msisdn, otp.trim(), || {}).await {
         Ok(creds) => {
             println!("Airtel login saved for {}. Restart the server to use it.", creds.msisdn);
             Ok(())

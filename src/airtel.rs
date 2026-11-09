@@ -653,6 +653,9 @@ impl Client {
             .header("x-atv-did", self.device.identifier())
             .header("x-atv-traceid", trace_id())
             .header(reqwest::header::USER_AGENT, USER_AGENT);
+        if !body.is_empty() {
+            req = req.body(body);
+        }
         if let Some(creds) = self.credentials() {
             if !creds.language_or_default().is_empty() {
                 req = req.header("x-atv-lang", creds.language_or_default());
@@ -669,16 +672,21 @@ impl Client {
         req: reqwest::RequestBuilder,
         label: &str,
     ) -> anyhow::Result<(u16, Vec<u8>)> {
-        let response = tokio::time::timeout(REQUEST_TIMEOUT, req.send())
-            .await
-            .map_err(|_| anyhow::anyhow!("airtel: {label} timed out"))?
-            .map_err(|e| anyhow::anyhow!("airtel: {label} failed: {e}"))?;
-        let status = response.status().as_u16();
-        let bytes = response
-            .bytes()
-            .await
-            .map_err(|e| anyhow::anyhow!("airtel: {label} body failed: {e}"))?
-            .to_vec();
+        let (status, bytes) = tokio::time::timeout(REQUEST_TIMEOUT, async {
+            let response = req
+                .send()
+                .await
+                .map_err(|e| anyhow::anyhow!("airtel: {label} failed: {e}"))?;
+            let status = response.status().as_u16();
+            let bytes = response
+                .bytes()
+                .await
+                .map_err(|e| anyhow::anyhow!("airtel: {label} body failed: {e}"))?
+                .to_vec();
+            Ok::<_, anyhow::Error>((status, bytes))
+        })
+        .await
+        .map_err(|_| anyhow::anyhow!("airtel: {label} timed out"))??;
         Ok((status, bytes))
     }
 
@@ -749,6 +757,7 @@ impl Client {
         store: &crate::store::Store,
         msisdn: &str,
         otp: &str,
+        on_installed: impl FnOnce(),
     ) -> anyhow::Result<Credentials> {
         let body = serde_json::json!({
             "deviceType": self.device.login_device_type(),
@@ -783,16 +792,26 @@ impl Client {
                         .unwrap_or_else(|| "hi".to_string()),
                     content_properties: properties,
                 };
+                // Rotate the account context before the new credentials are
+                // installed, so the previous account's URLs and caches cannot
+                // be reused.
+                on_installed();
                 creds.save(store)?;
                 *self.creds.write().unwrap() = Some(creds.clone());
                 return Ok(creds);
             }
             let value: serde_json::Value =
                 serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null);
-            last = upstream_error(status, &value);
+            let error = upstream_error(status, &value);
             if parsed.uid.is_empty() && parsed.token.is_empty() && status == 404 {
+                // Keep the previous endpoint's rejection when this fallback
+                // path responds with an empty 404 but may still succeed.
+                if last.is_empty() {
+                    last = error;
+                }
                 continue;
             }
+            last = error;
             if !parsed.message.is_empty() {
                 last = parsed.message;
             }
@@ -830,15 +849,19 @@ impl Client {
                 upstream_error(status, &value)
             );
         }
-        let mut creds = self.credentials().unwrap_or_default();
-        creds.uid = parsed.uid;
+        let mut guard = self.creds.write().unwrap();
+        let Some(creds) = guard.as_mut() else {
+            anyhow::bail!("airtel: account logged out during token refresh");
+        };
+        if !parsed.uid.is_empty() {
+            creds.uid = parsed.uid;
+        }
         creds.token = parsed.token;
         if !parsed.auth_token.is_empty() {
             creds.auth_token = parsed.auth_token;
         }
         creds.save(store)?;
-        *self.creds.write().unwrap() = Some(creds.clone());
-        Ok(creds)
+        Ok(creds.clone())
     }
 
     /// Airtel rotates the signing token without notice; a 401 means the
@@ -1160,7 +1183,7 @@ mod sha1 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wiremock::matchers::{header_exists, method, path, query_param};
+    use wiremock::matchers::{body_string_contains, header_exists, method, path, query_param};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     fn client(server: &MockServer) -> Client {
@@ -1403,16 +1426,94 @@ mod tests {
         let client = client(&server);
         let dir = tempfile::tempdir().unwrap();
         let store = crate::store::Store::open(dir.path().to_str().unwrap()).unwrap();
+        let installed = std::sync::atomic::AtomicBool::new(false);
         let creds = client
-            .verify_otp(&store, "+919999999999", "123456")
+            .verify_otp(&store, "+919999999999", "123456", || {
+                installed.store(true, std::sync::atomic::Ordering::SeqCst);
+            })
             .await
             .unwrap();
+        assert!(installed.load(std::sync::atomic::Ordering::SeqCst));
         assert_eq!(creds.uid, "uid-1");
         assert_eq!(creds.token, "token-1");
         assert_eq!(creds.auth_token, "stkn-1");
         assert_eq!(creds.circle, "KA");
         assert_eq!(creds.cp(), "airtel");
         assert!(Credentials::load(&store).is_some());
+    }
+
+    #[tokio::test]
+    async fn send_otp_posts_the_signed_json_body() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v2/user/profile/generateOtp"))
+            .and(body_string_contains("\"msisdn\":\"+919999999999\""))
+            .and(body_string_contains("\"msgTxt\""))
+            .respond_with(ResponseTemplate::new(200).set_body_raw(
+                r#"{"success":true,"message":"OTP sent"}"#,
+                "application/json",
+            ))
+            .mount(&server)
+            .await;
+        let client = client(&server);
+        let message = client.send_otp("+919999999999").await.unwrap();
+        assert_eq!(message, "OTP sent");
+    }
+
+    #[tokio::test]
+    async fn refresh_preserves_uid_when_response_omits_it() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v2/user/session/refreshAuthToken"))
+            .respond_with(ResponseTemplate::new(200).set_body_raw(
+                r#"{"success":true,"token":"new-token"}"#,
+                "application/json",
+            ))
+            .mount(&server)
+            .await;
+        let client = client(&server);
+        *client.creds.write().unwrap() = Some(Credentials {
+            uid: "uid-1".into(),
+            token: "old-token".into(),
+            auth_token: "stkn-1".into(),
+            ..Default::default()
+        });
+        let dir = tempfile::tempdir().unwrap();
+        let store = crate::store::Store::open(dir.path().to_str().unwrap()).unwrap();
+        let creds = client.refresh(&store).await.unwrap();
+        assert_eq!(creds.uid, "uid-1");
+        assert_eq!(creds.token, "new-token");
+        assert_eq!(creds.auth_token, "stkn-1");
+    }
+
+    #[tokio::test]
+    async fn rejected_v8_keeps_its_message_when_v5_returns_empty_404() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v8/user/login"))
+            .respond_with(ResponseTemplate::new(403).set_body_raw(
+                r#"{"success":false,"errorcode":"ATV403","errortitle":"OTP Incorrect"}"#,
+                "application/json",
+            ))
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/v5/user/login"))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
+        let client = client(&server);
+        let dir = tempfile::tempdir().unwrap();
+        let store = crate::store::Store::open(dir.path().to_str().unwrap()).unwrap();
+        let installed = std::sync::atomic::AtomicBool::new(false);
+        let err = client
+            .verify_otp(&store, "+919999999999", "000000", || {
+                installed.store(true, std::sync::atomic::Ordering::SeqCst);
+            })
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("OTP Incorrect"));
+        assert!(!installed.load(std::sync::atomic::Ordering::SeqCst));
     }
 
     #[tokio::test]

@@ -619,7 +619,9 @@ ob_creds_airtel() {
   ui_input "Airtel mobile number (+91)" ""
   ob_number=$ui_result
   case "$ob_number" in
-    ''|*[!0-9]*) ui_fail "A mobile number is required for the OTP"; return 1 ;;
+    [6-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]) ;;
+    91[6-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]) ob_number=${ob_number#91} ;;
+    *) ui_fail "Enter a 10-digit Indian mobile number"; return 1 ;;
   esac
   ob_dialog_start "$ob_bin" airtel login
   ob_dialog_send "$ob_number"
