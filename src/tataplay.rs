@@ -250,6 +250,17 @@ impl Client {
             .ok_or_else(|| anyhow::anyhow!("tataplay: not logged in"))
     }
 
+    /// A copy of this client carrying refreshed credentials, preserving the
+    /// device identity and base URL it was created with.
+    pub(crate) fn with_credentials(&self, credentials: Credentials) -> Client {
+        Client {
+            http: self.http.clone(),
+            base: self.base.clone(),
+            device: self.device.clone(),
+            credentials: Some(credentials),
+        }
+    }
+
     async fn checked_json(
         &self,
         request: reqwest::RequestBuilder,
@@ -578,7 +589,6 @@ impl Client {
         Ok(ResolvedPlayback {
             playable: decrypt_url(&play_raw, keys)?,
             license_url: decrypt_url(&license_raw, keys)?,
-            is_dash: true,
             media_headers: Vec::new(),
             license_headers: Vec::new(),
             session_id: first_field(&[data], "sessionId"),
@@ -652,7 +662,6 @@ pub struct AppKeys {
 pub struct ResolvedPlayback {
     pub playable: String,
     pub license_url: String,
-    pub is_dash: bool,
     pub media_headers: Vec<(String, String)>,
     pub license_headers: Vec<(String, String)>,
     /// Concurrency session the upstream opened for this playback. It is also

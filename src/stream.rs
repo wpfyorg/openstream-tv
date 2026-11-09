@@ -740,7 +740,10 @@ async fn live_impl_inner(
             .is_some();
         let via_playbox = crate::playbox::is_playbox_channel(id);
         let via_vzy = crate::vzy::is_vzy_channel(id);
-        if (via_fastway || via_extras || via_playbox || via_vzy) && television::has_dash(&live) {
+        let via_tataplay = crate::tataplay::is_tataplay_channel(id);
+        if (via_fastway || via_extras || via_playbox || via_vzy || via_tataplay)
+            && television::has_dash(&live)
+        {
             let prefix_str = prefix.as_ref().map(|p| p.0 .0.clone()).unwrap_or_default();
             return Redirect::to(&format!("{prefix_str}/live/mpd/{id}?q={quality}"))
                 .into_response();

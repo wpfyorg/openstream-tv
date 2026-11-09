@@ -17,6 +17,13 @@ const CATALOGUE_TTL: Duration = Duration::from_secs(30 * 60);
 const CATALOGUE_RETRY_BACKOFF: Duration = Duration::from_secs(15);
 const KEYS_TTL: Duration = Duration::from_secs(6 * 60 * 60);
 const PLAYBACK_TTL: Duration = Duration::from_secs(5 * 60);
+/// Stop beating once no media or license request has touched the playback for
+/// this long. Matches the playback TTL so an idle session is never resumed from
+/// a cache entry that has already expired.
+#[cfg(not(test))]
+const HEARTBEAT_IDLE_TIMEOUT: Duration = PLAYBACK_TTL;
+#[cfg(test)]
+const HEARTBEAT_IDLE_TIMEOUT: Duration = Duration::from_millis(150);
 /// Fallback cadence when the access-control response omits `heartbeatInterval`.
 /// A 30 s beat stays well inside the 5 minute playback TTL.
 const DEFAULT_HEARTBEAT_SECS: u64 = 30;
@@ -37,6 +44,8 @@ pub struct TataplayState {
     catalogue_failed_at: RwLock<Option<Instant>>,
     keys: RwLock<Option<(AppKeys, Instant)>>,
     resolved: RwLock<HashMap<String, (ResolvedPlayback, Instant)>>,
+    /// Last media/license access, so the heartbeat can stop when playback ends.
+    last_activity: Arc<Mutex<Instant>>,
     heartbeat: Mutex<Option<Heartbeat>>,
     /// Bumped under `commit` whenever account-scoped caches are cleared. A
     /// fetch captures it first and commits only if it is unchanged.
@@ -56,6 +65,7 @@ impl TataplayState {
             catalogue_failed_at: RwLock::new(None),
             keys: RwLock::new(None),
             resolved: RwLock::new(HashMap::new()),
+            last_activity: Arc::new(Mutex::new(Instant::now())),
             heartbeat: Mutex::new(None),
             generation: AtomicU64::new(0),
             commit: Mutex::new(()),
@@ -129,8 +139,10 @@ impl TataplayState {
 
     pub async fn logout(&self, store: &crate::store::Store) -> anyhow::Result<()> {
         let _transition = self.account_transition.lock().await;
-        self.clear();
+        // Drop the client before the generation bump so an in-flight fetch can
+        // never publish one account's data after the next account is active.
         *self.client.write().unwrap() = None;
+        self.clear();
         crate::tataplay::logout(store).await
     }
 
@@ -159,22 +171,39 @@ impl TataplayState {
         let _transition = self.account_transition.lock().await;
         let client = self.client_for_http(http, store)?;
         let credentials = client.verify_otp(store, otp, ref_id, ref_id_mode).await?;
+        // Install the new client before rotating the cache context: a fetch
+        // that starts in between sees the old generation and its commit is
+        // dropped, while a fetch that sees the new generation also sees the
+        // new client.
+        self.init(http, store);
         // Rotate the context at the exact moment the new account replaces the
         // old one, before any account-scoped cache can be reused.
         on_installed();
         self.clear();
         let _ = credentials;
-        self.init(http, store);
         Ok(true)
+    }
+
+    /// Refreshes the retained client's tokens and replaces it in place so the
+    /// media, license and catalogue paths stop using the expired token.
+    pub async fn refresh(&self, store: &crate::store::Store) -> anyhow::Result<()> {
+        let _transition = self.account_transition.lock().await;
+        let client = self
+            .client()
+            .ok_or_else(|| anyhow::anyhow!("tataplay: not connected"))?;
+        let credentials = client.refresh(store).await?;
+        *self.client.write().unwrap() = Some(Arc::new(client.with_credentials(credentials)));
+        self.clear();
+        Ok(())
     }
 
     /// Returns whether a fresh catalogue is available. A failed fetch leaves
     /// the previous generation dropped rather than serving another account's
     /// list, and the caller can report the upstream failure.
     pub async fn ensure_catalogue(&self) -> bool {
-        let Some(client) = self.client() else {
+        if !self.connected() {
             return false;
-        };
+        }
         if self
             .catalogue_fetched_at
             .read()
@@ -208,7 +237,13 @@ impl TataplayState {
         {
             return false;
         }
+        // Read both after the lock so they describe one account. A transition
+        // that swaps the client before the bump leaves this commit stale and
+        // the bump discards it.
         let generation = self.generation();
+        let Some(client) = self.client() else {
+            return false;
+        };
         match client.catalogue().await {
             Ok(channels) => {
                 let now = Instant::now();
@@ -253,6 +288,7 @@ impl TataplayState {
     }
 
     async fn ensure_playback(&self, document: &str) -> Option<ResolvedPlayback> {
+        *self.last_activity.lock().unwrap() = Instant::now();
         if let Some((resolved, at)) = self.resolved.read().unwrap().get(document) {
             if at.elapsed() < PLAYBACK_TTL {
                 return Some(resolved.clone());
@@ -291,10 +327,9 @@ impl TataplayState {
             return;
         }
         let mut slot = self.heartbeat.lock().unwrap();
-        if slot
-            .as_ref()
-            .is_some_and(|running| running.session_id == resolved.session_id)
-        {
+        if slot.as_ref().is_some_and(|running| {
+            running.session_id == resolved.session_id && !running.task.is_finished()
+        }) {
             return;
         }
         if let Some(previous) = slot.take() {
@@ -306,6 +341,7 @@ impl TataplayState {
         let session_id = resolved.session_id.clone();
         let task_client = (**client).clone();
         let task_session = session_id.clone();
+        let last_activity = self.last_activity.clone();
         let task = tokio::spawn(async move {
             if let Err(error) = task_client.start_session(&task_session).await {
                 tracing::debug!(%error, "tataplay session start failed");
@@ -314,6 +350,12 @@ impl TataplayState {
             ticker.tick().await;
             loop {
                 ticker.tick().await;
+                if last_activity.lock().unwrap().elapsed() >= HEARTBEAT_IDLE_TIMEOUT {
+                    if let Err(error) = task_client.end_session(&task_session).await {
+                        tracing::debug!(%error, "tataplay idle session end failed");
+                    }
+                    break;
+                }
                 if let Err(error) = task_client.start_session(&task_session).await {
                     tracing::debug!(%error, "tataplay session heartbeat failed");
                 }
@@ -412,38 +454,8 @@ impl TataplayState {
         }
     }
 
-    pub fn is_drm(&self, channel_id: &str) -> bool {
-        let Some(document) = document_id(channel_id) else {
-            return false;
-        };
-        self.resolved
-            .read()
-            .unwrap()
-            .get(document)
-            .map(|(resolved, _)| !resolved.license_url.is_empty())
-            .unwrap_or(false)
-    }
-
-    pub fn is_dash(&self, channel_id: &str) -> bool {
-        let Some(document) = document_id(channel_id) else {
-            return false;
-        };
-        self.resolved
-            .read()
-            .unwrap()
-            .get(document)
-            .is_some_and(|(resolved, at)| at.elapsed() < PLAYBACK_TTL && resolved.is_dash)
-    }
-
     pub fn playlist_ready(&self, channel_id: &str) -> bool {
-        let Some(document) = document_id(channel_id) else {
-            return false;
-        };
-        self.resolved
-            .read()
-            .unwrap()
-            .get(document)
-            .is_some_and(|(_, at)| at.elapsed() < PLAYBACK_TTL)
+        self.contains(channel_id)
     }
 
     pub fn account_fingerprint(&self) -> String {
@@ -541,7 +553,6 @@ mod tests {
         assert_eq!(live.result, "OK");
         assert_eq!(live.mpd.auto, "not-encrypted");
         assert!(live.is_drm);
-        assert!(state.is_dash("tp_1918"));
     }
 
     async fn wait_for(server: &MockServer, method: &str, path: &str) {
@@ -559,6 +570,106 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
         panic!("no {method} {path} request arrived");
+    }
+
+    #[tokio::test]
+    async fn refresh_replaces_the_retained_client() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/rest-api/pub/api/v3/refreshToken"))
+            .and(header("authorization", "bearer token"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": {
+                    "accessToken": "new-access",
+                    "refreshToken": "new-refresh",
+                    "subscriberId": "sub-1",
+                    "userDetails": {"sid": "sid-1"}
+                }
+            })))
+            .mount(&server)
+            .await;
+        let dir = tempfile::tempdir().unwrap();
+        let store = crate::store::Store::open(dir.path().to_str().unwrap()).unwrap();
+        store
+            .set(
+                crate::tataplay::STORE_KEY_CREDENTIALS,
+                &serde_json::to_string(&Credentials {
+                    access_token: "token".into(),
+                    refresh_token: "refresh".into(),
+                    subscriber_id: "sub-1".into(),
+                    sid: "sid-1".into(),
+                })
+                .unwrap(),
+            )
+            .unwrap();
+        let state = TataplayState::new(true);
+        state.set_client_for_test(client_for(&server));
+
+        state.refresh(&store).await.unwrap();
+
+        assert_eq!(
+            state.client().unwrap().credentials().unwrap().access_token,
+            "new-access"
+        );
+        assert_eq!(
+            Credentials::load(&store).unwrap().access_token,
+            "new-access"
+        );
+        server.verify().await;
+    }
+
+    #[tokio::test]
+    async fn heartbeat_stops_when_playback_goes_idle() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/lit-ls-config/pub/api/v1/config"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": {"app": {"dd": {"v1": "ZG5INSxTMSVDbSN1cFclZQ==", "v2": "YWVzRW5jcnlwdGlvbktleQ=="}}}
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/pas/api/v1/access/control/LIVE/1918"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": {
+                    "sessionId": "sess-idle",
+                    "heartbeatInterval": 1,
+                    "playbackUrls": {
+                        "dashWidewinePlayUrl": "not-encrypted",
+                        "dashWidewineLicenseUrl": "not-encrypted"
+                    }
+                }
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/smgs/api/v1/session"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"code": 0})))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("DELETE"))
+            .and(path("/smgs/api/v1/session"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"code": 0})))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let state = TataplayState::new(true);
+        state.set_client_for_test(client_for(&server));
+        state.live("tp_1918").await.unwrap();
+        wait_for(&server, "POST", "/smgs/api/v1/session").await;
+
+        wait_for(&server, "DELETE", "/smgs/api/v1/session").await;
+        tokio::time::sleep(Duration::from_millis(1200)).await;
+        let posts = server
+            .received_requests()
+            .await
+            .unwrap()
+            .iter()
+            .filter(|request| request.method.as_str() == "POST")
+            .count();
+        assert_eq!(posts, 1, "the stopped heartbeat must not keep beating");
+        server.verify().await;
     }
 
     #[tokio::test]

@@ -1106,12 +1106,11 @@ pub async fn tataplay_refresh(State(state): State<SharedState>) -> Response {
     if let Some(response) = tataplay_connected(&state) {
         return response;
     }
-    let client = match crate::tataplay::Client::from_store(state.http.clone(), &state.store) {
-        Ok(client) => client,
-        Err(e) => return err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-    };
-    match client.refresh(&state.store).await {
-        Ok(_) => Json(json!({"status": true})).into_response(),
+    match state.tataplay.refresh(&state.store).await {
+        Ok(()) => {
+            state.invalidate_context();
+            Json(json!({"status": true})).into_response()
+        }
         Err(e) => err(StatusCode::BAD_GATEWAY, e.to_string()),
     }
 }

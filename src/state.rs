@@ -250,7 +250,9 @@ impl AppState {
             return self.playbox.is_drm(id);
         }
         if crate::tataplay::is_tataplay_channel(id) {
-            return self.tataplay.is_drm(id);
+            // Every Tata Play live channel is Widevine DASH, independent of
+            // whether its playback has been resolved yet.
+            return true;
         }
         match self
             .extras
@@ -283,7 +285,7 @@ impl AppState {
             return self.playbox.is_dash(id);
         }
         if crate::tataplay::is_tataplay_channel(id) {
-            return self.tataplay.is_dash(id);
+            return true;
         }
         false
     }
@@ -488,6 +490,43 @@ mod tests {
         let server = wiremock::MockServer::start().await;
         let s = state_with_providers(empty_store(), extras, playbox_state_with_mock(&server));
         assert_eq!(s.active_product(), ActiveProduct::Extras);
+    }
+
+    #[tokio::test]
+    async fn tataplay_channels_are_dash_and_playable_without_resolving_playback() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/homescreen/pub/api/v1/lit/hierarchy/LIT_LIVETV"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": [{"railId": 1, "contentList": [
+                    {"id": 1918, "channelName": "Star Plus"}
+                ]}]
+            })))
+            .mount(&server)
+            .await;
+        let s = state();
+        s.tataplay
+            .set_client_for_test(Arc::new(crate::tataplay::Client::for_test(
+                &server.uri(),
+                crate::tataplay::Credentials {
+                    access_token: "token".into(),
+                    refresh_token: "refresh".into(),
+                    subscriber_id: "sub-1".into(),
+                    sid: "sid-1".into(),
+                },
+            )));
+        assert_eq!(s.active_product(), ActiveProduct::TataPlay);
+
+        let channels = s.effective_channels().await.unwrap();
+        assert_eq!(channels.len(), 1);
+        let id = &channels[0].id;
+        assert!(s.is_playable(id));
+        assert!(s.is_drm_channel(id));
+        assert!(s.is_dash_channel(id));
+        assert!(s.tataplay.playlist_ready(id));
     }
 
     #[test]
