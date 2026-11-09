@@ -7,7 +7,7 @@ keywords: [JioTV, JioTV+, Fastway, TV+, provider, subscription, channels, on dem
 
 # JioTV, JioTV+ and Fastway: Which Account Do You Need?
 
-OpenStream TV can hold three provider accounts. Provider eligibility and subscriptions decide what each account can use:
+OpenStream TV can hold three stable provider accounts. Provider eligibility and subscriptions decide what each account can use:
 
 | Account | Needs | Gives you |
 | --- | --- | --- |
@@ -20,6 +20,8 @@ OpenStream TV can hold three provider accounts. Provider eligibility and subscri
 - **Fastway** is the optional third source. Enable it with `fastway = true` (or `OPENSTREAM_FASTWAY=true`) and connect with credentials accepted by the provider. ACT eligibility, where offered, depends on the provider and plan. Fastway supplies live TV, not the on-demand catalogue. See [Connect Fastway Live TV](../account-fastway/index.md).
 
 The installers list only the accounts the downloaded release supports and print this same hint above the account menu. The older name **Extras** may still appear in older guides and error messages. `ost extras login` remains a command alias; `ost tv+ login` is the current spelling.
+
+Airtel Xstream, Tata Play Smart, PlayboxTV and VZY are beta integrations in the `1.6.0-beta.*` line while their remaining runtime contracts are validated. The installers can set up Airtel Xstream. Enable Tata Play Smart, PlayboxTV and VZY with `tataplay`, `playbox` and `vzy`; see the [configuration reference](../configuration-reference/index.md) for their keys and the [Airtel Xstream](../ott-provider-airtel/index.md), [PlayboxTV](../ott-provider-playbox/index.md), [Tata Play Smart](../ott-provider-tataplay/index.md) and [VZY](../ott-provider-vzy/index.md) provider records for their current limits.
 
 ## Check which source is active
 

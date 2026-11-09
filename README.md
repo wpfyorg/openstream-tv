@@ -1,6 +1,6 @@
 # OpenStream TV
 
-OpenStream TV is a lightweight Rust server for live TV, catch-up, EPG, IPTV playlists, and supported on-demand playback, with an optional Svelte web interface. JioTV, JioTV+, and Fastway are supported providers. PlayboxTV, VZY, and Tata Play Smart are available only as beta integrations in the `1.6.0-beta.*` line while their remaining runtime contracts are validated.
+OpenStream TV is a lightweight Rust server for live TV, catch-up, EPG, IPTV playlists, and supported on-demand playback, with an optional Svelte web interface. JioTV, JioTV+ and Fastway are the stable providers. Airtel Xstream, Tata Play Smart, PlayboxTV and VZY are beta integrations in the `1.6.0-beta.*` line while their remaining runtime contracts are validated.
 
 ## Installation
 
