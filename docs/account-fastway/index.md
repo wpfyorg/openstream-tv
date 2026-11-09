@@ -36,7 +36,7 @@ Use the Fastway username and password for your subscription. This provider does 
 ost fastway login
 ```
 
-The command prompts for the username and password and saves the login in the server's data directory. Restart a running server after a CLI login so it picks up the new credentials. To remove the saved login:
+The command prompts for the username and password and saves the login in the server's data directory. It also records Fastway as the active provider for the next server start, so you do not need to select **Use Fastway** afterwards. Restart a running server after a CLI login so it picks up the new credentials. To remove the saved login:
 
 ```bash
 ost fastway logout
@@ -63,7 +63,7 @@ Fastway does not use the JioTV+ unlock-code gate. It is controlled by the `fastw
 
 ## Disconnect
 
-Select **Disconnect** on the Fastway card, or run `ost fastway logout`. Disconnecting removes the saved Fastway login, and the active catalogue falls back to JioTV+, PlayboxTV, then JioTV; the anonymous VZY free tier is only used when no JioTV account is connected. If the server sets `disable_logout = true`, the web interface hides provider disconnect controls; the CLI command still works.
+Select **Disconnect** on the Fastway card, or stop the server, run `ost fastway logout`, and start the server again. The CLI command removes the saved credentials, but a running server keeps its Fastway session in memory and can write it back, so stop the server before running the command. Disconnecting removes the saved Fastway login, and the active catalogue falls back to JioTV+, PlayboxTV, then JioTV; the anonymous VZY free tier is only used when no JioTV account is connected. If the server sets `disable_logout = true`, the web interface hides provider disconnect controls; the CLI command still works.
 
 ## Troubleshooting
 
