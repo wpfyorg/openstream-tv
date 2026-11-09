@@ -15,11 +15,12 @@
   let pw = $state({ current: "", next: "", message: "", ok: false });
   let providerBusy = $state("");
 
-  const activeProvider = $derived(
-    status?.catalogue?.activeProduct === "extras"
-      ? "jiotv_plus"
-      : (status?.catalogue?.activeProduct ?? "jiotv"),
-  );
+  const activeProvider = $derived.by(() => {
+    const product = status?.catalogue?.activeProduct;
+    if (product === "extras") return "jiotv_plus";
+    if (!product || product === "tv") return "jiotv";
+    return product;
+  });
 
   async function refresh() {
     try {

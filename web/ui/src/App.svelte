@@ -20,6 +20,8 @@
     fastway: "Fastway",
     playbox: "PlayboxTV",
     vzy: "VZY",
+    airtel: "Airtel Xstream",
+    tataplay: "Tata Play",
   };
   const activeProviderLabel = $derived(providerLabels[activeProduct] || "");
   const alternateActive = $derived(!!activeProduct && activeProduct !== "tv");
