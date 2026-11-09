@@ -574,7 +574,7 @@ public final class MainActivity extends Activity {
     }
     private void refreshPermissionButtons() {
         boolean bootStartEnabled = ServerService.isBootStartEnabled(this);
-        boolean permissionControlHadFocus = television && disableAutostartButton != null && disableAutostartButton.hasFocus();
+        boolean permissionControlHadFocus = television && ((bootPermission != null && bootPermission.hasFocus()) || (disableAutostartButton != null && disableAutostartButton.hasFocus()));
         tvAutoStartEnabled = bootStartEnabled;
         bootPermission.setText("Enable auto-start");
         bootPermission.setEnabled(true);
@@ -597,7 +597,7 @@ public final class MainActivity extends Activity {
             for (View view : tvPlaylistViews) tvMove(view, tvBaseY.get(view) + playlistShift);
             for (View view : tvConfigViews) tvMove(view, tvBaseY.get(view) + configShift);
             updateTvFocusGraph();
-            if (bootStartEnabled && permissionControlHadFocus)
+            if (permissionControlHadFocus)
                 requestTvFocus(firstTvFocusable(disableAutostartButton, bootPermission, service));
         }
     }
