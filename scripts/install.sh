@@ -840,8 +840,13 @@ ob_write_shell_env() {
 # no login command, so this is the only thing that selects it.
 ob_activate_provider() {
   ob_bin=$1
+  ob_prefix=${2:-}
   ob_binary_supports "$ob_bin" 'provider use' || return 0
-  "$ob_bin" provider use "$provider" >/dev/null 2>&1 && return 0
+  if [ -n "$ob_prefix" ]; then
+    OPENSTREAM_PATH_PREFIX="$ob_prefix" "$ob_bin" provider use "$provider" >/dev/null 2>&1 && return 0
+  else
+    "$ob_bin" provider use "$provider" >/dev/null 2>&1 && return 0
+  fi
   ui_warn "Could not save $provider as the active provider; pick it in Settings after the server starts"
 }
 
@@ -1241,6 +1246,9 @@ if [ "$openwrt" = true ]; then
     if ob_credentials "$openwrt_bin"; then ob_creds_done=1; else
       ui_fail "The install is complete but the account is not connected"
     fi
+    # VZY has no login, and the service store lives at /etc/openstream, so the
+    # activation has to name that prefix explicitly.
+    ob_activate_provider "$openwrt_bin" /etc/openstream
     ob_admin_password "$openwrt_bin"
     ob_write_uci
   fi
