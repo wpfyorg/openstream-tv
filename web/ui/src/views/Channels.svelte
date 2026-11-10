@@ -1,6 +1,6 @@
 <script>
   import { onMount } from "svelte";
-  import { api, loadChannels, looksLikeUnlockCode } from "../lib/api.js";
+  import { api, invalidateChannels, loadChannels, looksLikeUnlockCode } from "../lib/api.js";
   import { latestOnly } from "../lib/latest.js";
 
   const saved = (() => {
@@ -126,8 +126,12 @@
   // the previous provider's channels.
   onMount(() => {
     const reload = () => {
+      // App drops the cache before notifying, but a mount load may still be in
+      // flight from before the switch; drop it too so only one fetch runs and
+      // it cannot write the previous provider's channels.
+      invalidateChannels();
       const isLatest = loads.start();
-      loadChannels(true)
+      loadChannels()
         .then((list) => {
           if (!isLatest()) return;
           channels = list;
