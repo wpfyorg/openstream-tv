@@ -52,8 +52,8 @@ Avoid using Fastway over networks you do not trust, protect the local data direc
 
 ## What changes while Fastway is connected
 
-- Fastway channels replace the JioTV catalogue in **Channels**, the M3U playlist and the XMLTV guide. Local custom channels remain available.
-- Connecting Fastway makes it the active provider. To switch back, use **Use JioTV**, **Use JioTV+**, **Use PlayboxTV**, **Use VZY**, **Use Airtel Xstream** or **Use Tata Play** on another connected card, or run `ost provider use <id>`; only one provider is active at a time.
+- While Fastway is the active provider, its channels replace the JioTV catalogue in **Channels**, the M3U playlist and the XMLTV guide. Local custom channels remain available.
+- Connecting Fastway makes it the active provider. To switch back, use **Use JioTV**, **Use JioTV+**, **Use PlayboxTV**, **Use VZY**, **Use Airtel Xstream** or **Use Tata Play** on another connected card, or run `ost provider use <id>` and restart the server; only one provider is active at a time.
 - Disconnecting Fastway falls back to the next available provider in the established order: JioTV+, PlayboxTV, Airtel Xstream, Tata Play, then JioTV; the anonymous VZY free tier is only used when no JioTV account is connected.
 - Only channels the Fastway account is subscribed to are listed. A channel can still be unavailable if the provider rejects playback or the plan does not include it.
 - Fastway playback is DASH. Protected channels use Widevine through the provider's PallyCon license service; the server proxies the license request but does not decrypt or bypass DRM. See [Protected playback troubleshooting](../troubleshooting-protected-playback/index.md).
@@ -63,7 +63,7 @@ Fastway does not use the JioTV+ unlock-code gate. It is controlled by the `fastw
 
 ## Disconnect
 
-Select **Disconnect** on the Fastway card, or stop the server, run `ost fastway logout`, and start the server again. The CLI command removes the saved credentials, but a running server keeps its Fastway session in memory and can write it back, so stop the server before running the command. Disconnecting removes the saved Fastway login, and the active catalogue falls back to JioTV+, PlayboxTV, then JioTV; the anonymous VZY free tier is only used when no JioTV account is connected. If the server sets `disable_logout = true`, the web interface hides provider disconnect controls; the CLI command still works.
+Select **Disconnect** on the Fastway card, or stop the server, run `ost fastway logout`, and start the server again. The CLI command removes the saved credentials, but a running server keeps its Fastway session in memory and can write it back, so stop the server before running the command. Disconnecting removes the saved Fastway login, and the active catalogue falls back to the next available provider in the established order: JioTV+, PlayboxTV, Airtel Xstream, Tata Play, then JioTV; the anonymous VZY free tier is only used when no JioTV account is connected. If the server sets `disable_logout = true`, the web interface hides provider disconnect controls; the CLI command still works.
 
 ## Troubleshooting
 

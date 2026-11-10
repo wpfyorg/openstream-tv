@@ -27,13 +27,13 @@ The key in the playlist URL grants access to the stream endpoints. Treat it as p
 
 ## Import configuration and sign in
 
-Use **Import TOML config** to select a previously saved `.toml` configuration using Android's file picker. This imports server settings; it does **not** by itself transfer an authenticated provider account, tokens or the private runtime store. Sign in with your own provider account in the app if it has not been connected. Restart the local server for new settings to take effect.
+Use **Import TOML config** to select a previously saved `.toml` configuration using Android's file picker. This imports server settings; it does **not** by itself transfer an authenticated provider account, tokens or the private runtime store. Sign in with your own provider account in the app if it has not been connected. Restart the local server for new settings to take effect. The bundled server always enables JioTV+, Fastway, PlayboxTV, VZY, Airtel Xstream and Tata Play because the app's service sets their environment flags directly, so an imported file cannot disable those providers here.
 
 Choose a provider in the app's **Provider** list. Selecting it opens that provider's sign-in panel directly below: JioTV, PlayboxTV, Airtel Xstream and Tata Play use a mobile number and OTP, JioTV+ uses its own OTP plus a connection picker, Fastway uses a username and password, and VZY needs no account. Beta providers are marked **(Beta)** in the list. A connected provider becomes active when selected, and only one provider is active at a time, so the playlist, EPG and streams follow that provider. Tata Play asks which account to use when one number holds several. JioTV+ needs its own eligible JioFiber or AirFiber login.
 
 The guide follows the active provider too. For PlayboxTV and Tata Play it lists channels without programmes, because those providers return no usable programme times; Airtel Xstream and VZY publish programmes only when their guide data includes them.
 
-The provider list is at the top of the dashboard, above the playlist fields, so scroll up to reach it after changing server settings.
+The provider list sits in a different place on each layout. On phones it is at the top of the dashboard, above the playlist fields, and the sign-in panel opens separately below it, so scroll up to reach it after changing server settings. On Android TV the list is in the right-hand column beside the Local server and playlist controls, and the account or sign-in panel sits under it, so no scrolling is needed.
 
 Use **Export TOML config** to save server settings through Android’s file picker. Login credentials are kept in the separate runtime store and are not added to the configuration export.
 

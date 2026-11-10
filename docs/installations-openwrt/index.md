@@ -25,7 +25,10 @@ The provider, tunnel and guide choices are written to UCI, so those settings sur
 | --- | --- | --- |
 | `option tv_plus` | `0`, `1` | Enable the optional JioTV+ account (needs a JioFiber or AirFiber login). The previous option name `extras` is still read. |
 | `option fastway` | `0`, `1` | Enable the optional Fastway Live TV provider. |
+| `option playbox` | `0`, `1` | **Beta.** Enable the PlayboxTV live TV provider. |
+| `option vzy` | `0`, `1` | **Beta.** Enable the VZY free-tier live TV provider; no account is needed. |
 | `option airtel` | `0`, `1` | **Beta.** Enable the Airtel Xstream live TV provider. |
+| `option tataplay` | `0`, `1` | **Beta.** Enable the Tata Play live TV provider. |
 | `option tunnel` | `0`, `1` | Start the optional Cloudflare tunnel with the service. |
 | `option tunnel_token` | token | Named-tunnel token, passed to the service as an environment variable rather than a command-line argument. |
 | `option epg` | `0`, `1` | Generate the XMLTV programme guide. Defaults to `0`. |
