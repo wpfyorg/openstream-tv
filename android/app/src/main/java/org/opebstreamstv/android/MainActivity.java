@@ -525,7 +525,7 @@ public final class MainActivity extends Activity {
                 : "vzy".equals(selectedProvider) ? "VZY"
                 : label + " login";
         String helper;
-        if (showAccount) helper = label + " is connected and ready to watch.";
+        if (showAccount) helper = providerIsActive(selectedProvider) ? label + " is connected and ready to watch." : label + " is connected. Select it to make it active.";
         else if (tvOtpRequested) helper = "OTP requested · Enter the six-digit code";
         else if ("vzy".equals(selectedProvider)) helper = "Free tier · no account needed";
         else if ("playbox".equals(selectedProvider)) helper = "Enter the PlayboxTV mobile number to receive an OTP.";
@@ -547,7 +547,7 @@ public final class MainActivity extends Activity {
             setVisible(logoutButton, canLogout);
             setVisible(tvAccountRetentionNote, showAccount);
             tvAccountName.setText(label);
-            tvAccountNote.setText("●  Active · " + ("vzy".equals(selectedProvider) ? "Free tier" : "Connected"));
+            tvAccountNote.setText(providerIsActive(selectedProvider) ? "●  Active · " + ("vzy".equals(selectedProvider) ? "Free tier" : "Connected") : "●  Saved · Select to activate");
             tvAccountRetentionNote.setText("vzy".equals(selectedProvider)
                     ? "No account is required for the free tier."
                     : "Your login remains saved on this device.");
@@ -697,6 +697,12 @@ public final class MainActivity extends Activity {
         if ("jiotv".equals(id)) return "tv";
         if ("jiotv_plus".equals(id)) return "extras";
         return id;
+    }
+    // The saved preference can differ from the provider the server is actually
+    // serving, so the panel follows the server's answer.
+    private boolean providerIsActive(String id) {
+        JSONObject catalogue = lastProviderStatus == null ? null : lastProviderStatus.optJSONObject("catalogue");
+        return catalogue != null && activeNameFor(id).equals(catalogue.optString("activeProduct", ""));
     }
     private JSONObject providerStatus(JSONObject status, String id) {
         if (status == null) return null;
@@ -1450,7 +1456,7 @@ public final class MainActivity extends Activity {
     private String runKeyShow() throws Exception { File binary=new File(getApplicationInfo().nativeLibraryDir,"libopenstream_exec.so"); java.util.List<String> command=new java.util.ArrayList<>(); command.add(binary.getAbsolutePath()); command.add("--skip-update-check"); File config=new File(getFilesDir(),"config.toml"); if(config.isFile()) { command.add("--config"); command.add(config.getAbsolutePath()); } command.add("key"); command.add("show"); ProcessBuilder b=new ProcessBuilder(command); b.directory(getFilesDir()); b.redirectError(new File("/dev/null")); b.environment().put("JIOTV_PATH_PREFIX",new File(getFilesDir(),"data").getAbsolutePath()); b.environment().put("HOME",getFilesDir().getAbsolutePath()); Process p=b.start(); String result; try (InputStream in=p.getInputStream()) { result=PlaylistLink.readValidatedPath(in); } catch (Exception e) { p.destroy(); throw e; } if(p.waitFor()!=0) throw new IOException("key command failed"); keyedPrefix=PlaylistLink.keyedPrefix(result); return result; }
 
     private void otpRequest(boolean verifyRequest) {
-        if (television && tvLoginBusy) return;
+        if (tvLoginBusy) return;
         final String provider = selectedProvider;
         if (!isOtpProvider(provider)) return;
         String n = number.getText().toString().trim(), code = otp.getText().toString().trim();
@@ -1510,11 +1516,12 @@ public final class MainActivity extends Activity {
         });
     }
     private void setLoginBusy(boolean busy) {
+        tvLoginBusy = busy;
         if (television) {
-            tvLoginBusy = busy;
             updateProviderPanel();
         } else {
             send.setEnabled(!busy); verify.setEnabled(!busy);
+            if (fastwayConnect != null) fastwayConnect.setEnabled(!busy);
         }
     }
     private boolean matchesPendingProvider(String mobile, String provider) {
@@ -1543,7 +1550,7 @@ public final class MainActivity extends Activity {
         });
     }
     private void fastwayLogin() {
-        if (television && tvLoginBusy) return;
+        if (tvLoginBusy) return;
         String username = fastwayUser.getText().toString().trim();
         String password = fastwayPass.getText().toString();
         if (username.isEmpty() || password.isEmpty()) {
