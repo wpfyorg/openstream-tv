@@ -38,8 +38,10 @@ The **full** build serves the web interface. A **slim** build has no web interfa
 
 If you need reproducible deployments, pin a release or container tag instead of following `latest`.
 
-The Linux, macOS, Windows and OpenWrt installers run a guided setup when they have a terminal: choose the build, choose the account (JioTV, JioTV+, Fastway, or Airtel Xstream beta when the release supports it), confirm the LAN address, decide whether to use a Cloudflare tunnel, decide whether to turn on the programme guide, and sign in. Docker and unattended installs skip it and use the documented environment variables instead.
+The Linux, macOS, Windows and OpenWrt installers run a guided setup when they have a terminal: choose the build, choose the account (JioTV, JioTV+, Fastway, PlayboxTV, VZY, Airtel Xstream or Tata Play, with each beta option listed only when the release supports it), confirm the LAN address, decide whether to use a Cloudflare tunnel, decide whether to turn on the programme guide, and sign in. Docker and unattended installs skip it and use the documented environment variables instead.
 
-Which provider you can use depends on the account: JioTV and Airtel Xstream use mobile-number OTP flows, JioTV+ needs an eligible JioFiber or AirFiber login, and Fastway needs credentials accepted by the provider. ACT eligibility, where offered, depends on the provider.
+Which provider you can use depends on the account: JioTV, PlayboxTV, Airtel Xstream and Tata Play use mobile-number OTP flows, JioTV+ needs an eligible JioFiber or AirFiber login, Fastway needs credentials accepted by the provider, and VZY needs no account at all. ACT eligibility, where offered, depends on the provider.
+
+Only one provider is active at a time, and only its channels appear in the playlist, programme guide and player. The account you set up during installation becomes the active provider.
 
 After installing, use [Getting Started in 5 Minutes](../getting-started-in-5-minutes/index.md). If your browser runs on another device, read [Access OpenStream TV on your home network](../configuration-network-security/index.md).

@@ -13,7 +13,7 @@ Files may include:
 
 | File | Purpose |
 | --- | --- |
-| `store_v4.toml` | Persistent state, tokens, access key and password hash. **Sensitive.** |
+| `store_v4.toml` | Persistent state, tokens, active provider, access key and password hash. **Sensitive.** |
 | `epg.xml.gz` | Generated XMLTV guide when enabled. |
 | `epg.xml.gz.context.json` | Identity metadata for current account/source EPG cache. |
 | `.openstream.pid` | PID from `background start`; `.jiotv.pid` is still recognized for migration. |

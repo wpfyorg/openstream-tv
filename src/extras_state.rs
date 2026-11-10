@@ -600,11 +600,7 @@ impl ExtrasState {
         if let Some(had) = self.dash.read().unwrap().get(content_id) {
             return Some(*had);
         }
-        if is_ex_id {
-            Some(true)
-        } else {
-            None
-        }
+        if is_ex_id { Some(true) } else { None }
     }
 
     /// `/live/:channelID`'s HLS path, used as the fallback redirect for a

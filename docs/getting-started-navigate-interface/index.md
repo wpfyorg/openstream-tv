@@ -7,11 +7,11 @@ keywords: [navigation, homepage, channels, on demand, settings, menu]
 
 # Find Your Way Around the Web Interface
 
-After entering your admin password, the top bar has **Channels**, **On demand**, **Settings** and **Sign out**. A small icon beside the brand indicates when JioTV+ is both enabled and connected.
+After entering your admin password, the top bar has **Channels**, **On demand**, **Settings** and **Sign out**. A small icon beside the brand indicates when JioTV+ is the active provider.
 
 ![Current OpenStream TV Channels page with JioTV+ connected](../images/channels-jiotv-plus.png)
 
-- **Channels** is the channel finder. Search by name or filter by category, language, HD or source. A channel tile opens the live player.
+- **Channels** is the channel finder. Search by name or filter by category, language or HD. A channel tile opens the live player.
 - **On demand** has sections, provider filters and search for available movies or shows. Availability depends on JioTV+ connectivity, catalogue availability and account rights.
 - **Settings** shows account status, OTP sign-in controls, playlist and EPG URLs, password change, and access-key rotation.
 

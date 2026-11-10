@@ -1,6 +1,6 @@
 <script>
   import { onMount } from "svelte";
-  import { api, loadChannels, looksLikeUnlockCode } from "../lib/api.js";
+  import { api, invalidateChannels, loadChannels, looksLikeUnlockCode } from "../lib/api.js";
   import { latestOnly } from "../lib/latest.js";
 
   const saved = (() => {
@@ -15,16 +15,14 @@
   // When every listed channel comes from one alternate provider the pill tells
   // the viewer nothing.
   const mixedSources = $derived(
-    channels.some((c) => c.extras || c.fastway) &&
-      channels.some((c) => !c.extras && !c.fastway),
+    channels.some((c) => c.extras || c.fastway || c.playbox || c.vzy) &&
+      channels.some((c) => !c.extras && !c.fastway && !c.playbox && !c.vzy),
   );
   let error = $state("");
   let loading = $state(true);
   let query = $state("");
   let category = $state(saved.category ?? "");
   let language = $state(saved.language ?? "");
-  let extrasOnly = $state(saved.extrasOnly ?? false);
-  let fastwayOnly = $state(saved.fastwayOnly ?? false);
   let hdOnly = $state(saved.hdOnly ?? false);
   let showUnplayable = $state(saved.showUnplayable ?? false);
 
@@ -32,7 +30,7 @@
     try {
       localStorage.setItem(
         "channelFilters",
-        JSON.stringify({ category, language, extrasOnly, fastwayOnly, hdOnly, showUnplayable }),
+        JSON.stringify({ category, language, hdOnly, showUnplayable }),
       );
     } catch {}
   });
@@ -62,7 +60,10 @@
           // unless the viewer has meanwhile typed something else.
           if (query.trim() === q) query = "";
           triedCode = "";
-          unlockNotice = { connected: !!d?.extras?.connected };
+          unlockNotice = {
+            connected: !!d?.extras?.connected,
+            active: d?.extras?.activeProduct === "extras",
+          };
           window.dispatchEvent(new CustomEvent("openstream:extras-changed"));
           const isLatest = loads.start();
           try {
@@ -100,8 +101,6 @@
     return channels.filter(
       (c) =>
         (showUnplayable || nonePlayable || c.playable) &&
-        (!extrasOnly || c.extras) &&
-        (!fastwayOnly || c.fastway) &&
         (!hdOnly || c.hd) &&
         (!category || c.category === category) &&
         (!language || c.language === language) &&
@@ -121,6 +120,33 @@
       if (isLatest()) loading = false;
     }
   });
+
+  // The server exposes one provider at a time; when another tab, the Android
+  // app or Settings switches it, replace the cached list instead of showing
+  // the previous provider's channels.
+  onMount(() => {
+    const reload = () => {
+      // App drops the cache before notifying, but a mount load may still be in
+      // flight from before the switch; drop it too so only one fetch runs and
+      // it cannot write the previous provider's channels.
+      invalidateChannels();
+      const isLatest = loads.start();
+      loadChannels()
+        .then((list) => {
+          if (!isLatest()) return;
+          channels = list;
+          error = "";
+          loading = false;
+        })
+        .catch((err) => {
+          if (!isLatest()) return;
+          error = err.message;
+          loading = false;
+        });
+    };
+    window.addEventListener("openstream:provider-changed", reload);
+    return () => window.removeEventListener("openstream:provider-changed", reload);
+  });
 </script>
 
 {#if unlockNotice}
@@ -130,9 +156,11 @@
       <strong>JioTV+ unlocked</strong>
       <span>
         {#if unlockNotice.refreshFailed}
-          The channel list could not be refreshed. Reload the page to see the JioTV+ channels.
+          The channel list could not be refreshed. Reload the page to see the active provider's channels.
+        {:else if unlockNotice.connected && unlockNotice.active}
+          JioTV+ is connected and active; its channels are listed below.
         {:else if unlockNotice.connected}
-          JioTV+ is connected; its channels are listed below.
+          JioTV+ is connected. Make it the active provider in Settings to see its channels.
         {:else}
           Sign in with a number that has JioTV+ access in Settings to play its channels.
         {/if}
@@ -154,8 +182,6 @@
     {#each languages as l}<option>{l}</option>{/each}
   </select>
   <label class="toggle"><input type="checkbox" bind:checked={hdOnly} /> HD</label>
-  <label class="toggle"><input type="checkbox" bind:checked={extrasOnly} /> JioTV+ only</label>
-  <label class="toggle"><input type="checkbox" bind:checked={fastwayOnly} /> Fastway only</label>
   <label class="toggle"><input type="checkbox" bind:checked={showUnplayable} /> Show unavailable</label>
 </section>
 
@@ -167,7 +193,7 @@
   {#if nonePlayable}
     <p class="availability-note">
       Nothing in this catalogue is currently available to play. Showing the channels so the catalogue stays visible.
-      Check <a href="#/settings">Settings</a> to connect JioTV, JioTV+ or Fastway.
+      Check <a href="#/settings">Settings</a> to connect a provider.
     </p>
   {/if}
   <p class="muted count">{visible.length} of {channels.length} channels</p>
@@ -177,10 +203,12 @@
         <a class="tile" class:off={!c.playable} href={"#/watch/" + encodeURIComponent(c.id)} title={c.playable ? c.name : c.name + " (unavailable for the current account)"}>
           <span class="logo">
             <img src={c.logo} alt="" loading="lazy" decoding="async" />
-            {#if (mixedSources && (c.extras || c.fastway)) || c.requiresSubscription}
+            {#if (mixedSources && (c.extras || c.fastway || c.playbox || c.vzy)) || c.requiresSubscription}
               <span class="flags">
                 {#if mixedSources && c.extras}<span class="flag flag-extras">TV+</span>{/if}
                 {#if mixedSources && c.fastway}<span class="flag flag-fastway">Fastway</span>{/if}
+                {#if mixedSources && c.playbox}<span class="flag flag-playbox">Playbox</span>{/if}
+                {#if mixedSources && c.vzy}<span class="flag flag-vzy">VZY</span>{/if}
                 {#if c.requiresSubscription}<span class="flag flag-premium">Subscription required</span>{/if}
               </span>
             {/if}
@@ -290,5 +318,7 @@
   .flag { padding: 1px 6px; border-radius: 999px; font-size: 10px; font-weight: 700; line-height: 1.4; letter-spacing: 0.02em; white-space: nowrap; }
   .flag-extras { background: #7ea3ff; color: #0b1020; }
   .flag-fastway { background: var(--ok); color: #062015; }
+  .flag-playbox { background: #c084fc; color: #1c0b2e; }
+  .flag-vzy { background: #f472b6; color: #2b0a1a; }
   .flag-premium { background: #f4b740; color: #2a1c00; }
 </style>

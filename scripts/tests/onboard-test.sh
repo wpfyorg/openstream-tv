@@ -33,8 +33,12 @@ case "${1:-}" in
     echo "  ost login otp"
     echo "  ost tv+ login | tv+ logout"
     echo "  ost fastway login"
+    echo "  ost playbox login"
+    echo "  ost vzy has no login; the free tier starts with the server"
     echo "  ost airtel login"
+    echo "  ost tataplay login"
     echo "  ost admin password"
+    echo "  ost provider use <id>"
     ;;
   login)
     printf 'Enter your mobile number: +91 '
@@ -68,6 +72,30 @@ case "${1:-}" in
     printf 'Airtel OTP: '
     read otp
     echo "Airtel login saved for +91$number. Restart the server to use it."
+    ;;
+  playbox)
+    printf 'PlayboxTV mobile number: '
+    read number
+    printf 'OTP sent to +91%s\n' "$number"
+    printf 'PlayboxTV OTP: '
+    read otp
+    echo "PlayboxTV login saved. Restart the server to use it."
+    ;;
+  tataplay)
+    printf 'Tata Play mobile number: '
+    read number
+    printf 'Accounts on this number:\n'
+    printf '  1) Home DTH, DTH\n'
+    printf '  2) Weekend LIT, LIT\n'
+    printf 'Sign in to which account [1-2]: '
+    read pick
+    printf 'OTP sent to +91%s\n' "$number"
+    printf 'Tata Play OTP: '
+    read otp
+    echo "Tata Play login saved. Restart the server to use it."
+    ;;
+  provider)
+    echo "provider $2 $3" >>"$OPENSTREAM_TEST_STUB_LOG"
     ;;
   admin)
     printf 'New admin password: '
@@ -207,9 +235,20 @@ if [ "${OPENSTREAM_TEST_SHOW:-0}" = 1 ]; then sed 's/\r$//' "$tmp/out-epg"; fi
 echo "onboarding clears an earlier stored programme guide override OK"
 
 # ---- Airtel: OTP sign-in writes the provider flag ------------------------
+# The menu is jiotv, JioTV+, Fastway, PlayboxTV, VZY, Airtel, Tata Play, so the
+# account question needs as many Down presses as the entry's position.
+pick_provider() {
+  out=$1
+  steps=$2
+  seq=0
+  keys=
+  while [ "$seq" -lt "$steps" ]; do keys="$keys$(printf '\033[B')"; seq=$((seq + 1)); done
+  wait_for "Which account are you setting up?" "$out"; send "$keys"; enter
+}
+
 start_flow "$tmp/install-airtel" "$tmp/out-airtel"
 wait_for "Which build?" "$tmp/out-airtel"; enter
-wait_for "Which account are you setting up?" "$tmp/out-airtel"; send "$(printf '\033[B\033[B\033[B')"; enter
+pick_provider "$tmp/out-airtel" 5
 wait_for "This machine's address" "$tmp/out-airtel"; send '192.168.1.9'; enter
 wait_for "Open OpenStream TV beyond your LAN?" "$tmp/out-airtel"; enter
 wait_for "Turn on the programme guide (EPG)?" "$tmp/out-airtel"; enter
@@ -229,6 +268,72 @@ grep -F "export OPENSTREAM_AIRTEL='true'" "$airtel_env" >/dev/null
 grep -F "export OPENSTREAM_FASTWAY='false'" "$airtel_env" >/dev/null
 env -i PATH="$PATH" sh -c '. "$1"; test "$OPENSTREAM_AIRTEL" = true' _ "$airtel_env"
 echo "onboarding Airtel flow OK"
+
+# ---- PlayboxTV: OTP sign-in writes the provider flag ---------------------
+start_flow "$tmp/install-playbox" "$tmp/out-playbox"
+wait_for "Which build?" "$tmp/out-playbox"; enter
+pick_provider "$tmp/out-playbox" 3
+wait_for "This machine's address" "$tmp/out-playbox"; send '192.168.1.9'; enter
+wait_for "Open OpenStream TV beyond your LAN?" "$tmp/out-playbox"; enter
+wait_for "Turn on the programme guide (EPG)?" "$tmp/out-playbox"; enter
+wait_for "PlayboxTV mobile number" "$tmp/out-playbox"; send '9876543210'; enter
+wait_for "Enter the OTP" "$tmp/out-playbox"; send '246810'; enter
+wait_for "Choose an admin password" "$tmp/out-playbox"; send 'secret'; enter
+wait_for "Installation complete" "$tmp/out-playbox"
+finish_flow
+if [ "${OPENSTREAM_TEST_SHOW:-0}" = 1 ]; then sed 's/\r$//' "$tmp/out-playbox"; fi
+
+grep -F "Signed in to PlayboxTV" "$tmp/out-playbox" >/dev/null
+grep -F "account   PlayboxTV (beta)" "$tmp/out-playbox" >/dev/null
+playbox_env="$tmp/install-playbox/home/.config/openstream/installer.env"
+grep -F "export OPENSTREAM_PLAYBOX='true'" "$playbox_env" >/dev/null
+grep -F "export OPENSTREAM_AIRTEL='false'" "$playbox_env" >/dev/null
+env -i PATH="$PATH" sh -c '. "$1"; test "$OPENSTREAM_PLAYBOX" = true' _ "$playbox_env"
+echo "onboarding PlayboxTV flow OK"
+
+# ---- VZY: choosing it needs no sign-in ----------------------------------
+start_flow "$tmp/install-vzy" "$tmp/out-vzy"
+wait_for "Which build?" "$tmp/out-vzy"; enter
+pick_provider "$tmp/out-vzy" 4
+wait_for "This machine's address" "$tmp/out-vzy"; send '192.168.1.9'; enter
+wait_for "Open OpenStream TV beyond your LAN?" "$tmp/out-vzy"; enter
+wait_for "Turn on the programme guide (EPG)?" "$tmp/out-vzy"; enter
+wait_for "Choose an admin password" "$tmp/out-vzy"; send 'secret'; enter
+wait_for "Installation complete" "$tmp/out-vzy"
+finish_flow
+if [ "${OPENSTREAM_TEST_SHOW:-0}" = 1 ]; then sed 's/\r$//' "$tmp/out-vzy"; fi
+
+grep -F "VZY needs no account" "$tmp/out-vzy" >/dev/null
+grep -F "account   VZY free tier (beta)" "$tmp/out-vzy" >/dev/null
+# VZY has no login command, so the installer itself has to select it.
+grep -F "provider use vzy" "$OPENSTREAM_TEST_STUB_LOG" >/dev/null
+vzy_env="$tmp/install-vzy/home/.config/openstream/installer.env"
+grep -F "export OPENSTREAM_VZY='true'" "$vzy_env" >/dev/null
+env -i PATH="$PATH" sh -c '. "$1"; test "$OPENSTREAM_VZY" = true' _ "$vzy_env"
+echo "onboarding VZY flow OK"
+
+# ---- Tata Play: the account is picked before the OTP ---------------------
+start_flow "$tmp/install-tataplay" "$tmp/out-tataplay"
+wait_for "Which build?" "$tmp/out-tataplay"; enter
+pick_provider "$tmp/out-tataplay" 6
+wait_for "This machine's address" "$tmp/out-tataplay"; send '192.168.1.9'; enter
+wait_for "Open OpenStream TV beyond your LAN?" "$tmp/out-tataplay"; enter
+wait_for "Turn on the programme guide (EPG)?" "$tmp/out-tataplay"; enter
+wait_for "Tata Play mobile number" "$tmp/out-tataplay"; send '9876543210'; enter
+wait_for "Account number" "$tmp/out-tataplay"; send '2'; enter
+wait_for "Enter the OTP" "$tmp/out-tataplay"; send '112233'; enter
+wait_for "Choose an admin password" "$tmp/out-tataplay"; send 'secret'; enter
+wait_for "Installation complete" "$tmp/out-tataplay"
+finish_flow
+if [ "${OPENSTREAM_TEST_SHOW:-0}" = 1 ]; then sed 's/\r$//' "$tmp/out-tataplay"; fi
+
+grep -F "Weekend LIT, LIT" "$tmp/out-tataplay" >/dev/null
+grep -F "Signed in to Tata Play" "$tmp/out-tataplay" >/dev/null
+grep -F "account   Tata Play (beta)" "$tmp/out-tataplay" >/dev/null
+tataplay_env="$tmp/install-tataplay/home/.config/openstream/installer.env"
+grep -F "export OPENSTREAM_TATAPLAY='true'" "$tataplay_env" >/dev/null
+env -i PATH="$PATH" sh -c '. "$1"; test "$OPENSTREAM_TATAPLAY" = true' _ "$tataplay_env"
+echo "onboarding Tata Play flow OK"
 
 # ---- arrow keys: slim build, JioTV+ with a connection picker --------------
 start_flow "$tmp/install-slim" "$tmp/out2"

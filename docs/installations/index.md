@@ -13,6 +13,7 @@ OpenStream TV runs as a server on a computer or router. Pick the guide for the s
 - [macOS](../installations-macos/index.md)
 - [Windows](../installations-windows/index.md)
 - [OpenWrt](../installations-openwrt/index.md)
+- [Android TV and phone app](../installations-android-app/index.md) runs the full bundled server locally
 - [Android with Termux](../installations-termux/index.md)
 - [Docker](../installations-docker/index.md)
 - [Docker Compose](../installations-docker-compose/index.md) for a reusable container setup

@@ -10,6 +10,11 @@ pub enum Command {
     FastwayLogout,
     AirtelLogin,
     AirtelLogout,
+    PlayboxLogin,
+    PlayboxLogout,
+    TataplayLogin,
+    TataplayLogout,
+    ProviderUse(String),
     AdminPassword,
     KeyShow,
     KeyRotate,
@@ -149,6 +154,33 @@ pub fn parse() -> anyhow::Result<Args> {
                 Some("logout") => Command::AirtelLogout,
                 other => anyhow::bail!("usage: ost airtel login|logout (got {other:?})"),
             },
+            Some("playbox") | Some("playboxtv") => {
+                match positionals.get(1).map(String::as_str) {
+                    Some("login") => Command::PlayboxLogin,
+                    Some("logout") => Command::PlayboxLogout,
+                    other => anyhow::bail!("usage: ost playbox login|logout (got {other:?})"),
+                }
+            }
+            Some("tataplay") | Some("tata-play") => {
+                match positionals.get(1).map(String::as_str) {
+                    Some("login") => Command::TataplayLogin,
+                    Some("logout") => Command::TataplayLogout,
+                    other => anyhow::bail!("usage: ost tataplay login|logout (got {other:?})"),
+                }
+            }
+            Some("provider") | Some("providers") => {
+                match (positionals.get(1).map(String::as_str), positionals.get(2)) {
+                    (Some("use") | Some("activate"), Some(id)) => {
+                        Command::ProviderUse(id.to_string())
+                    }
+                    (Some("use") | Some("activate"), None) => anyhow::bail!(
+                        "usage: ost provider use <jiotv|jiotv_plus|fastway|playbox|vzy|airtel|tataplay>"
+                    ),
+                    (other, _) => anyhow::bail!(
+                        "usage: ost provider use <provider> (got {other:?})"
+                    ),
+                }
+            }
             Some("admin") => match positionals.get(1).map(String::as_str) {
                 Some("password") => Command::AdminPassword,
                 other => anyhow::bail!("usage: ost admin password (got {other:?})"),

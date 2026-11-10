@@ -31,7 +31,7 @@ case "$variant" in full|slim) ;; *) echo "OPENSTREAM_VARIANT must be full or sli
 case "$repo" in */*) ;; *) echo "OPENSTREAM_REPO must be owner/repository" >&2; exit 2 ;; esac
 case "$onboard" in auto|always|never) ;; *) echo "OPENSTREAM_ONBOARD must be auto, always or never" >&2; exit 2 ;; esac
 case "$provider" in tv+|tvplus) provider=extras ;; esac
-case "$provider" in ''|jiotv|extras|fastway|airtel) ;; *) echo "OPENSTREAM_PROVIDER must be jiotv, tv+, fastway or airtel" >&2; exit 2 ;; esac
+case "$provider" in ''|jiotv|extras|fastway|playbox|vzy|airtel|tataplay) ;; *) echo "OPENSTREAM_PROVIDER must be jiotv, tv+, fastway, playbox, vzy, airtel or tataplay" >&2; exit 2 ;; esac
 case "$tunnel" in ''|none|temp|named) ;; *) echo "OPENSTREAM_TUNNEL must be none, temp or named" >&2; exit 2 ;; esac
 case "$epg" in ''|true|false) ;; *) echo "OPENSTREAM_EPG must be true or false" >&2; exit 2 ;; esac
 
@@ -398,8 +398,14 @@ ob_choose_provider() {
     ob_add extras "JioTV+      extra channels, movies and shows - eligible JioFiber/AirFiber login"
   ob_binary_supports "$ob_bin" 'fastway login' &&
     ob_add fastway "Fastway     live TV - Fastway-accepted credentials"
+  ob_binary_supports "$ob_bin" 'playbox login' &&
+    ob_add playbox "PlayboxTV   live TV (beta) - mobile-number OTP"
+  ob_binary_supports "$ob_bin" 'vzy' &&
+    ob_add vzy "VZY         free-tier live TV (beta) - no account needed"
   ob_binary_supports "$ob_bin" 'airtel login' &&
-    ob_add airtel "Airtel      Airtel Xstream live TV - mobile-number OTP"
+    ob_add airtel "Airtel      Airtel Xstream live TV (beta) - mobile-number OTP"
+  ob_binary_supports "$ob_bin" 'tataplay login' &&
+    ob_add tataplay "Tata Play   live TV (beta) - mobile-number OTP"
   if [ -n "$provider" ]; then
     case "|$ob_vals|" in
       *"|$provider|"*) return 0 ;;
@@ -410,8 +416,11 @@ ob_choose_provider() {
     *'|'*) ;;
     *) provider=$ob_vals; ob_name=$ob_vals; [ "$provider" = extras ] && ob_name='JioTV+'; ui_step "Using $ob_name (the only provider this build supports)"; return 0 ;;
   esac
-  ui_note "JioTV and Airtel sign in with a mobile-number OTP. JioTV+ needs an eligible"
-  ui_note "JioFiber or AirFiber login. Fastway needs credentials its provider accepts."
+  ui_note "Only one provider is active at a time, and only its channels appear in the"
+  ui_note "playlist, programme guide and player. Signing in selects that provider."
+  ui_note "JioTV, PlayboxTV, Airtel Xstream and Tata Play sign in with a mobile-number"
+  ui_note "OTP. JioTV+ needs an eligible JioFiber or AirFiber login. Fastway needs"
+  ui_note "credentials its provider accepts. VZY needs no account."
   ui_note "ACT eligibility, where offered, depends on the provider."
   printf '\n'
   ui_select "Which account are you setting up?" "$ob_vals" "$ob_lbls"
@@ -655,6 +664,72 @@ ob_creds_airtel() {
   return 1
 }
 
+ob_creds_playbox() {
+  ob_bin=$1
+  ui_step "Sign in to PlayboxTV"
+  ui_input "PlayboxTV mobile number (+91)" ""
+  ob_number=$(printf '%s' "$ui_result" | tr -dc '0-9')
+  case "$ob_number" in
+    [6-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]) ;;
+    91[6-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]) ob_number=${ob_number#91} ;;
+    *) ui_fail "Enter a 10-digit Indian mobile number"; return 1 ;;
+  esac
+  ob_dialog_start "$ob_bin" playbox login
+  ob_dialog_send "$ob_number"
+  if ob_dialog_expect 'OTP:' 60; then
+    ui_ok "OTP sent to $ob_number"
+    ui_password "Enter the OTP"
+    ob_dialog_send "$ui_result"
+  fi
+  if ob_dialog_finish; then
+    if grep -qi "PlayboxTV login saved" "$ob_log"; then ui_ok "Signed in to PlayboxTV"; return 0; fi
+  fi
+  ob_dialog_show
+  ui_fail "PlayboxTV sign-in did not complete"
+  return 1
+}
+
+# One Tata Play number can hold several accounts, so the login asks which one
+# to use after the code is sent. The account list is shown before the prompt.
+ob_creds_tataplay() {
+  ob_bin=$1
+  ui_step "Sign in to Tata Play"
+  ui_input "Tata Play mobile number (+91)" ""
+  ob_number=$(printf '%s' "$ui_result" | tr -dc '0-9')
+  case "$ob_number" in
+    [6-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]) ;;
+    91[6-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]) ob_number=${ob_number#91} ;;
+    *) ui_fail "Enter a 10-digit Indian mobile number"; return 1 ;;
+  esac
+  ob_dialog_start "$ob_bin" tataplay login
+  ob_dialog_send "$ob_number"
+  if ob_dialog_expect 'Sign in to which account|Tata Play OTP:' 60; then
+    if grep -qi 'Sign in to which account' "$ob_log"; then
+      ui_note "This number can sign in to more than one Tata Play account:"
+      while IFS= read -r ob_line; do ui_note "$ob_line"; done <"$ob_log"
+      ui_input "Account number" 1
+      ob_dialog_send "${ui_result:-1}"
+      ob_dialog_expect 'Tata Play OTP:' 30 || true
+    fi
+    ui_ok "OTP sent to $ob_number"
+    ui_password "Enter the OTP"
+    ob_dialog_send "$ui_result"
+  fi
+  if ob_dialog_finish; then
+    if grep -qi "Tata Play login saved" "$ob_log"; then ui_ok "Signed in to Tata Play"; return 0; fi
+  fi
+  ob_dialog_show
+  ui_fail "Tata Play sign-in did not complete"
+  return 1
+}
+
+# VZY signs in anonymously, so choosing it is all the setup it needs.
+ob_creds_vzy() {
+  ui_step "Using VZY"
+  ui_ok "VZY needs no account; its free tier starts with the server"
+  return 0
+}
+
 ob_admin_password() {
   ob_bin=$1
   [ "$variant" = full ] || return 0
@@ -682,7 +757,10 @@ ob_credentials() {
     case "$provider" in
       extras) ob_creds_extras "$ob_bin" && ob_done=1 ;;
       fastway) ob_creds_fastway "$ob_bin" && ob_done=1 ;;
+      playbox) ob_creds_playbox "$ob_bin" && ob_done=1 ;;
+      vzy) ob_creds_vzy && ob_done=1 ;;
       airtel) ob_creds_airtel "$ob_bin" && ob_done=1 ;;
+      tataplay) ob_creds_tataplay "$ob_bin" && ob_done=1 ;;
       *) ob_creds_jiotv "$ob_bin" && ob_done=1 ;;
     esac
     [ "$ob_done" = 1 ] && break
@@ -698,7 +776,10 @@ ob_credentials() {
 ob_write_uci() {
   uci set openstream.main.tv_plus="$( [ "$provider" = extras ] && echo 1 || echo 0 )"
   uci set openstream.main.fastway="$( [ "$provider" = fastway ] && echo 1 || echo 0 )"
+  uci set openstream.main.playbox="$( [ "$provider" = playbox ] && echo 1 || echo 0 )"
+  uci set openstream.main.vzy="$( [ "$provider" = vzy ] && echo 1 || echo 0 )"
   uci set openstream.main.airtel="$( [ "$provider" = airtel ] && echo 1 || echo 0 )"
+  uci set openstream.main.tataplay="$( [ "$provider" = tataplay ] && echo 1 || echo 0 )"
   [ -z "$epg" ] || uci set openstream.main.epg="$( [ "$epg" = true ] && echo 1 || echo 0 )"
   case "$tunnel" in
     none) uci set openstream.main.tunnel=0; uci delete openstream.main.tunnel_token 2>/dev/null || true ;;
@@ -728,21 +809,45 @@ ob_write_shell_env() {
   ob_env_file=$ob_env_dir/installer.env
   ob_tvplus_enabled=false
   ob_fastway_enabled=false
+  ob_playbox_enabled=false
+  ob_vzy_enabled=false
   ob_airtel_enabled=false
+  ob_tataplay_enabled=false
   [ "$provider" != extras ] || ob_tvplus_enabled=true
   [ "$provider" != fastway ] || ob_fastway_enabled=true
+  [ "$provider" != playbox ] || ob_playbox_enabled=true
+  [ "$provider" != vzy ] || ob_vzy_enabled=true
   [ "$provider" != airtel ] || ob_airtel_enabled=true
+  [ "$provider" != tataplay ] || ob_tataplay_enabled=true
   (
     umask 077
     {
       printf 'export OPENSTREAM_TVPLUS=%s\n' "$(ob_shell_quote "$ob_tvplus_enabled")"
       printf 'export OPENSTREAM_FASTWAY=%s\n' "$(ob_shell_quote "$ob_fastway_enabled")"
+      printf 'export OPENSTREAM_PLAYBOX=%s\n' "$(ob_shell_quote "$ob_playbox_enabled")"
+      printf 'export OPENSTREAM_VZY=%s\n' "$(ob_shell_quote "$ob_vzy_enabled")"
       printf 'export OPENSTREAM_AIRTEL=%s\n' "$(ob_shell_quote "$ob_airtel_enabled")"
+      printf 'export OPENSTREAM_TATAPLAY=%s\n' "$(ob_shell_quote "$ob_tataplay_enabled")"
       [ -z "$epg" ] || printf 'export OPENSTREAM_EPG=%s\n' "$(ob_shell_quote "$epg")"
       [ -z "$tunnel_token" ] || printf 'export OPENSTREAM_TUNNEL_TOKEN=%s\n' "$(ob_shell_quote "$tunnel_token")"
     } >"$ob_env_file"
   )
   chmod 600 "$ob_env_file"
+}
+
+# The account chosen during installation has to be the active provider even
+# when the data directory still holds a login for a different provider. VZY has
+# no login command, so this is the only thing that selects it.
+ob_activate_provider() {
+  ob_bin=$1
+  ob_prefix=${2:-}
+  ob_binary_supports "$ob_bin" 'provider use' || return 0
+  if [ -n "$ob_prefix" ]; then
+    OPENSTREAM_PATH_PREFIX="$ob_prefix" "$ob_bin" provider use "$provider" >/dev/null 2>&1 && return 0
+  else
+    "$ob_bin" provider use "$provider" >/dev/null 2>&1 && return 0
+  fi
+  ui_warn "Could not save $provider as the active provider; pick it in Settings after the server starts"
 }
 
 ob_install_service() {
@@ -971,7 +1076,10 @@ ob_summary() {
   case "$provider" in
     extras) printf '  %saccount%s   JioTV+\n' "$ui_dim" "$ui_reset" ;;
     fastway) printf '  %saccount%s   Fastway\n' "$ui_dim" "$ui_reset" ;;
-    airtel) printf '  %saccount%s   Airtel Xstream\n' "$ui_dim" "$ui_reset" ;;
+    airtel) printf '  %saccount%s   Airtel Xstream (beta)\n' "$ui_dim" "$ui_reset" ;;
+    playbox) printf '  %saccount%s   PlayboxTV (beta)\n' "$ui_dim" "$ui_reset" ;;
+    vzy) printf '  %saccount%s   VZY free tier (beta)\n' "$ui_dim" "$ui_reset" ;;
+    tataplay) printf '  %saccount%s   Tata Play (beta)\n' "$ui_dim" "$ui_reset" ;;
     *) printf '  %saccount%s   JioTV\n' "$ui_dim" "$ui_reset" ;;
   esac
   if [ "$variant" = full ]; then
@@ -1138,6 +1246,9 @@ if [ "$openwrt" = true ]; then
     if ob_credentials "$openwrt_bin"; then ob_creds_done=1; else
       ui_fail "The install is complete but the account is not connected"
     fi
+    # VZY has no login, and the service store lives at /etc/openstream, so the
+    # activation has to name that prefix explicitly.
+    ob_activate_provider "$openwrt_bin" /etc/openstream
     ob_admin_password "$openwrt_bin"
     ob_write_uci
   fi
@@ -1375,12 +1486,16 @@ if onboard_enabled; then
   fi
   OPENSTREAM_TVPLUS=$( [ "$provider" = extras ] && echo true || echo false )
   OPENSTREAM_FASTWAY=$( [ "$provider" = fastway ] && echo true || echo false )
+  OPENSTREAM_PLAYBOX=$( [ "$provider" = playbox ] && echo true || echo false )
+  OPENSTREAM_VZY=$( [ "$provider" = vzy ] && echo true || echo false )
   OPENSTREAM_AIRTEL=$( [ "$provider" = airtel ] && echo true || echo false )
-  export OPENSTREAM_TVPLUS OPENSTREAM_FASTWAY OPENSTREAM_AIRTEL
+  OPENSTREAM_TATAPLAY=$( [ "$provider" = tataplay ] && echo true || echo false )
+  export OPENSTREAM_TVPLUS OPENSTREAM_FASTWAY OPENSTREAM_PLAYBOX OPENSTREAM_VZY OPENSTREAM_AIRTEL OPENSTREAM_TATAPLAY
   if [ -n "$tunnel_token" ]; then export OPENSTREAM_TUNNEL_TOKEN="$tunnel_token"; fi
   ob_write_shell_env
   ob_apply_epg "$ost_bin" "$(ob_epg_store_prefix)"
   if ob_credentials "$ost_bin"; then
+    ob_activate_provider "$ost_bin"
     ob_admin_password "$ost_bin"
     ob_install_service "$ost_bin"
     ob_summary "$ost_bin"
@@ -1391,7 +1506,9 @@ if onboard_enabled; then
   case "$provider" in
     extras) ob_login_cmd=${ob_tvplus_args:-'extras login'} ;;
     fastway) ob_login_cmd='fastway login' ;;
+    playbox) ob_login_cmd='playbox login' ;;
     airtel) ob_login_cmd='airtel login' ;;
+    tataplay) ob_login_cmd='tataplay login' ;;
     *) ob_login_cmd='login otp' ;;
   esac
   if [ -n "${ob_env_file:-}" ]; then

@@ -26,7 +26,7 @@ source ~/.zshrc
 
 ## Guided setup
 
-In a terminal, the installer also asks how the server should be set up: build (`full` or `slim`), account (JioTV, JioTV+, Fastway, or Airtel Xstream beta when that release supports it), the LAN address other devices will use, whether to expose it through Cloudflare, whether to turn on the programme guide, and the account sign-in. Arrow keys select, Enter confirms, and Ctrl-C cancels without leaving the terminal in a broken state.
+In a terminal, the installer also asks how the server should be set up: build (`full` or `slim`), account (JioTV, JioTV+, Fastway, PlayboxTV, VZY, Airtel Xstream or Tata Play, each beta option only when that release supports it), the LAN address other devices will use, whether to expose it through Cloudflare, whether to turn on the programme guide, and the account sign-in. Arrow keys select, Enter confirms, and Ctrl-C cancels without leaving the terminal in a broken state.
 
 The same settings can be supplied up front to skip the questions:
 

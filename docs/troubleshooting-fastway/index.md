@@ -7,7 +7,7 @@ keywords: [Fastway, login, catalogue, DASH, Widevine, PallyCon, HTTP, playback]
 
 # Fix Fastway login and playback problems
 
-Fastway is optional and disabled by default. In v1.5.0 it becomes the active provider when it is both enabled and connected, taking priority over JioTV+ and then JioTV. Fastway supplies live TV only.
+Fastway is optional and disabled by default. When it is enabled and connected, signing in or selecting **Use Fastway** makes it the active provider; only one provider catalogue is exposed at a time. Fastway supplies live TV only.
 
 ## Fastway card is missing
 
@@ -62,15 +62,15 @@ The channel list is empty, contains fewer channels than expected, or JioTV/JioTV
 
 - Fastway catalogue loading failed.
 - The account is entitled to only part of the catalogue.
-- Fastway is active and therefore has provider priority by design.
+- Fastway is the active provider, so the other provider catalogues are not listed by design.
 - A channel is a local custom channel rather than a provider channel.
 
 ### Diagnose and fix
 
 1. Check **Settings → Fastway** is connected.
-2. Clear **Fastway only**, category, language, HD and search filters before judging the catalogue.
-3. Remember that connected Fastway replaces the JioTV/JioTV+ provider catalogue; local custom channels remain.
-4. Disconnect Fastway to verify that OpenStream falls back to JioTV+ and then JioTV.
+2. Clear category, language, HD and search filters before judging the catalogue, and confirm Fastway is the **Active** provider in Settings.
+3. Remember that only the active provider's catalogue is listed. A connected Fastway account does not replace another active provider's catalogue; select **Use Fastway** to activate it. Local custom channels remain.
+4. Disconnect Fastway to verify that OpenStream falls back to the next available provider.
 
 **Verify:** the expected active provider's channels appear after a refresh. Do not treat a visible channel as proof that the provider will authorize playback.
 

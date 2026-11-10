@@ -36,7 +36,6 @@ mod update;
 mod vod;
 mod vzy;
 mod vzy_state;
-mod vzyone;
 
 #[cfg(feature = "full")]
 mod ui_assets;
@@ -94,6 +93,11 @@ fn main() -> anyhow::Result<()> {
         cli::Command::FastwayLogout => fastway_logout_cli(&store),
         cli::Command::AirtelLogin => runtime.block_on(airtel_login_cli(&store)),
         cli::Command::AirtelLogout => airtel_logout_cli(&store),
+        cli::Command::PlayboxLogin => runtime.block_on(playbox_login_cli(&store)),
+        cli::Command::PlayboxLogout => playbox_logout_cli(&store),
+        cli::Command::TataplayLogin => runtime.block_on(tataplay_login_cli(&store)),
+        cli::Command::TataplayLogout => runtime.block_on(tataplay_logout_cli(&store)),
+        cli::Command::ProviderUse(id) => provider_use(&store, &id),
         cli::Command::AdminPassword => admin_password(&access, &path_prefix),
         cli::Command::KeyShow => show_key(&access),
         cli::Command::KeyRotate => rotate_key(&access),
@@ -574,6 +578,36 @@ async fn serve(
             }
         );
     }
+    if state.playbox.enabled() {
+        println!(
+            "playbox enabled{}",
+            if state.playbox.connected() {
+                " (logged in)"
+            } else {
+                " (run `ost playbox login`)"
+            }
+        );
+    }
+    if state.tataplay.enabled() {
+        println!(
+            "tataplay enabled{}",
+            if state.tataplay.connected() {
+                " (logged in)"
+            } else {
+                " (run `ost tataplay login`)"
+            }
+        );
+    }
+    if state.vzy.enabled() {
+        println!(
+            "vzy enabled{}",
+            if state.vzy.connected() {
+                " (free tier ready)"
+            } else {
+                " (free tier starts on the first request)"
+            }
+        );
+    }
 
     // Validating the XMLTV cache needs the active channel catalogue, which can
     // mean remote API calls with no timeout, so it runs off the startup path:
@@ -926,6 +960,31 @@ fn display_host(host: &str) -> String {
     }
 }
 
+/// Records the provider whose CLI login just succeeded, matching the HTTP
+/// login handlers so the next server start activates that provider.
+fn remember_cli_provider(
+    store: &store::Store,
+    product: state::ActiveProduct,
+) -> anyhow::Result<()> {
+    store
+        .set(state::STORE_KEY_ACTIVE_PROVIDER, product.store_name())
+        .map_err(|e| anyhow::anyhow!("could not save the active provider: {e}"))
+}
+
+fn provider_use(store: &store::Store, id: &str) -> anyhow::Result<()> {
+    let product = state::ActiveProduct::from_name(id).ok_or_else(|| {
+        anyhow::anyhow!(
+            "unknown provider {id}; use jiotv, jiotv_plus, fastway, playbox, vzy, airtel or tataplay"
+        )
+    })?;
+    remember_cli_provider(store, product)?;
+    println!(
+        "Active provider set to {}. Restart the server to use it.",
+        product.store_name()
+    );
+    Ok(())
+}
+
 async fn login_otp(store: Arc<store::Store>) -> anyhow::Result<()> {
     print!("Enter your mobile number: +91 ");
     std::io::stdout().flush()?;
@@ -949,6 +1008,7 @@ async fn login_otp(store: Arc<store::Store>) -> anyhow::Result<()> {
         anyhow::bail!("the OTP is wrong or has expired");
     };
     login::save(&store, &creds, login::TOUCH_ALL)?;
+    remember_cli_provider(&store, state::ActiveProduct::Tv)?;
     println!("Login successful");
     Ok(())
 }
@@ -1016,7 +1076,10 @@ async fn extras_login_cli(store: &store::Store) -> anyhow::Result<()> {
         cr.save(store)?;
     }
     match result {
-        Ok(_) => println!("JioTV+ login saved. Restart the server to use it."),
+        Ok(_) => {
+            remember_cli_provider(store, state::ActiveProduct::Extras)?;
+            println!("JioTV+ login saved. Restart the server to use it.");
+        }
         Err(e) => anyhow::bail!("login failed: {e}"),
     }
     Ok(())
@@ -1042,6 +1105,7 @@ async fn fastway_login_cli(store: &store::Store) -> anyhow::Result<()> {
     match client.login(username, &password).await {
         Ok(creds) => {
             creds.save(store)?;
+            remember_cli_provider(store, state::ActiveProduct::Fastway)?;
             println!("Fastway login saved. Restart the server to use it.");
             Ok(())
         }
@@ -1078,6 +1142,7 @@ async fn airtel_login_cli(store: &store::Store) -> anyhow::Result<()> {
 
     match client.verify_otp(store, &msisdn, otp.trim(), || {}).await {
         Ok(creds) => {
+            remember_cli_provider(store, state::ActiveProduct::Airtel)?;
             println!("Airtel login saved for {}. Restart the server to use it.", creds.msisdn);
             Ok(())
         }
@@ -1088,6 +1153,109 @@ async fn airtel_login_cli(store: &store::Store) -> anyhow::Result<()> {
 fn airtel_logout_cli(store: &store::Store) -> anyhow::Result<()> {
     airtel::delete_credentials(store)?;
     println!("Airtel login deleted.");
+    Ok(())
+}
+
+/// `ost playbox login` — PlayboxTV signs in with an SMS OTP, so the CLI asks
+/// for the number, sends the code, then asks for it.
+async fn playbox_login_cli(store: &store::Store) -> anyhow::Result<()> {
+    let http = reqwest::Client::new();
+    let state = playbox_state::PlayboxState::new(true);
+
+    print!("PlayboxTV mobile number: ");
+    std::io::stdout().flush()?;
+    let mut number = String::new();
+    std::io::stdin().read_line(&mut number)?;
+    let number = number.trim();
+
+    if !state.send_otp(&http, store, number).await? {
+        anyhow::bail!("PlayboxTV did not accept that number");
+    }
+    println!("OTP sent to {number}");
+
+    print!("PlayboxTV OTP: ");
+    std::io::stdout().flush()?;
+    let mut otp = String::new();
+    std::io::stdin().read_line(&mut otp)?;
+
+    if !state
+        .verify_otp(&http, store, number, otp.trim(), || {})
+        .await?
+    {
+        anyhow::bail!("PlayboxTV rejected the OTP");
+    }
+    remember_cli_provider(store, state::ActiveProduct::Playbox)?;
+    println!("PlayboxTV login saved. Restart the server to use it.");
+    Ok(())
+}
+
+fn playbox_logout_cli(store: &store::Store) -> anyhow::Result<()> {
+    playbox::delete_credentials(store)?;
+    println!("PlayboxTV login deleted.");
+    Ok(())
+}
+
+/// `ost tataplay login` — Tata Play sends one OTP and then offers the
+/// accounts that number can sign in to, so the CLI prints them and asks which
+/// one to use when there is more than one.
+async fn tataplay_login_cli(store: &store::Store) -> anyhow::Result<()> {
+    let http = reqwest::Client::new();
+    let state = tataplay_state::TataplayState::new(true);
+
+    print!("Tata Play mobile number: ");
+    std::io::stdout().flush()?;
+    let mut number = String::new();
+    std::io::stdin().read_line(&mut number)?;
+    let number = number.trim().to_string();
+
+    let refs = state.send_otp(&http, store, &number, "").await?;
+    if refs.is_empty() {
+        anyhow::bail!("Tata Play offered no account for that number");
+    }
+    let chosen = if refs.len() == 1 {
+        refs[0].clone()
+    } else {
+        for (index, reference) in refs.iter().enumerate() {
+            let label = if reference.native_name.is_empty() {
+                reference.account_service_type.as_str()
+            } else {
+                reference.native_name.as_str()
+            };
+            println!("  {}) {label}", index + 1);
+        }
+        print!("Sign in to which account [1-{}]: ", refs.len());
+        std::io::stdout().flush()?;
+        let mut pick = String::new();
+        std::io::stdin().read_line(&mut pick)?;
+        let index = pick
+            .trim()
+            .parse::<usize>()
+            .ok()
+            .filter(|index| (1..=refs.len()).contains(index))
+            .ok_or_else(|| anyhow::anyhow!("enter a number between 1 and {}", refs.len()))?;
+        refs[index - 1].clone()
+    };
+    println!("OTP sent to {number}");
+
+    print!("Tata Play OTP: ");
+    std::io::stdout().flush()?;
+    let mut otp = String::new();
+    std::io::stdin().read_line(&mut otp)?;
+
+    if !state
+        .verify_otp(&http, store, otp.trim(), &chosen.ref_id, false, || {})
+        .await?
+    {
+        anyhow::bail!("Tata Play rejected the OTP");
+    }
+    remember_cli_provider(store, state::ActiveProduct::TataPlay)?;
+    println!("Tata Play login saved. Restart the server to use it.");
+    Ok(())
+}
+
+async fn tataplay_logout_cli(store: &store::Store) -> anyhow::Result<()> {
+    tataplay::logout(store).await?;
+    println!("Tata Play login deleted.");
     Ok(())
 }
 
@@ -1208,6 +1376,11 @@ fn print_help() {
          tv+ login | tv+ logout   (off by default; needs tv_plus = true / OPENSTREAM_TVPLUS=true)\n  \
          fastway login | fastway logout (off by default; needs fastway = true / OPENSTREAM_FASTWAY=true)\n  \
          airtel login | airtel logout (off by default; needs airtel = true / OPENSTREAM_AIRTEL=true)\n  \
+          playbox login | playbox logout (off by default; needs playbox = true / OPENSTREAM_PLAYBOX=true)\n  \
+          tataplay login | tataplay logout (off by default; needs tataplay = true / OPENSTREAM_TATAPLAY=true)\n  \
+          vzy has no login: it uses the anonymous free tier (needs vzy = true / OPENSTREAM_VZY=true)\n  \
+         provider use <id>        make one provider active: jiotv, jiotv_plus, fastway,\n  \
+         \x20                      playbox, vzy, airtel or tataplay\n\n  \
          epg generate | epg delete | epg on | epg off\n  \
          admin password\n  \
          key show | key rotate\n  \
@@ -1221,6 +1394,29 @@ fn print_help() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn temp_store() -> (tempfile::TempDir, store::Store) {
+        let dir = tempfile::tempdir().unwrap();
+        let store = store::Store::open(dir.path().to_str().unwrap()).unwrap();
+        (dir, store)
+    }
+
+    #[test]
+    fn provider_use_saves_the_chosen_provider() {
+        let (_dir, store) = temp_store();
+        provider_use(&store, "vzy").unwrap();
+        assert_eq!(store.get(state::STORE_KEY_ACTIVE_PROVIDER).unwrap(), "vzy");
+        provider_use(&store, "tata_play").unwrap();
+        assert_eq!(store.get(state::STORE_KEY_ACTIVE_PROVIDER).unwrap(), "tataplay");
+    }
+
+    #[test]
+    fn provider_use_rejects_an_unknown_provider() {
+        let (_dir, store) = temp_store();
+        let error = provider_use(&store, "fastway-ish").unwrap_err().to_string();
+        assert!(error.contains("unknown provider fastway-ish"), "{error}");
+        assert!(store.get(state::STORE_KEY_ACTIVE_PROVIDER).is_err());
+    }
 
     #[cfg(unix)]
     mod service {

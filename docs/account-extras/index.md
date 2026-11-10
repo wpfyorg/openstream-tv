@@ -11,12 +11,12 @@ keywords: [JioTV+, account, OTP, JioTV+ channels, TV+]
 
 ![Settings showing JioTV+ connected on OpenStream TV v1.5.0](../images/settings-jiotv-plus.png)
 
-1. Open **Settings** and find **JioTV+ channels**.
+1. Open **Settings** and find **JioTV+**.
 2. Enter the registered 10-digit mobile number and select **Continue**.
 3. If asked, choose the matching connection from the list, then select **Send OTP**.
 4. Enter the OTP and select **Connect**.
-5. Check that the card says **Connected**. The header also shows a JioTV+ indicator while the source is enabled and connected.
-6. Return to **Channels**. Use **JioTV+ only** to narrow the list when more than one source is visible.
+5. Check that the card says **Connected**. Connecting JioTV+ makes it the active provider, and the header indicator appears while it is active.
+6. **Channels** now shows the JioTV+ catalogue. To switch back, use **Use JioTV** on another connected card; only one provider can be active at a time.
 
 **Expected result:** channels supplied by the connected source appear when available. A channel can still require a plan or be unavailable for playback.
 

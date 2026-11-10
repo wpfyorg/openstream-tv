@@ -18,6 +18,13 @@ web/node_modules/
 # Local playback / QA artifacts
 /qa-results/
 
+# Local documentation and design work
+/.commandcode/
+/.rtfm/
+/docs-old/
+/design/generated*.png
+/design/home.pen
+
 # config
 config.json
 config.yml
@@ -40,3 +47,16 @@ jiotv*.log
 
 # Local JioTV+ / extra-source notes (never commit)
 extra.md
+
+# Local reverse-engineering app packages (never commit)
+/reverse-engineering/apps/
+
+# Local design work (never commit)
+/design/tv-app-ui.pen
+/design/tv-app-ui-export/
+
+# Local session handoff notes (never commit)
+/HANDOFF.md
+
+# Local sideload builds
+/openstream-tv-*.apk

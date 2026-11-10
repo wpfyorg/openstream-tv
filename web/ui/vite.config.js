@@ -9,6 +9,6 @@ const proxied = ["/api", "/k", "/login", "/tvplus", "/epg", "/mpd", "/player", "
 export default defineConfig({
   base: "/ui/",
   plugins: [svelte()],
-  build: { outDir: "dist", emptyOutDir: true, assetsInlineLimit: 0 },
+  build: { target: "es2019", outDir: "dist", emptyOutDir: true, assetsInlineLimit: 0 },
   server: { proxy: Object.fromEntries(proxied.map((p) => [p, backend])) },
 });

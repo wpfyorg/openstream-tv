@@ -25,11 +25,46 @@ pub enum ActiveProduct {
     TataPlay,
 }
 
+/// Store key holding the provider the user last activated. Exactly one value
+/// is kept, so the provider catalogues can never be active together.
+pub const STORE_KEY_ACTIVE_PROVIDER: &str = "active_provider";
+
 impl ActiveProduct {
     pub fn as_str(self) -> &'static str {
         match self {
             ActiveProduct::Tv => "tv",
             ActiveProduct::Extras => "extras",
+            ActiveProduct::Fastway => "fastway",
+            ActiveProduct::Playbox => "playbox",
+            ActiveProduct::Vzy => "vzy",
+            ActiveProduct::Airtel => "airtel",
+            ActiveProduct::TataPlay => "tataplay",
+        }
+    }
+
+    /// Provider names accepted by the UI/API. The legacy `tv`/`extras`
+    /// spellings keep an existing store working.
+    pub fn from_name(name: &str) -> Option<ActiveProduct> {
+        match name {
+            "jiotv" | "tv" => Some(ActiveProduct::Tv),
+            "jiotv_plus" | "jiotv-plus" | "tv_plus" | "extras" => Some(ActiveProduct::Extras),
+            "fastway" => Some(ActiveProduct::Fastway),
+            "playbox" | "playbox_tv" | "playboxtv" => Some(ActiveProduct::Playbox),
+            "vzy" => Some(ActiveProduct::Vzy),
+            "airtel" | "airtel_xstream" | "airtel-xstream" | "xstream" => {
+                Some(ActiveProduct::Airtel)
+            }
+            "tataplay" | "tata_play" | "tata-play" | "tataplay_smart" => {
+                Some(ActiveProduct::TataPlay)
+            }
+            _ => None,
+        }
+    }
+
+    pub fn store_name(self) -> &'static str {
+        match self {
+            ActiveProduct::Tv => "jiotv",
+            ActiveProduct::Extras => "jiotv_plus",
             ActiveProduct::Fastway => "fastway",
             ActiveProduct::Playbox => "playbox",
             ActiveProduct::Vzy => "vzy",
@@ -132,28 +167,71 @@ impl AppState {
         self.tataplay.clear();
     }
 
-    /// Product selection follows the authenticated session that can actually
-    /// supply the alternate catalogue. Fastway takes priority when connected,
-    /// then JioTV+, then PlayboxTV, VZY, Airtel and Tata Play; otherwise the
-    /// TV catalogue.
-    /// Logging out of an alternate provider immediately falls back to the next
-    /// one.
-    pub fn active_product(&self) -> ActiveProduct {
+    /// The provider the user explicitly activated, if any. A stored choice is
+    /// kept even while its provider is disconnected, so reconnecting that
+    /// provider makes it active again.
+    pub fn preferred_product(&self) -> Option<ActiveProduct> {
+        self.store
+            .get_opt(STORE_KEY_ACTIVE_PROVIDER)
+            .as_deref()
+            .and_then(ActiveProduct::from_name)
+    }
+
+    /// Whether a provider can currently supply its catalogue.
+    pub fn provider_available(&self, product: ActiveProduct) -> bool {
+        match product {
+            ActiveProduct::Tv => self.tv.logged_in(),
+            ActiveProduct::Extras => self.extras.connected(),
+            ActiveProduct::Fastway => self.fastway.connected(),
+            ActiveProduct::Playbox => self.playbox.connected(),
+            ActiveProduct::Vzy => self.vzy.connected(),
+            ActiveProduct::Airtel => self.airtel.connected(),
+            ActiveProduct::TataPlay => self.tataplay.connected(),
+        }
+    }
+
+    /// Used when the stored choice is unavailable or absent: prefer an
+    /// authenticated provider in the documented order, then a connected JioTV
+    /// account, and only then the anonymous VZY free tier, which must never
+    /// shadow an account the user signed in to.
+    fn default_product(&self) -> ActiveProduct {
         if self.fastway.connected() {
             ActiveProduct::Fastway
         } else if self.extras.connected() {
             ActiveProduct::Extras
         } else if self.playbox.connected() {
             ActiveProduct::Playbox
-        } else if self.vzy.connected() {
-            ActiveProduct::Vzy
         } else if self.airtel.connected() {
             ActiveProduct::Airtel
         } else if self.tataplay.connected() {
             ActiveProduct::TataPlay
+        } else if self.tv.logged_in() {
+            ActiveProduct::Tv
+        } else if self.vzy.connected() {
+            ActiveProduct::Vzy
         } else {
             ActiveProduct::Tv
         }
+    }
+
+    /// Product selection follows the provider the user activated, but only
+    /// while that provider can supply its catalogue. Disconnecting it falls
+    /// back to the next available provider without erasing the preference.
+    pub fn active_product(&self) -> ActiveProduct {
+        match self.preferred_product() {
+            Some(product) if self.provider_available(product) => product,
+            _ => self.default_product(),
+        }
+    }
+
+    /// Persists the provider the user activated. A single value is stored, so
+    /// activating one provider deactivates every other one.
+    pub fn set_active_product(
+        &self,
+        product: ActiveProduct,
+    ) -> Result<(), crate::store::StoreError> {
+        self.store
+            .set(STORE_KEY_ACTIVE_PROVIDER, product.store_name())
     }
 
     /// Returns only channels from the active upstream product. Custom
@@ -522,6 +600,52 @@ mod tests {
         let server = wiremock::MockServer::start().await;
         let s = state_with_providers(empty_store(), extras, playbox_state_with_mock(&server));
         assert_eq!(s.active_product(), ActiveProduct::Extras);
+    }
+
+    #[tokio::test]
+    async fn logged_out_jiotv_preference_falls_back_to_the_automatic_priority() {
+        let server = wiremock::MockServer::start().await;
+        let s = state_with_providers(
+            empty_store(),
+            Arc::new(ExtrasState::new(false, None)),
+            playbox_state_with_mock(&server),
+        );
+        assert_eq!(s.active_product(), ActiveProduct::Playbox);
+        s.set_active_product(ActiveProduct::Tv).unwrap();
+        assert_eq!(s.preferred_product(), Some(ActiveProduct::Tv));
+        // JioTV has no credentials in this test, so the stored JioTV choice is
+        // unavailable and the connected PlayboxTV catalogue stays active.
+        assert_eq!(s.active_product(), ActiveProduct::Playbox);
+    }
+
+    #[test]
+    fn a_disconnected_provider_choice_falls_back_without_being_erased() {
+        let s = state_with_providers(
+            empty_store(),
+            Arc::new(ExtrasState::new(false, None)),
+            Arc::new(PlayboxState::new(false)),
+        );
+        s.set_active_product(ActiveProduct::Fastway).unwrap();
+        assert_eq!(s.preferred_product(), Some(ActiveProduct::Fastway));
+        assert_eq!(s.active_product(), ActiveProduct::Tv);
+    }
+
+    #[test]
+    fn provider_store_names_round_trip() {
+        for product in [
+            ActiveProduct::Tv,
+            ActiveProduct::Extras,
+            ActiveProduct::Fastway,
+            ActiveProduct::Playbox,
+            ActiveProduct::Vzy,
+            ActiveProduct::Airtel,
+            ActiveProduct::TataPlay,
+        ] {
+            assert_eq!(
+                ActiveProduct::from_name(product.store_name()),
+                Some(product)
+            );
+        }
     }
 
     #[tokio::test]

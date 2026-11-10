@@ -204,6 +204,16 @@ pub async fn status(State(state): State<SharedState>) -> Response {
         "jiotv": {"loggedIn": state.tv.logged_in()},
         "extras": {"enabled": state.extras.enabled(), "connected": state.extras.connected()},
         "fastway": {"enabled": state.fastway.enabled(), "connected": state.fastway.connected()},
+        "airtel": {
+            "enabled": state.airtel.enabled(),
+            "connected": state.airtel.connected(),
+            "artifact": {
+                "package": crate::airtel::PACKAGE,
+                "version": crate::airtel::VERSION_NAME,
+                "versionCode": crate::airtel::VERSION_CODE,
+                "sha256": crate::airtel::ARTIFACT_SHA256,
+            }
+        },
         "playbox": {
             "enabled": state.playbox.enabled(),
             "connected": state.playbox.connected(),
@@ -221,6 +231,7 @@ pub async fn status(State(state): State<SharedState>) -> Response {
         "vzy": {
             "enabled": state.vzy.enabled(),
             "connected": state.vzy.connected(),
+            "activeProduct": state.active_product().as_str(),
             "tier": "anonymous-free",
             "artifact": {
                 "package": crate::vzy::PACKAGE,
@@ -229,9 +240,12 @@ pub async fn status(State(state): State<SharedState>) -> Response {
                 "sha256": crate::vzy::ARTIFACT_SHA256,
             }
         },
-        "vzyone": crate::vzyone::status(),
         "catalogue": {
             "activeProduct": state.active_product().as_str(),
+            "preferredProduct": state
+                .preferred_product()
+                .map(|product| product.store_name())
+                .unwrap_or_else(|| state.active_product().store_name()),
             "extrasEntitlementsAvailable": state.extras.entitlements_available(),
             "extrasEntitlementsApplied": state.extras.entitlements_applied(),
             "extrasEntitlementStatus": state.extras.entitlement_status().as_str(),
@@ -266,6 +280,8 @@ struct ApiChannel {
     hd: bool,
     extras: bool,
     fastway: bool,
+    playbox: bool,
+    vzy: bool,
     catchup: bool,
     #[serde(rename = "requiresSubscription")]
     requires_subscription: bool,
@@ -296,6 +312,8 @@ pub async fn channels(State(state): State<SharedState>) -> Response {
                 hd: ch.is_hd,
                 extras: ch.id.starts_with(crate::extras::ID_PREFIX),
                 fastway: ch.id.starts_with(crate::fastway::ID_PREFIX),
+                playbox: ch.id.starts_with(crate::playbox::ID_PREFIX),
+                vzy: ch.id.starts_with(crate::vzy::ID_PREFIX),
                 catchup: ch.is_catchup_available,
                 requires_subscription: ch.requires_subscription(),
                 playable: state.is_playable(&ch.id),
@@ -363,6 +381,10 @@ pub async fn jiotv_verify_otp(
     };
     if crate::login::save(&state.store, &creds, crate::login::TOUCH_ALL).is_err() {
         return err(StatusCode::INTERNAL_SERVER_ERROR, "cannot save the login");
+    }
+    // Signing in to a provider makes it the one the catalogue is drawn from.
+    if let Err(e) = state.set_active_product(crate::state::ActiveProduct::Tv) {
+        tracing::warn!("cannot save the active provider: {e}");
     }
     state.invalidate_context();
     state.tv.set_credentials(creds);
@@ -470,6 +492,11 @@ pub async fn extras_verify_otp(
     // generation, and URL-minting handlers re-check the epoch).
     // Always finish the cleanup if the install hook ran, even when the final
     // credentials equal the previous ones (a re-verify of the same account).
+    if matches!(&result, Ok(true)) {
+        if let Err(e) = state.set_active_product(crate::state::ActiveProduct::Extras) {
+            tracing::warn!("cannot save the active provider: {e}");
+        }
+    }
     if installed.load(std::sync::atomic::Ordering::SeqCst)
         || state.extras.credentials_marker() != before
     {
@@ -505,11 +532,68 @@ pub struct UnlockBody {
 }
 
 fn extras_status(state: &AppState) -> serde_json::Value {
-    json!({"enabled": state.extras.enabled(), "connected": state.extras.connected()})
+    json!({
+        "enabled": state.extras.enabled(),
+        "connected": state.extras.connected(),
+        "activeProduct": state.active_product().as_str(),
+    })
 }
 
 pub async fn extras_status_get(State(state): State<SharedState>) -> Response {
     Json(json!({"status": true, "extras": extras_status(&state)})).into_response()
+}
+
+#[derive(Deserialize)]
+pub struct ActivateProviderBody {
+    provider: String,
+}
+
+/// `POST /api/providers/activate`: chooses the single provider whose
+/// catalogue the UI, playlist and playback routes expose. The selection is
+/// persisted; a disconnected provider stays selected but falls back until it
+/// reconnects.
+pub async fn providers_activate(
+    State(state): State<SharedState>,
+    Json(body): Json<ActivateProviderBody>,
+) -> Response {
+    let Some(product) = crate::state::ActiveProduct::from_name(body.provider.trim()) else {
+        return err(
+            StatusCode::BAD_REQUEST,
+            "provider must be jiotv, jiotv_plus, fastway, playbox, vzy, airtel or tataplay",
+        );
+    };
+    let enabled = match product {
+        crate::state::ActiveProduct::Tv => true,
+        crate::state::ActiveProduct::Extras => state.extras.enabled(),
+        crate::state::ActiveProduct::Fastway => state.fastway.enabled(),
+        crate::state::ActiveProduct::Playbox => state.playbox.enabled(),
+        crate::state::ActiveProduct::Vzy => state.vzy.enabled(),
+        crate::state::ActiveProduct::Airtel => state.airtel.enabled(),
+        crate::state::ActiveProduct::TataPlay => state.tataplay.enabled(),
+    };
+    if !enabled {
+        return err(
+            StatusCode::BAD_REQUEST,
+            format!("{} is not enabled", product.store_name()),
+        );
+    }
+    let before = state.active_product();
+    if let Err(e) = state.set_active_product(product) {
+        return err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("cannot save the provider: {e}"),
+        );
+    }
+    if state.active_product() != before {
+        state.invalidate_context();
+        crate::epg::trigger_regeneration(&state);
+    }
+    Json(json!({
+        "status": true,
+        "provider": product.store_name(),
+        "activeProduct": state.active_product().as_str(),
+    }))
+    .into_response()
 }
 
 #[derive(Deserialize)]
@@ -519,7 +603,11 @@ pub struct FastwayLoginBody {
 }
 
 fn fastway_status(state: &AppState) -> serde_json::Value {
-    json!({"enabled": state.fastway.enabled(), "connected": state.fastway.connected()})
+    json!({
+        "enabled": state.fastway.enabled(),
+        "connected": state.fastway.connected(),
+        "activeProduct": state.active_product().as_str(),
+    })
 }
 
 pub async fn fastway_status_get(State(state): State<SharedState>) -> Response {
@@ -551,6 +639,9 @@ pub async fn fastway_login(
         .await
     {
         Ok(()) => {
+            if let Err(e) = state.set_active_product(crate::state::ActiveProduct::Fastway) {
+                tracing::warn!("cannot save the active provider: {e}");
+            }
             state.invalidate_context();
             crate::epg::trigger_regeneration(&state);
             Json(json!({"status": true, "fastway": fastway_status(&state)})).into_response()
@@ -668,6 +759,7 @@ pub async fn playbox_status(State(state): State<SharedState>) -> Response {
         "playbox": {
             "enabled": state.playbox.enabled(),
             "connected": state.playbox.connected(),
+            "activeProduct": state.active_product().as_str(),
         }
     }))
     .into_response()
@@ -728,6 +820,11 @@ pub async fn playbox_verify_otp(
         })
         .await;
     if installed.load(std::sync::atomic::Ordering::SeqCst) {
+        // Activate before regenerating the guide, so the programmes belong to
+        // the provider that just signed in.
+        if let Err(e) = state.set_active_product(crate::state::ActiveProduct::Playbox) {
+            tracing::warn!("cannot save the active provider: {e}");
+        }
         state.invalidate_context();
         crate::epg::trigger_regeneration(&state);
     }
@@ -846,6 +943,7 @@ pub async fn vzy_status(State(state): State<SharedState>) -> Response {
         "vzy": {
             "enabled": state.vzy.enabled(),
             "connected": state.vzy.connected(),
+            "activeProduct": state.active_product().as_str(),
             "tier": "anonymous-free",
             "artifact": {
                 "package": crate::vzy::PACKAGE,
@@ -1039,6 +1137,11 @@ pub async fn airtel_verify_otp(
     // are in place. A rejected OTP never installs anything, so it neither
     // rotates here nor cuts off existing viewers.
     if installed.load(std::sync::atomic::Ordering::SeqCst) {
+        // Activate before regenerating the guide, so the programmes belong to
+        // the provider that just signed in.
+        if let Err(e) = state.set_active_product(crate::state::ActiveProduct::Airtel) {
+            tracing::warn!("cannot save the active provider: {e}");
+        }
         state.invalidate_context();
         state.airtel.ensure_catalogue(&state.store).await;
         crate::epg::trigger_regeneration(&state);
@@ -1304,6 +1407,11 @@ pub async fn tataplay_verify_otp(
         )
         .await;
     if installed.load(std::sync::atomic::Ordering::SeqCst) {
+        // Activate before regenerating the guide, so the programmes belong to
+        // the provider that just signed in.
+        if let Err(e) = state.set_active_product(crate::state::ActiveProduct::TataPlay) {
+            tracing::warn!("cannot save the active provider: {e}");
+        }
         state.invalidate_context();
         crate::epg::trigger_regeneration(&state);
     }
@@ -1443,11 +1551,6 @@ pub async fn tataplay_play(
         Ok(access) => Json(json!({"status": true, "access": access})).into_response(),
         Err(e) => err(StatusCode::BAD_GATEWAY, e.to_string()),
     }
-}
-
-/// `GET /api/vzyone/status` — provenance record for the mislabelled artifact.
-pub async fn vzyone_status() -> Response {
-    Json(json!({"status": true, "vzyone": crate::vzyone::status()})).into_response()
 }
 
 /// `GET /api/live/play/:id?q=` — resolves a live channel to what the
@@ -1686,6 +1789,75 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn provider_activation_keeps_exactly_one_catalogue_active() {
+        let s = state();
+        let resp = providers_activate(
+            State(s.clone()),
+            Json(ActivateProviderBody {
+                provider: "jiotv".into(),
+            }),
+        )
+        .await;
+        let body = response_json(resp).await;
+        assert_eq!(body["status"], true);
+        assert_eq!(body["provider"], "jiotv");
+        assert_eq!(body["activeProduct"], "tv");
+        assert_eq!(
+            s.preferred_product(),
+            Some(crate::state::ActiveProduct::Tv)
+        );
+    }
+
+    #[tokio::test]
+    async fn provider_activation_rejects_disabled_and_unknown_providers() {
+        let s = state();
+        for provider in ["fastway", "playbox", "vzy", "tataplay", "unknown"] {
+            let resp = providers_activate(
+                State(s.clone()),
+                Json(ActivateProviderBody {
+                    provider: provider.into(),
+                }),
+            )
+            .await;
+            assert_eq!(resp.status(), StatusCode::BAD_REQUEST, "{provider}");
+        }
+        assert_eq!(s.preferred_product(), None);
+    }
+
+    #[tokio::test]
+    async fn selecting_a_disconnected_provider_persists_but_does_not_take_over() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(Store::open(dir.path().to_str().unwrap()).unwrap());
+        std::mem::forget(dir);
+        let s = state_with_fastway(
+            store.clone(),
+            Arc::new(crate::extras_state::ExtrasState::new(false, None)),
+            {
+                let fastway = Arc::new(crate::fastway_state::FastwayState::new(true));
+                fastway.init(&reqwest::Client::new(), &store);
+                fastway
+            },
+        );
+        let before = s.secure.current_epoch();
+        let resp = providers_activate(
+            State(s.clone()),
+            Json(ActivateProviderBody {
+                provider: "fastway".into(),
+            }),
+        )
+        .await;
+        let body = response_json(resp).await;
+        assert_eq!(body["activeProduct"], "tv");
+        assert_eq!(
+            s.preferred_product(),
+            Some(crate::state::ActiveProduct::Fastway)
+        );
+        // The effective provider did not change, so existing playback URLs and
+        // the EPG cache must stay valid.
+        assert_eq!(s.secure.current_epoch(), before);
+    }
+
+    #[tokio::test]
     async fn otp_that_verifies_but_fails_its_exchange_still_rotates_the_context() {
         // The verification installed the new account's SSO credentials before
         // the exchange failed, so the previous account's artifacts are stale.
@@ -1898,6 +2070,8 @@ mod tests {
             hd: false,
             extras: false,
             fastway: false,
+            playbox: false,
+            vzy: false,
             catchup: false,
             requires_subscription: true,
             playable: true,
@@ -2166,16 +2340,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn status_reports_all_three_providers() {
+    async fn status_reports_optional_providers() {
         let json = response_json(status(State(state())).await).await;
         assert!(json.get("playbox").is_some());
         assert!(json.get("tataplay").is_some());
-        assert!(json.get("vzyone").is_some());
+        assert!(json.get("vzy").is_some());
         assert_eq!(json["playbox"]["connected"], false);
         assert_eq!(json["tataplay"]["enabled"], false);
         assert_eq!(json["tataplay"]["sharedPlayback"], true);
-        assert_eq!(json["vzyone"]["provider"], false);
-        assert_eq!(json["vzyone"]["package"], "com.uptodown");
+        assert_eq!(json["vzy"]["connected"], false);
     }
 
     #[tokio::test]
@@ -2417,13 +2590,6 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
         let resp = vzy_play(Path("vzy_1".into()), State(s)).await;
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
-    }
-
-    #[tokio::test]
-    async fn vzyone_status_is_an_identity_record_only() {
-        let json = response_json(vzyone_status().await).await;
-        assert_eq!(json["vzyone"]["package"], "com.uptodown");
-        assert_eq!(json["vzyone"]["provider"], false);
     }
 
     #[tokio::test]

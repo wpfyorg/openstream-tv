@@ -46,9 +46,9 @@ pub const OPEN_PATHS: &[&str] = &[
 ];
 
 pub fn is_open(path: &str) -> bool {
-    OPEN_PATHS.iter().any(|p| {
-        path == *p || (*p != "/" && p.ends_with('/') && path.starts_with(p))
-    })
+    OPEN_PATHS
+        .iter()
+        .any(|p| path == *p || (*p != "/" && p.ends_with('/') && path.starts_with(p)))
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -252,7 +252,11 @@ impl Access {
     }
 }
 
-fn recent(map: &mut HashMap<String, Vec<SystemTime>>, ip: &str, now: SystemTime) -> Vec<SystemTime> {
+fn recent(
+    map: &mut HashMap<String, Vec<SystemTime>>,
+    ip: &str,
+    now: SystemTime,
+) -> Vec<SystemTime> {
     let kept: Vec<SystemTime> = map
         .get(ip)
         .map(|v| {

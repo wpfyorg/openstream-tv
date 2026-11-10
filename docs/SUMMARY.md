@@ -10,7 +10,7 @@ Browse in order, or choose the task you need. The categories and article metadat
   - [Getting Started in 5 Minutes](getting-started-in-5-minutes/index.md)
   - [What Is OpenStream TV?](getting-started-what-is-openstream-tv/index.md)
   - [Requirements and Supported Devices](getting-started-requirements/index.md)
-  - [JioTV and JioTV+: Which Account Do You Need?](getting-started-jiotv-and-extras/index.md)
+  - [JioTV, JioTV+ and optional providers](getting-started-jiotv-and-extras/index.md)
   - [Choose the Right Installation Method](getting-started-installation-overview/index.md)
   - [First Launch and Admin Setup](getting-started-first-launch/index.md)
   - [Find Your Way Around the Web Interface](getting-started-navigate-interface/index.md)
@@ -23,6 +23,7 @@ Browse in order, or choose the task you need. The categories and article metadat
   - [Install on macOS](installations-macos/index.md)
   - [Install on Windows](installations-windows/index.md)
   - [Install on OpenWrt](installations-openwrt/index.md)
+  - [Install the Android TV and phone app](installations-android-app/index.md)
   - [Install on Raspberry Pi and SBCs](installations-sbc/index.md)
   - [Install on Android with Termux](installations-termux/index.md)
   - [Install with Docker](installations-docker/index.md)
@@ -45,7 +46,6 @@ Browse in order, or choose the task you need. The categories and article metadat
 - [PlayboxTV beta provider evidence](ott-provider-playbox/index.md)
 - [Tata Play Smart beta provider evidence](ott-provider-tataplay/index.md)
 - [VZY beta provider evidence](ott-provider-vzy/index.md)
-- [Mislabelled VZY artifact provenance](ott-provider-vzyone-uptodown/index.md)
 
 ## Using OpenStream TV
 

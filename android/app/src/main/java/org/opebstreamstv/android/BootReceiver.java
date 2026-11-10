@@ -4,7 +4,6 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Build;
-import android.provider.Settings;
 import android.util.Log;
 
 public final class BootReceiver extends BroadcastReceiver {
@@ -19,18 +18,6 @@ public final class BootReceiver extends BroadcastReceiver {
             else context.startService(service);
         } catch (IllegalStateException | SecurityException e) {
             Log.w(TAG, "Boot server start was blocked by the system");
-        }
-
-        boolean mayLaunchActivity = Build.VERSION.SDK_INT < 29 || Settings.canDrawOverlays(context);
-        if (!mayLaunchActivity) return;
-        try {
-            Intent launch = context.getPackageManager().getLaunchIntentForPackage(context.getPackageName());
-            if (launch != null) {
-                launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                context.startActivity(launch);
-            }
-        } catch (IllegalStateException | SecurityException e) {
-            Log.w(TAG, "Boot activity launch was blocked by the system");
         }
     }
 }

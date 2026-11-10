@@ -77,7 +77,12 @@ impl CustomChannels {
     }
 
     pub fn all(&self) -> Vec<Channel> {
-        self.by_id.read().unwrap().values().map(Channel::from).collect()
+        self.by_id
+            .read()
+            .unwrap()
+            .values()
+            .map(Channel::from)
+            .collect()
     }
 }
 
