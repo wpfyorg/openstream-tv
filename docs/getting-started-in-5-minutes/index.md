@@ -115,6 +115,8 @@ Copy the complete URLs from Settings rather than typing them: the `/k/<key>/` se
 > [!CAUTION]
 > Anyone with the playlist URL can watch. Keep it private. If it leaks, rotate it from Settings, which updates the running server immediately. `ost key rotate` from a shell only writes the new key to the store, so restart the server afterwards. When authentication is disabled, rotation does not revoke the unkeyed `/playlist.m3u` URL; restore authentication or restrict network access instead.
 
+Shell commands like `ost key rotate` and `ost epg on` use whichever store their own environment resolves. A different user or `HOME`, another `OPENSTREAM_PATH_PREFIX`, or a `path_prefix` in a config file found in the current directory can point at a different store than the service uses. Set `OPENSTREAM_PATH_PREFIX` to the value in the service's environment before those commands, for example `OPENSTREAM_PATH_PREFIX=/var/lib/openstream/ ost key rotate`. Matching environments resolve the same store; if you cannot match it, rotate the key from Settings instead.
+
 More: [using IPTV playlists](../using-iptv-playlists/index.md).
 
 ---
