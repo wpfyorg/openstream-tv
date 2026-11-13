@@ -28,6 +28,9 @@ struct LicenseToken {
 
 pub struct FastwayState {
     config_enabled: bool,
+    /// Kept so a sign-in can build the client on first use, which is what lets
+    /// Fastway be enabled from the web UI without a restart.
+    http: RwLock<Option<reqwest::Client>>,
     client: RwLock<Option<Arc<Client>>>,
     catalogue: RwLock<Catalogue>,
     catalogue_fetched_at: RwLock<Option<Instant>>,
@@ -50,6 +53,7 @@ impl FastwayState {
     pub fn new(config_enabled: bool) -> FastwayState {
         FastwayState {
             config_enabled,
+            http: RwLock::new(None),
             client: RwLock::new(None),
             catalogue: RwLock::new(Catalogue::default()),
             catalogue_fetched_at: RwLock::new(None),
@@ -92,12 +96,16 @@ impl FastwayState {
     /// Loads (or creates) the device and any saved login from the store.
     /// Safe to call again after login/logout.
     pub fn init(&self, http: &reqwest::Client, store: &crate::store::Store) {
-        if !self.config_enabled {
-            *self.client.write().unwrap() = None;
-            self.clear_catalogue_state();
+        *self.http.write().unwrap() = Some(http.clone());
+        // A sign-in made while the provider was off is saved in the store, so
+        // it is restored on the next start even though the config default is
+        // still off. Only a provider that is off, never signed in and has no
+        // saved login stays without a client.
+        let creds = Credentials::load(store);
+        let need_new_client = self.client.read().unwrap().is_none();
+        if !self.config_enabled && need_new_client && creds.is_none() {
             return;
         }
-        let need_new_client = self.client.read().unwrap().is_none();
         if need_new_client {
             match Device::load_or_create(store) {
                 Ok(device) => {
@@ -110,7 +118,6 @@ impl FastwayState {
                 }
             }
         }
-        let creds = Credentials::load(store);
         if let Some(client) = self.client.read().unwrap().as_ref() {
             client.set_credentials(creds.clone());
         }
@@ -491,6 +498,19 @@ impl FastwayState {
         }
     }
 
+    /// Builds the client if this server never did because `fastway` was off at
+    /// startup. Signing in is then enough to turn the provider on.
+    fn ensure_client(&self, store: &crate::store::Store) -> Option<Arc<Client>> {
+        if let Some(client) = self.client() {
+            return Some(client);
+        }
+        let http = self.http.read().unwrap().clone()?;
+        let device = Device::load_or_create(store).ok()?;
+        let client = Arc::new(Client::new(http, device));
+        *self.client.write().unwrap() = Some(client.clone());
+        Some(client)
+    }
+
     pub async fn login(
         &self,
         username: &str,
@@ -498,11 +518,15 @@ impl FastwayState {
         store: &crate::store::Store,
     ) -> anyhow::Result<()> {
         let client = self
-            .client()
-            .ok_or_else(|| anyhow::anyhow!("fastway is not enabled"))?;
+            .ensure_client(store)
+            .ok_or_else(|| anyhow::anyhow!("fastway device is not available"))?;
         let creds = client.login(username, password).await?;
         creds.save(store)?;
+        // Copy the new credentials onto the client so catalogue and playback
+        // requests see the account that just signed in.
+        client.set_credentials(Some(creds.clone()));
         self.clear_catalogue_state();
+        tracing::info!("fastway signed in from the web UI");
         Ok(())
     }
 
@@ -558,6 +582,33 @@ mod tests {
         assert!(s.enabled());
         assert!(!s.connected());
         assert_eq!(s.route("fw_1"), Some("1".to_string()));
+    }
+
+    #[test]
+    fn disabled_state_with_no_saved_login_stays_without_a_client() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = crate::store::Store::open(dir.path().to_str().unwrap()).unwrap();
+        let s = FastwayState::new(false);
+        s.init(&reqwest::Client::new(), &store);
+        assert!(!s.enabled());
+        assert!(!s.connected());
+    }
+
+    #[test]
+    fn disabled_state_restores_a_saved_login() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = crate::store::Store::open(dir.path().to_str().unwrap()).unwrap();
+        Credentials {
+            username: "viewer".into(),
+            password: "secret".into(),
+            access_token: "token".into(),
+        }
+        .save(&store)
+        .unwrap();
+        let s = FastwayState::new(false);
+        s.init(&reqwest::Client::new(), &store);
+        assert!(s.enabled());
+        assert!(s.connected());
     }
 
     #[test]

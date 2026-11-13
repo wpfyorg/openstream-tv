@@ -77,7 +77,21 @@ the same skeleton.
 
 ## Rebuilding
 
-The artwork is generated from `.build/make_logo_v2.py`, which outlines the wordmark from
-`.build/fonts/Outfit.ttf` and writes the four SVGs. Re-run it after any geometry change, then run
-`.build/render_exports.py` to re-cut the PNGs at their exact pixel sizes with a transparent
-background.
+The SVGs in this directory are the design source of truth. They are kept as plain outlined vector,
+so a geometry change is an edit to the SVG itself — no build script is required, and the internal
+generator scripts used for the original artwork are not part of this repository.
+
+The web UI does not read these files. Vite serves copies from `web/ui/public/brand/`, so after a
+geometry change here, copy the edited SVGs there as well; otherwise the UI keeps the old logo.
+
+Re-cut the PNGs whenever a vector changes, at the sizes listed under **Files** (1020 × 154 for the
+lockups; 1024 × 1024 and 256 × 256 for the marks) with a transparent background. Any SVG
+rasteriser works; for example, with librsvg:
+
+```sh
+rsvg-convert -w 1020 -h 154 openstream-lockup.svg -o exports/openstream-lockup-1020.png
+```
+
+If a wordmark has to be redrawn from type rather than edited, fetch **Outfit** from Google Fonts
+(SIL Open Font License 1.1, see **Typeface**) and outline the letters before replacing the SVG, so
+the checked-in files stay font-independent.

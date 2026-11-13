@@ -2,6 +2,7 @@
   import { onDestroy, onMount } from "svelte";
   import { fade } from "svelte/transition";
   import { api, loadChannels, formatTime } from "../lib/api.js";
+  import { recordWatch } from "../lib/history.js";
   import {
     createShakaPlayer,
     loadLiveSource,
@@ -15,6 +16,7 @@
 
   let quality = $state(localStorage.getItem("quality") || "auto");
   let channel = $state(null);
+  let allChannels = $state([]);
   let guide = $state([]);
   let guideError = $state("");
   let guideLoading = $state(true);
@@ -35,6 +37,20 @@
   let toastTimer = null;
 
   const fullStageKinds = new Set(["offline", "playback", "secure", "protected", "subscription", "restricted", "extras-signin", "extras-status", "extras-unavailable", "fastway-signin", "fastway-status", "fastway-unavailable", "playbox-signin", "playbox-status", "playbox-unavailable", "vzy-status", "vzy-unavailable", "service"]);
+
+  // Suggestions under the player come from the same category, so a viewer can
+  // keep browsing the kind of channel they are already watching.
+  const related = $derived.by(() => {
+    if (!channel) return [];
+    const others = allChannels.filter((c) => c.playable && c.id !== channel.id);
+    const same = channel.category ? others.filter((c) => c.category === channel.category) : [];
+    return (same.length ? same : others).slice(0, 6);
+  });
+  const relatedTitle = $derived(
+    channel?.category && channel.category !== "All Categories"
+      ? `More in ${channel.category}`
+      : "More channels",
+  );
 
   let currentProgramIndex = $derived(guide.findIndex((program) => isNow(program, clock)));
   let currentProgram = $derived(currentProgramIndex >= 0 ? guide[currentProgramIndex] : null);
@@ -241,7 +257,18 @@
     programToast = "";
     loadChannels()
       .then((list) => {
-        if (!stale) channel = list.find((c) => c.id === current) ?? null;
+        if (stale) return;
+        allChannels = list;
+        channel = list.find((c) => c.id === current) ?? null;
+        // The home screen's click-to-play card resumes this channel next time,
+        // and watching it moves it to the front of the history the home rail
+        // and the channel list are ordered by.
+        if (channel) {
+          try {
+            localStorage.setItem("lastChannel", channel.id);
+          } catch {}
+          recordWatch(channel.id);
+        }
       })
       .catch(() => {});
     api(`/epg/${encodeURIComponent(current)}/0`)
@@ -487,6 +514,7 @@
 </script>
 
 <div class="layout">
+  <div class="watch-main">
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <div
     class:has-overlay={fullStageKinds.has(playerState.kind)}
@@ -596,10 +624,35 @@
           {:else}
             <button class="retry-button" onclick={() => start(id, quality)}>Try again</button>
           {/if}
-          <a class="channels-button" href="#/">All channels</a>
+          <a class="channels-button" href="#/channels">All channels</a>
         </div>
       </section>
     {/if}
+  </div>
+
+  {#if related.length}
+    <section class="related" aria-labelledby="related-title">
+      <div class="related-head">
+        <h2 id="related-title">{relatedTitle}</h2>
+        <a class="related-all" href="#/channels">All channels</a>
+      </div>
+      <ul class="related-row">
+        {#each related as c (c.id)}
+          <li>
+            <a class="related-card" href={"#/watch/" + encodeURIComponent(c.id)}>
+              <span class="related-logo">
+                {#if c.logo}<img src={c.logo} alt="" loading="lazy" decoding="async" onerror={(event) => event.currentTarget.remove()} />{/if}
+                {#if c.hd}<span class="hd-pill">HD</span>{/if}
+                {#if c.requiresSubscription}<span class="ribbon">Subscription may be required</span>{/if}
+              </span>
+              <span class="related-name">{c.name}</span>
+              <span class="related-meta">{c.category || c.language || "Live TV"}</span>
+            </a>
+          </li>
+        {/each}
+      </ul>
+    </section>
+  {/if}
   </div>
 
   <aside>
@@ -656,12 +709,96 @@
         {/each}
       </ol>
     {/if}
-    <a class="back-link" href="#/"><span>←</span> All channels</a>
+    <a class="back-link" href="#/"><span>←</span> Live TV</a>
   </aside>
 </div>
 
 <style>
   .layout { display: grid; gap: 24px; grid-template-columns: minmax(0, 1fr) minmax(310px, 360px); align-items: start; }
+  .watch-main { display: grid; gap: 18px; min-width: 0; }
+  .related { display: grid; gap: 10px; }
+  .related-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+  .related-head h2 {
+    margin: 0;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 750;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .related-all { color: var(--accent); font-size: 12px; font-weight: 700; text-decoration: none; }
+  .related-all:hover { text-decoration: underline; }
+  .related-row {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 10px;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  }
+  .related-card {
+    display: grid;
+    gap: 8px;
+    height: 100%;
+    padding: 10px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface);
+    color: var(--text);
+    text-decoration: none;
+  }
+  .related-card:hover { border-color: var(--accent); }
+  .related-logo {
+    position: relative;
+    display: grid;
+    place-items: center;
+    aspect-ratio: 16 / 10;
+    border-radius: 8px;
+    background: #1d2230;
+    overflow: hidden;
+  }
+  .related-logo img { max-width: 80%; max-height: 72%; object-fit: contain; }
+  /* The ribbon sits on the plate's bottom edge, so artwork moves up to clear it. */
+  .related-logo:has(.ribbon) { align-items: start; padding-top: 6px; }
+  .related-logo:has(.ribbon) img { max-height: calc(100% - 40px); }
+  .related-logo .hd-pill {
+    position: absolute;
+    top: 6px;
+    left: 6px;
+    padding: 1px 7px;
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    border-radius: 999px;
+    color: #fff;
+    background: rgba(8, 10, 14, 0.72);
+    backdrop-filter: blur(6px);
+    box-shadow: 0 1px 8px rgba(0, 0, 0, 0.35);
+    font-size: 9.5px;
+    font-weight: 750;
+    line-height: 1.5;
+    letter-spacing: 0.04em;
+  }
+  .related-logo .ribbon {
+    position: absolute;
+    inset: auto 0 0 0;
+    padding: 3px 6px 4px;
+    border-top: 1px solid color-mix(in srgb, #f0a320 35%, transparent);
+    background: color-mix(in srgb, #f0a320 16%, #0b1018);
+    color: #f5b740;
+    font-size: 8.5px;
+    font-weight: 750;
+    letter-spacing: 0;
+    line-height: 1.4;
+    text-align: center;
+    white-space: nowrap;
+  }
+  .related-name {
+    font-size: 13px;
+    font-weight: 650;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .related-meta { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: auto; }
   .stage {
     position: relative;
     isolation: isolate;
@@ -963,6 +1100,12 @@
   @media (max-width: 1050px) {
     .layout { grid-template-columns: 1fr; gap: 20px; }
     aside { width: 100%; }
+    /* One column: player, then channel card/quality/guide, and related
+       channels last so they never push the channel details down. */
+    .watch-main { display: contents; }
+    .stage { order: 1; }
+    aside { order: 2; }
+    .related { order: 3; }
   }
 
   @media (orientation: landscape) and (max-height: 500px) {

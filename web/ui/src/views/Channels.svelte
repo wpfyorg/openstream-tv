@@ -203,18 +203,20 @@
         <a class="tile" class:off={!c.playable} href={"#/watch/" + encodeURIComponent(c.id)} title={c.playable ? c.name : c.name + " (unavailable for the current account)"}>
           <span class="logo">
             <img src={c.logo} alt="" loading="lazy" decoding="async" />
-            {#if (mixedSources && (c.extras || c.fastway || c.playbox || c.vzy)) || c.requiresSubscription}
+            {#if c.hd}<span class="hd-pill">HD</span>{/if}
+            {#if mixedSources && (c.extras || c.fastway || c.playbox || c.vzy)}
               <span class="flags">
                 {#if mixedSources && c.extras}<span class="flag flag-extras">TV+</span>{/if}
                 {#if mixedSources && c.fastway}<span class="flag flag-fastway">Fastway</span>{/if}
                 {#if mixedSources && c.playbox}<span class="flag flag-playbox">Playbox</span>{/if}
                 {#if mixedSources && c.vzy}<span class="flag flag-vzy">VZY</span>{/if}
-                {#if c.requiresSubscription}<span class="flag flag-premium">Subscription required</span>{/if}
               </span>
+            {/if}
+            {#if c.requiresSubscription}
+              <span class="ribbon">Subscription may be required</span>
             {/if}
           </span>
           <span class="name">{c.name}</span>
-          <span class="tags">{#if c.hd}<span class="badge">HD</span>{/if}</span>
         </a>
       </li>
     {/each}
@@ -261,6 +263,7 @@
     cursor: pointer;
   }
   .unlock-dismiss:hover { color: var(--text); background: color-mix(in srgb, var(--text) 8%, transparent); }
+
   .filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
   .filters .input { width: auto; }
   .search { flex: 1 1 240px; }
@@ -282,7 +285,7 @@
     padding: 0;
     display: grid;
     gap: 12px;
-    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
   }
   .tile {
     display: flex;
@@ -299,8 +302,19 @@
   .tile:hover, .tile:focus-visible { transform: translateY(-2px); border-color: var(--accent); }
   .tile.off { opacity: 0.45; }
   /* Many logos are white on transparent, so keep the tile dark in both themes. */
-  .logo { position: relative; aspect-ratio: 16 / 10; display: grid; place-items: center; background: #1d2230; border-radius: 8px; overflow: hidden; }
-  .logo img { max-width: 80%; max-height: 80%; object-fit: contain; }
+  .logo {
+    position: relative;
+    flex: 0 0 auto;
+    aspect-ratio: 16 / 10;
+    display: grid;
+    place-items: center;
+    background: #1d2230;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .logo img { max-width: 80%; max-height: 72%; object-fit: contain; }
+  /* The ribbon sits on the plate's bottom edge, so artwork moves up to clear it. */
+  .logo:has(.ribbon) img { max-height: 64%; margin-bottom: 14px; }
   .name {
     font-size: 13px;
     font-weight: 600;
@@ -313,12 +327,62 @@
     -webkit-line-clamp: 2;
     line-clamp: 2;
   }
-  .tags { display: flex; gap: 4px; min-height: 20px; margin-top: auto; }
-  .flags { position: absolute; top: 6px; right: 6px; display: flex; flex-direction: column; align-items: flex-end; gap: 3px; max-width: calc(100% - 12px); }
-  .flag { padding: 1px 6px; border-radius: 999px; font-size: 10px; font-weight: 700; line-height: 1.4; letter-spacing: 0.02em; white-space: nowrap; }
+  /* The HD mark floats on the artwork instead of taking a row under the name. */
+  .hd-pill {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    padding: 1px 7px;
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    border-radius: 999px;
+    color: #fff;
+    background: rgba(8, 10, 14, 0.72);
+    backdrop-filter: blur(6px);
+    box-shadow: 0 1px 8px rgba(0, 0, 0, 0.35);
+    font-size: 9.5px;
+    font-weight: 750;
+    line-height: 1.5;
+    letter-spacing: 0.04em;
+  }
+  /* Option 3: an amber ribbon across the bottom of the artwork plate, so the
+     requirement is readable without a chip floating over the channel logo. */
+  .ribbon {
+    position: absolute;
+    inset: auto 0 0 0;
+    padding: 4px 8px 5px;
+    border-top: 1px solid color-mix(in srgb, #f0a320 35%, transparent);
+    background: color-mix(in srgb, #f0a320 16%, #0b1018);
+    color: #f5b740;
+    font-size: 9.5px;
+    font-weight: 750;
+    letter-spacing: 0.01em;
+    line-height: 1.3;
+    text-align: center;
+    white-space: nowrap;
+  }
+  .flags { position: absolute; top: 8px; right: 8px; display: flex; flex-direction: column; align-items: flex-end; gap: 3px; max-width: calc(100% - 16px); }
+  .flag {
+    padding: 1px 7px;
+    border-radius: 999px;
+    box-shadow: 0 1px 8px rgba(0, 0, 0, 0.35);
+    font-size: 9.5px;
+    font-weight: 750;
+    line-height: 1.5;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+  }
   .flag-extras { background: #7ea3ff; color: #0b1020; }
   .flag-fastway { background: var(--ok); color: #062015; }
   .flag-playbox { background: #c084fc; color: #1c0b2e; }
   .flag-vzy { background: #f472b6; color: #2b0a1a; }
-  .flag-premium { background: #f4b740; color: #2a1c00; }
+
+  @media (max-width: 640px) {
+    /* Two across on a phone: enough tiles to browse, still readable names. */
+    .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    .tile { padding: 10px; gap: 7px; }
+    .ribbon { font-size: 9px; }
+    .name { min-height: 0; }
+    .flag, .hd-pill { font-size: 9px; }
+    .hd-pill { top: 6px; left: 6px; padding: 1px 6px; }
+  }
 </style>

@@ -621,9 +621,8 @@ pub async fn fastway_login(
     State(state): State<SharedState>,
     Json(body): Json<FastwayLoginBody>,
 ) -> Response {
-    if !state.fastway.enabled() {
-        return err(StatusCode::BAD_REQUEST, "fastway is not enabled");
-    }
+    // No enabled check: signing in is what turns Fastway on, so a server that
+    // started without it still accepts the first login.
     if body.username.trim().is_empty() || body.password.is_empty() {
         return err(
             StatusCode::BAD_REQUEST,
