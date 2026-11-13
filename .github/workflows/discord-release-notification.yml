@@ -1,0 +1,36 @@
+name: Discord release notification
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: Published release tag
+        required: true
+        type: string
+    secrets:
+      DISCORD_RELEASE_WEBHOOK:
+        required: false
+      DISCORD_BETA_WEBHOOK:
+        required: false
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read published release and notify Discord
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag || github.event.release.tag_name }}
+          DISCORD_RELEASE_WEBHOOK: ${{ secrets.DISCORD_RELEASE_WEBHOOK }}
+          DISCORD_BETA_WEBHOOK: ${{ secrets.DISCORD_BETA_WEBHOOK }}
+        run: |
+          encoded_tag=$(python3 -c 'import os; from urllib.parse import quote; print(quote(os.environ["RELEASE_TAG"], safe=""))')
+          gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${encoded_tag}" \
+            | python3 scripts/discord_release_notification.py

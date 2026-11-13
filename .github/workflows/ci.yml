@@ -15,6 +15,17 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  discord-release-notification:
+    # Keep offline notifier checks behind the existing pull-request review gate.
+    if: >-
+      github.event_name == 'push' ||
+      contains(github.event.pull_request.labels.*.name, 'codex-clean')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test Discord release notification offline
+        run: python3 -m unittest scripts.tests.test_discord_release_notification
+
   test:
     # Pull requests run only after Codex review is clean: the `codex-clean` label
     # is added once the review has no open findings. Pushes to main always run.
