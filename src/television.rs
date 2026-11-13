@@ -583,6 +583,7 @@ impl Television {
             req = req.header("uniqueId", &creds.unique_id);
         }
         let response = req
+            .timeout(crate::http_client::METADATA_TIMEOUT)
             .send()
             .await?
             .error_for_status()?

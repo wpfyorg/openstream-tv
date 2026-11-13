@@ -97,6 +97,7 @@ impl LoginClient {
         let resp = self
             .app_headers(self.client.post(url))
             .json(&json!({"number": encode_number(&number)}))
+            .timeout(crate::http_client::METADATA_TIMEOUT)
             .send()
             .await?;
         if !resp.status().is_success() {
@@ -140,6 +141,7 @@ impl LoginClient {
         let resp = self
             .app_headers(self.client.post(url))
             .json(&payload)
+            .timeout(crate::http_client::METADATA_TIMEOUT)
             .send()
             .await?;
         if !resp.status().is_success() {
@@ -178,6 +180,7 @@ impl LoginClient {
             .header(reqwest::header::USER_AGENT, USER_AGENT)
             .header("accesstoken", &creds.access_token)
             .json(&json!({"appName": "RJIL_JioTV", "deviceId": device_id, "refreshToken": creds.refresh_token}))
+            .timeout(crate::http_client::METADATA_TIMEOUT)
             .send()
             .await?;
         if !resp.status().is_success() {
@@ -217,6 +220,7 @@ impl LoginClient {
             .header("ssoToken", &creds.sso_token)
             .header("uniqueid", &creds.unique_id)
             .header("deviceid", device_id)
+            .timeout(crate::http_client::METADATA_TIMEOUT)
             .send()
             .await?;
         if !resp.status().is_success() {
