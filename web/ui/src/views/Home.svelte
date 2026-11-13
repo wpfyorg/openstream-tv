@@ -62,7 +62,9 @@
       heroId = next.some((c) => c.id === saved) ? saved : (next[0]?.id ?? "");
       // Guides follow exactly what is rendered: the hero, the on-now strip and
       // each category rail, bounded by homeSelection.
-      const ids = homeSelection(next, heroId).ids;
+      // The same history the rows render with, so a watched channel that moved
+      // into On now is never left without its guide.
+      const ids = homeSelection(next, heroId, readHistory()).ids;
       // Each rail is six cards, so several rows' guides would hold the whole
       // screen back. Paint the rows first with channel artwork, then let the
       // programme posters fill in for exactly the channels shown.

@@ -48,6 +48,17 @@
     onclose();
   }
 
+  // A different provider means a different catalogue, so the next opening must
+  // fetch again instead of serving the previous provider's channels.
+  $effect(() => {
+    const reset = () => {
+      started = false;
+      channels = [];
+    };
+    window.addEventListener("openstream:provider-changed", reset);
+    return () => window.removeEventListener("openstream:provider-changed", reset);
+  });
+
   $effect(() => {
     if (!open) return;
     start();

@@ -478,7 +478,9 @@
   .tabbar { display: none; }
 
   @media (max-width: 900px) {
-    .shell { grid-template-columns: minmax(0, 1fr); }
+    /* A collapsed rail from a wider window must not keep its 76px track here:
+       the sidebar is hidden, so the column needs the whole viewport. */
+    .shell, .shell.collapsed { grid-template-columns: minmax(0, 1fr); }
     .sidebar { display: none; }
     .topbar { height: 58px; padding: 0 14px; gap: 8px; }
     .topbar h1 { font-size: 19px; }

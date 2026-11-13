@@ -1,7 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" role="img" aria-label="openstream tv" shape-rendering="geometricPrecision">
-  <title>openstream tv</title>
-  <g>
-    <path d="M23.781 27.678C32.324 17.496 46.324 13.745 58.813 18.291C71.303 22.837 79.616 34.709 79.616 48C79.616 61.291 71.303 73.163 58.813 77.709C46.324 82.255 32.324 78.504 23.781 68.322" fill="none" stroke="#0B0F1A" stroke-width="12.768" stroke-linecap="round"/>
-    <circle cx="16.384" cy="48" r="12.768" fill="#FF4438"/>
-  </g>
-</svg>

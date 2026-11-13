@@ -101,6 +101,14 @@
     }
   }
 
+  // On phones the sidebar is hidden, so this is the only web-session sign-out.
+  async function signOutBrowser() {
+    try {
+      await api("/api/auth/logout", { method: "POST" });
+    } catch {}
+    location.reload();
+  }
+
   // IPTV clients often reject a self-signed certificate, so when this page was
   // opened on the server's own HTTPS port, offer the plain-HTTP origin instead.
   let iptvOrigin = $derived(plainHttpOrigin(location, status));
@@ -261,6 +269,11 @@
       <p class="muted">The password you use to sign in to this web UI.</p>
     </header>
     <div class="cols">
+      <section class="card">
+        <h2>This browser</h2>
+        <p class="muted">Ends the admin session on this device. Connected providers keep their saved sign-in.</p>
+        <button class="btn" onclick={signOutBrowser}>Sign out</button>
+      </section>
       <section class="card">
         <h2>Admin password</h2>
         <form onsubmit={changePassword}>

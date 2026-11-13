@@ -79,7 +79,10 @@ wget -qO- https://raw.githubusercontent.com/wpfyorg/openstream-tv/main/scripts/i
 **Docker**
 
 ```sh
-docker compose -f docker/docker-compose.yml up -d
+docker run -d --name openstream --restart unless-stopped \
+  -p 5001:5001 -p 5443:5443 \
+  -v openstream-data:/app/.openstream-tv \
+  ghcr.io/wpfyorg/openstream-tv:latest
 ```
 
 Upgrade later with `ost update`, or by re-running the same installer.
@@ -129,10 +132,12 @@ The home screen leads with tonight's programme, an On now strip and category row
 
 Settings shows the two URLs to paste into any IPTV app:
 
-| File | URL |
+| File | Where to copy it from |
 | :--- | :--- |
-| Playlist | `http://<server>:5001/playlist.m3u` |
-| Guide | `http://<server>:5001/epg.xml.gz` |
+| Playlist | Settings → **Playlist**, shaped `http://<server>:5001/k/<key>/playlist.m3u` |
+| Guide | Settings → **EPG**, shaped `http://<server>:5001/k/<key>/epg.xml.gz` |
+
+Copy the complete URL with its `/k/<key>/` segment. The bare paths return HTTP 401 when authentication is on, because the key is what authorises the playlist.
 
 > [!NOTE]
 > Anyone holding the playlist URL can watch. Treat it like a password, and use `ost key rotate` if it leaks.
