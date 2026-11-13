@@ -75,15 +75,6 @@
     }
   }
 
-  async function lockExtras() {
-    try {
-      await api("/api/extras/lock", { method: "POST" });
-      await loginChanged();
-    } catch (err) {
-      error = err.message;
-    }
-  }
-
   // Typing the unlock code into the channel search box (Channels.svelte)
   // dispatches this once it succeeds, so this section can appear without a
   // reload.
@@ -164,7 +155,6 @@
           <p class="muted">Use the JioFiber or AirFiber mobile number.</p>
           <ExtrasLogin ondone={loginChanged} />
         {/if}
-        <button class="btn" onclick={lockExtras}>Lock</button>
       </section>
     {/if}
 

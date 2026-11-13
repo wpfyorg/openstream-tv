@@ -96,7 +96,6 @@ fn api_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         )
         .route("/api/extras/logout", post(crate::api::extras_logout))
         .route("/api/extras/unlock", post(crate::api::extras_unlock))
-        .route("/api/extras/lock", post(crate::api::extras_lock))
         .route("/api/playbox/status", get(crate::api::playbox_status))
         .route(
             "/api/playbox/login/sendOTP",
