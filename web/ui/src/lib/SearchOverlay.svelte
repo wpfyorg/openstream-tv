@@ -9,9 +9,14 @@
   let loading = $state(false);
   let failed = $state("");
   let input = $state(null);
+  let sheet = $state(null);
   // One fetch per opening: the catalogue is cached by api.js for the rest of
   // the session, and this sheet never needs a second request.
   let started = false;
+  // Bumped by every request and by a provider reset, so a request that outlived
+  // the reset cannot write the previous provider's catalogue into the new state.
+  let generation = 0;
+  let restoreFocus = null;
 
   const results = $derived.by(() => {
     const list = channels.filter((c) => c.playable);
@@ -30,15 +35,19 @@
   async function start() {
     if (started) return;
     started = true;
+    const mine = ++generation;
     loading = true;
     try {
-      channels = await loadChannels();
+      const list = await loadChannels();
+      if (mine !== generation) return;
+      channels = list;
       failed = "";
     } catch (err) {
+      if (mine !== generation) return;
       failed = err.message;
       started = false;
     } finally {
-      loading = false;
+      if (mine === generation) loading = false;
     }
   }
 
@@ -48,12 +57,48 @@
     onclose();
   }
 
+  // The sheet is modal, so Tab and Shift+Tab cycle through its own controls
+  // instead of reaching the page behind the scrim.
+  function focusables() {
+    if (!sheet) return [];
+    return [...sheet.querySelectorAll("a[href], button, input")].filter(
+      (el) => !el.disabled && el.getClientRects().length > 0,
+    );
+  }
+
+  function onKey(event) {
+    if (event.key === "Escape") {
+      close();
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const items = focusables();
+    if (!items.length) return;
+    const first = items[0];
+    const last = items[items.length - 1];
+    if (!sheet.contains(document.activeElement)) {
+      event.preventDefault();
+      first.focus();
+    } else if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+
   // A different provider means a different catalogue, so the next opening must
   // fetch again instead of serving the previous provider's channels.
   $effect(() => {
     const reset = () => {
+      generation += 1;
       started = false;
       channels = [];
+      failed = "";
+      loading = false;
+      // Reopening would fetch anyway; reload now when the sheet is still open.
+      if (open) start();
     };
     window.addEventListener("openstream:provider-changed", reset);
     return () => window.removeEventListener("openstream:provider-changed", reset);
@@ -62,19 +107,27 @@
   $effect(() => {
     if (!open) return;
     start();
-    // The sheet is opened by a tap, so focusing its field is expected.
+    // The sheet is opened by a tap, so focusing its field is expected. The
+    // element that had focus keeps it for when the sheet closes.
+    restoreFocus =
+      document.activeElement instanceof HTMLElement && document.activeElement !== document.body
+        ? document.activeElement
+        : null;
     requestAnimationFrame(() => input?.focus());
-    const onKey = (event) => {
-      if (event.key === "Escape") close();
-    };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      if (restoreFocus instanceof HTMLElement && restoreFocus.isConnected) {
+        restoreFocus.focus();
+      }
+      restoreFocus = null;
+    };
   });
 </script>
 
 {#if open}
   <div class="scrim" role="presentation" onclick={close}></div>
-  <div class="sheet" role="dialog" aria-modal="true" aria-label="Search channels">
+  <div class="sheet" role="dialog" aria-modal="true" aria-label="Search channels" bind:this={sheet}>
     <div class="row">
       <Icon name="search" size={18} />
       <input bind:this={input} bind:value={query} type="search" placeholder="Search channels" aria-label="Search channels" />

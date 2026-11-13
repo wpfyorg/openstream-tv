@@ -30,6 +30,9 @@
   const pending = new Set();
   const queued = new Set();
   let flushTimer = null;
+  // Bumped by every load and by a provider reset, so a batch or catalogue
+  // response started for an earlier provider cannot commit into the new one.
+  let loadGeneration = 0;
 
   const playable = $derived(channels.filter((c) => c.playable));
   const hasUnspecified = $derived(playable.some((c) => !channelLanguage(c)));
@@ -70,12 +73,17 @@
       const batch = [...queued];
       queued.clear();
       if (!batch.length) return;
+      const mine = loadGeneration;
       for (const id of batch) pending.add(id);
       try {
         const next = await loadGuides(batch, 4);
-        guides = { ...guides, ...next };
+        if (mine === loadGeneration) guides = { ...guides, ...next };
       } finally {
-        for (const id of batch) pending.delete(id);
+        // A stale batch must leave the newer generation's pending entries
+        // alone, otherwise those ids would never be requested again.
+        if (mine === loadGeneration) {
+          for (const id of batch) pending.delete(id);
+        }
       }
     }, BATCH_MS);
   }
@@ -111,16 +119,26 @@
   }
 
   async function load() {
+    const mine = ++loadGeneration;
+    // Batches queued for the previous load belong to that generation now; drop
+    // them so their ids can be requested for the current catalogue.
+    pending.clear();
+    queued.clear();
+    clearTimeout(flushTimer);
+    flushTimer = null;
     loading = true;
     error = "";
     try {
-      channels = await loadChannels();
+      const list = await loadChannels();
+      if (mine !== loadGeneration) return;
+      channels = list;
       languages = languageLabels(channels.filter((c) => c.playable));
       primeWindow();
     } catch (err) {
+      if (mine !== loadGeneration) return;
       error = err.message;
     } finally {
-      loading = false;
+      if (mine === loadGeneration) loading = false;
     }
   }
 
@@ -218,6 +236,8 @@
               </span>
             {:else if guides[c.id]?.error}
               <span class="muted">Guide unavailable</span>
+            {:else if guides[c.id]}
+              <span class="muted">No current programme</span>
             {:else}
               <span class="muted">Loading guide…</span>
             {/if}

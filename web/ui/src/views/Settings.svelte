@@ -105,7 +105,10 @@
   async function signOutBrowser() {
     try {
       await api("/api/auth/logout", { method: "POST" });
-    } catch {}
+    } catch (err) {
+      error = err.message;
+      return;
+    }
     location.reload();
   }
 
@@ -177,22 +180,24 @@
         {/if}
       </section>
 
-      <section class="card">
-        <div class="card-head">
-          <h2>PlayboxTV <span class="pill beta">Beta</span></h2>
-          {#if activeProvider === "playbox"}<span class="pill active">Active</span>{/if}
-        </div>
-        {#if status.playbox.connected}
-          <p class="ok">Connected</p>
-          {#if activeProvider !== "playbox"}
-            <button class="btn" disabled={providerBusy !== ""} onclick={() => activate("playbox")}>Use PlayboxTV</button>
+      {#if status.playbox.enabled}
+        <section class="card">
+          <div class="card-head">
+            <h2>PlayboxTV <span class="pill beta">Beta</span></h2>
+            {#if activeProvider === "playbox"}<span class="pill active">Active</span>{/if}
+          </div>
+          {#if status.playbox.connected}
+            <p class="ok">Connected</p>
+            {#if activeProvider !== "playbox"}
+              <button class="btn" disabled={providerBusy !== ""} onclick={() => activate("playbox")}>Use PlayboxTV</button>
+            {/if}
+            {#if !status.logoutDisabled}<button class="btn" onclick={() => logout("playbox")}>Disconnect</button>{/if}
+          {:else}
+            <p class="muted">Use the PlayboxTV mobile number.</p>
+            <PlayboxLogin ondone={loginChanged} />
           {/if}
-          {#if !status.logoutDisabled}<button class="btn" onclick={() => logout("playbox")}>Disconnect</button>{/if}
-        {:else}
-          <p class="muted">Use the PlayboxTV mobile number.</p>
-          <PlayboxLogin ondone={loginChanged} />
-        {/if}
-      </section>
+        </section>
+      {/if}
 
       <section class="card">
         <div class="card-head">
@@ -210,22 +215,24 @@
         {/if}
       </section>
 
-      <section class="card">
-        <div class="card-head">
-          <h2>Airtel Xstream <span class="pill beta">Beta</span></h2>
-          {#if activeProvider === "airtel"}<span class="pill active">Active</span>{/if}
-        </div>
-        {#if status.airtel.connected}
-          <p class="ok">Connected</p>
-          {#if activeProvider !== "airtel"}
-            <button class="btn" disabled={providerBusy !== ""} onclick={() => activate("airtel")}>Use Airtel Xstream</button>
+      {#if status.airtel.enabled}
+        <section class="card">
+          <div class="card-head">
+            <h2>Airtel Xstream <span class="pill beta">Beta</span></h2>
+            {#if activeProvider === "airtel"}<span class="pill active">Active</span>{/if}
+          </div>
+          {#if status.airtel.connected}
+            <p class="ok">Connected</p>
+            {#if activeProvider !== "airtel"}
+              <button class="btn" disabled={providerBusy !== ""} onclick={() => activate("airtel")}>Use Airtel Xstream</button>
+            {/if}
+            {#if !status.logoutDisabled}<button class="btn" onclick={() => logout("airtel")}>Disconnect</button>{/if}
+          {:else}
+            <p class="muted">Use the Airtel mobile number for your Xstream subscription.</p>
+            <AirtelLogin ondone={loginChanged} />
           {/if}
-          {#if !status.logoutDisabled}<button class="btn" onclick={() => logout("airtel")}>Disconnect</button>{/if}
-        {:else}
-          <p class="muted">Use the Airtel mobile number for your Xstream subscription.</p>
-          <AirtelLogin ondone={loginChanged} />
-        {/if}
-      </section>
+        </section>
+      {/if}
 
       <section class="card">
         <div class="card-head">

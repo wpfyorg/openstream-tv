@@ -18,15 +18,19 @@
   let error = $state("");
   let now = $state(Date.now());
   let heroId = $state("");
+  let history = $state([]);
+  // Bumped by every load, so a load that started before a provider change
+  // cannot overwrite the catalogue or guides of the newer one.
+  let loadGeneration = 0;
 
   const playable = $derived(channels.filter((c) => c.playable));
   const hero = $derived(playable.find((c) => c.id === heroId) ?? playable[0] ?? null);
   // Most recently watched channels lead the rail; unseen ones keep catalogue
   // order behind them, so a fresh install looks the same as before.
-  const rail = $derived(orderByHistory(playable.filter((c) => c.id !== hero?.id)).slice(0, 6));
+  const rail = $derived(orderByHistory(playable.filter((c) => c.id !== hero?.id), history).slice(0, 6));
   // On now and the category rails share one selection, so the guide prefetch
   // and the rendered rows can never disagree.
-  const selection = $derived(homeSelection(playable, hero?.id ?? "", readHistory()));
+  const selection = $derived(homeSelection(playable, hero?.id ?? "", history));
   const onNow = $derived(selection.onNow);
   const categoryRows = $derived(selection.rails);
   const heroProgram = $derived(programAt(guides[hero?.id]?.guide, now));
@@ -49,10 +53,12 @@
   }
 
   async function load() {
+    const mine = ++loadGeneration;
     loading = true;
     error = "";
     try {
       const list = await loadChannels();
+      if (mine !== loadGeneration) return;
       channels = list;
       const next = list.filter((c) => c.playable);
       let saved = "";
@@ -60,24 +66,26 @@
         saved = localStorage.getItem(LAST_CHANNEL) || "";
       } catch {}
       heroId = next.some((c) => c.id === saved) ? saved : (next[0]?.id ?? "");
-      // Guides follow exactly what is rendered: the hero, the on-now strip and
-      // each category rail, bounded by homeSelection.
-      // The same history the rows render with, so a watched channel that moved
-      // into On now is never left without its guide.
-      const ids = homeSelection(next, heroId, readHistory()).ids;
+      // Everything rendered below reads this same snapshot, including the
+      // guide prefetch, so a recently watched channel in On now is requested
+      // alongside the catalogue-first rows.
+      history = readHistory();
+      const ids = homeSelection(next, heroId, history).ids;
       // Each rail is six cards, so several rows' guides would hold the whole
       // screen back. Paint the rows first with channel artwork, then let the
       // programme posters fill in for exactly the channels shown.
       loading = false;
       if (ids.length) {
         try {
-          guides = await loadGuides(ids, 6);
+          const nextGuides = await loadGuides(ids, 6);
+          if (mine === loadGeneration) guides = nextGuides;
         } catch {}
       }
     } catch (err) {
+      if (mine !== loadGeneration) return;
       error = err.message;
     } finally {
-      loading = false;
+      if (mine === loadGeneration) loading = false;
     }
   }
 
@@ -87,6 +95,7 @@
     const tick = setInterval(() => (now = Date.now()), 15000);
     const onProvider = () => {
       invalidateGuides();
+      guides = {};
       load();
     };
     window.addEventListener("openstream:provider-changed", onProvider);

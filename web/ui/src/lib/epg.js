@@ -5,9 +5,14 @@ import { api } from "./api.js";
 
 const TTL = 5 * 60 * 1000;
 const cache = new Map();
+// Bumped on invalidation. A request captures it first and only writes its
+// result back if no invalidation happened meanwhile, so a response that was
+// already in flight cannot repopulate the previous provider's entries.
+let generation = 0;
 
 /** Drops every cached day. Called when the active provider changes. */
 export function invalidateGuides() {
+  generation += 1;
   cache.clear();
 }
 
@@ -17,15 +22,16 @@ async function loadOne(id) {
     if (hit.error) throw hit.error;
     return hit.guide;
   }
+  const mine = generation;
   try {
     const data = await api(`/epg/${encodeURIComponent(id)}/0`);
     const guide = Array.isArray(data?.epg) ? data.epg : [];
-    cache.set(id, { at: Date.now(), guide });
+    if (mine === generation) cache.set(id, { at: Date.now(), guide });
     return guide;
   } catch (error) {
     // Cached too: Playbox answers 501 by design and a failing channel should
     // not be retried on every render.
-    cache.set(id, { at: Date.now(), error });
+    if (mine === generation) cache.set(id, { at: Date.now(), error });
     throw error;
   }
 }
