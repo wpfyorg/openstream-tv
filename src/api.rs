@@ -708,20 +708,6 @@ pub async fn extras_unlock(
     Json(json!({"status": true, "extras": extras_status(&state)})).into_response()
 }
 
-/// `POST /api/extras/lock` — the Settings page's "Lock" button. The stored
-/// false value explicitly overrides the `extras` config/env default, so a
-/// router configured with `OPENSTREAM_TVPLUS=true` can still be locked from UI.
-pub async fn extras_lock(State(state): State<SharedState>) -> Response {
-    if let Err(e) = state.store.set(crate::unlock::STORE_KEY_UNLOCKED, "false") {
-        tracing::warn!("extras lock: cannot save: {e}");
-    }
-    state.invalidate_context();
-    state.extras.set_unlocked(false, &state.http, &state.store);
-    state.invalidate_context();
-    crate::epg::trigger_regeneration(&state);
-    Json(json!({"status": true, "extras": extras_status(&state)})).into_response()
-}
-
 /// OTP request body shared by the optional OTT providers.
 #[derive(Deserialize)]
 pub struct ProviderSendOtpBody {
@@ -2325,10 +2311,6 @@ mod tests {
         let before = s.secure.current_epoch();
         jiotv_logout(State(s.clone())).await;
         assert_eq!(s.secure.current_epoch(), before + 2, "logout");
-
-        let before = s.secure.current_epoch();
-        extras_lock(State(s.clone())).await;
-        assert_eq!(s.secure.current_epoch(), before + 2, "extras lock");
     }
 
     #[test]

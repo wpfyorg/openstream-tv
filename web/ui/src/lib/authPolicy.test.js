@@ -18,5 +18,5 @@ test("an expired session still signs the viewer out on the unlock endpoint", () 
 test("a 401 from any other endpoint means the session is gone", () => {
   assert.equal(signsOutOn401("/api/channels"), true);
   assert.equal(signsOutOn401("/api/live/play/144?q=auto"), true);
-  assert.equal(signsOutOn401("/api/extras/lock"), true);
+  assert.equal(signsOutOn401("/api/providers/activate"), true);
 });

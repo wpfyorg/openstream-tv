@@ -73,9 +73,9 @@ pub struct ExtrasState {
 impl ExtrasState {
     /// `config_enabled` is the `extras` config/env switch (headless/router
     /// installs). `panel_override` is the stored UI gate: `Some(true)` forces
-    /// extras on, `Some(false)` explicitly locks it, and `None` follows the
-    /// config switch. This lets a headless config default to on while still
-    /// making the UI's Lock button authoritative once the user presses it.
+    /// extras on, `Some(false)` is a lock saved by an earlier version, and
+    /// `None` follows the config switch. An unlock code in channel search is
+    /// what clears a saved lock.
     pub fn new(config_enabled: bool, panel_override: Option<bool>) -> ExtrasState {
         ExtrasState {
             config_enabled,
@@ -109,9 +109,9 @@ impl ExtrasState {
         }
     }
 
-    /// Flips the panel-unlock gate and reloads, so the feature turns on (or
-    /// off, via the Settings "Lock" button) without restarting the server.
-    /// Does not touch the `extras` config/env switch; it overrides it.
+    /// Flips the panel-unlock gate and reloads, so the feature turns on (or a
+    /// stored lock is cleared) without restarting the server. Does not touch
+    /// the `extras` config/env switch; it overrides it.
     pub fn set_unlocked(&self, v: bool, http: &reqwest::Client, store: &crate::store::Store) {
         self.unlocked.store(v, std::sync::atomic::Ordering::Relaxed);
         self.override_set
