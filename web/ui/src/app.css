@@ -1,35 +1,22 @@
+/* The landing page's palette, carried into the app: near-black surfaces, one
+   orange accent, and green only for connected/available. */
 :root {
-  --bg: #0c0e12;
-  --surface: #151922;
-  --surface-2: #1d2230;
-  --border: #2a3142;
-  --text: #e8ebf2;
-  --muted: #98a1b3;
-  --accent: #5b8cff;
-  --accent-text: #0b1020;
-  --extras: #f4b740;
+  --bg: #070a0f;
+  --surface: #11161f;
+  --surface-2: #161c27;
+  --surface-3: #1b222e;
+  --border: #273143;
+  --text: #f4f6fa;
+  --muted: #8c96a8;
+  --accent: #f24e1e;
+  --accent-text: #ffffff;
+  --extras: #7ea3ff;
   --danger: #ff6b6b;
-  --ok: #3ecf8e;
+  --ok: #3ddc97;
   --radius: 12px;
-  --focus: 0 0 0 3px color-mix(in srgb, var(--accent) 60%, transparent);
+  --font: "Plus Jakarta Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --focus: 0 0 0 3px color-mix(in srgb, var(--accent) 55%, transparent);
   color-scheme: dark;
-}
-
-@media (prefers-color-scheme: light) {
-  :root {
-    --bg: #f5f6f9;
-    --surface: #ffffff;
-    --surface-2: #eef0f5;
-    --border: #d9dde6;
-    --text: #151922;
-    --muted: #5c6475;
-    --accent: #2f62e8;
-    --accent-text: #ffffff;
-    --extras: #b97a00;
-    --danger: #d63b3b;
-    --ok: #13875a;
-    color-scheme: light;
-  }
 }
 
 * { box-sizing: border-box; }
@@ -38,7 +25,7 @@ html, body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font: 15px/1.5 var(--font);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }

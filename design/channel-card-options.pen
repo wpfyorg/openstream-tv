@@ -1,0 +1,2186 @@
+{
+ "version": "2.20",
+ "children": [
+  {
+   "type": "frame",
+   "id": "2c",
+   "name": "Channel card \u2014 badge options",
+   "children": [
+    {
+     "type": "frame",
+     "id": "14",
+     "name": "Heading block",
+     "children": [
+      {
+       "type": "text",
+       "id": "12",
+       "name": "Channel cards \u2014 five bad",
+       "fill": "$text",
+       "content": "Channel cards \u2014 five badge arrangements",
+       "fontFamily": "$font",
+       "fontSize": 28,
+       "fontWeight": "800"
+      },
+      {
+       "type": "text",
+       "id": "13",
+       "name": "Same tile, same palette,",
+       "fill": "$muted",
+       "content": "Same tile, same palette, five ways of showing HD and the subscription requirement. Pick one (or mix: e.g. option 4 title row with option 5 edge) and I will build it into the app.",
+       "fontFamily": "$font",
+       "fontSize": 14,
+       "width": 1100
+      }
+     ],
+     "width": "fill_container",
+     "layout": "vertical",
+     "gap": 8
+    },
+    {
+     "type": "frame",
+     "id": "2b",
+     "name": "Legend",
+     "children": [
+      {
+       "type": "frame",
+       "id": "16",
+       "name": "Pill \u00b7 HD",
+       "children": [
+        {
+         "type": "text",
+         "id": "15",
+         "name": "HD",
+         "fill": "$muted",
+         "content": "HD",
+         "fontFamily": "$font",
+         "fontSize": 9,
+         "fontWeight": "700"
+        }
+       ],
+       "height": 17,
+       "fill": "$surface2",
+       "stroke": "$border",
+       "strokeWidth": 1,
+       "cornerRadius": 999,
+       "layout": "horizontal",
+       "gap": 4,
+       "padding": 5
+      },
+      {
+       "type": "frame",
+       "id": "18",
+       "name": "Chip \u00b7 Subscription required",
+       "children": [
+        {
+         "type": "text",
+         "id": "17",
+         "name": "Subscription required",
+         "fill": "$warn",
+         "content": "Subscription required",
+         "fontFamily": "$font",
+         "fontSize": 9,
+         "fontWeight": "750"
+        }
+       ],
+       "height": 18,
+       "fill": "$warnSoft",
+       "cornerRadius": 999,
+       "layout": "horizontal",
+       "gap": 4,
+       "padding": 5
+      },
+      {
+       "type": "frame",
+       "id": "2a",
+       "name": "Pill \u00b7 Premium",
+       "children": [
+        {
+         "type": "text",
+         "id": "19",
+         "name": "Premium",
+         "fill": "$warn",
+         "content": "Premium",
+         "fontFamily": "$font",
+         "fontSize": 9,
+         "fontWeight": "700"
+        }
+       ],
+       "height": 17,
+       "fill": "$surface2",
+       "stroke": "$warnSoft",
+       "strokeWidth": 1,
+       "cornerRadius": 999,
+       "layout": "horizontal",
+       "gap": 4,
+       "padding": 5
+      }
+     ],
+     "layout": "horizontal",
+     "gap": 8
+    }
+   ],
+   "width": 1240,
+   "height": 210,
+   "fill": "$surface",
+   "stroke": "$border",
+   "strokeWidth": 1,
+   "cornerRadius": 18,
+   "layout": "vertical",
+   "gap": 18,
+   "padding": 26,
+   "x": 0,
+   "y": 40
+  },
+  {
+   "type": "frame",
+   "id": "3c",
+   "name": "Option 1 \u2014 Header chip above the artwork",
+   "children": [
+    {
+     "type": "frame",
+     "id": "2f",
+     "name": "Copy",
+     "children": [
+      {
+       "type": "text",
+       "id": "2d",
+       "name": "Option 1 \u2014 Header chip a",
+       "fill": "$text",
+       "content": "Option 1 \u2014 Header chip above the artwork",
+       "fontFamily": "$font",
+       "fontSize": 18,
+       "fontWeight": "750"
+      },
+      {
+       "type": "text",
+       "id": "2e",
+       "name": "A reserved 22px row on t",
+       "fill": "$muted",
+       "content": "A reserved 22px row on top of every card holds the amber chip; HD stays in the footer.",
+       "fontFamily": "$font",
+       "fontSize": 13,
+       "width": "fill_container"
+      }
+     ],
+     "width": "fill_container",
+     "layout": "vertical",
+     "gap": 6
+    },
+    {
+     "type": "frame",
+     "id": "28",
+     "name": "Preview",
+     "children": [
+      {
+       "type": "frame",
+       "id": "2t",
+       "name": "Option 1 \u00b7 card",
+       "children": [
+        {
+         "type": "frame",
+         "id": "2i",
+         "name": "Header row",
+         "children": [
+          {
+           "type": "frame",
+           "id": "2h",
+           "name": "Chip \u00b7 Subscription required",
+           "children": [
+            {
+             "type": "text",
+             "id": "2g",
+             "name": "Subscription required",
+             "fill": "$warn",
+             "content": "Subscription required",
+             "fontFamily": "$font",
+             "fontSize": 9,
+             "fontWeight": "750"
+            }
+           ],
+           "height": 18,
+           "fill": "$warnSoft",
+           "cornerRadius": 999,
+           "layout": "horizontal",
+           "gap": 4,
+           "padding": 5
+          }
+         ],
+         "width": "fill_container",
+         "height": 22,
+         "layout": "horizontal",
+         "gap": 4
+        },
+        {
+         "type": "frame",
+         "id": "2m",
+         "name": "Artwork",
+         "children": [
+          {
+           "type": "frame",
+           "id": "2l",
+           "name": "Logo plate",
+           "children": [
+            {
+             "type": "frame",
+             "id": "2k",
+             "name": "Logo",
+             "children": [
+              {
+               "type": "text",
+               "id": "2j",
+               "name": "Colors HD",
+               "fill": "#F4F6FA",
+               "content": "Colors HD",
+               "fontFamily": "$font",
+               "fontSize": 15,
+               "fontWeight": "800"
+              }
+             ],
+             "width": 130,
+             "height": 55,
+             "fill": "$surface2",
+             "cornerRadius": 6,
+             "layout": "horizontal",
+             "padding": 6
+            }
+           ],
+           "width": 210,
+           "height": 131,
+           "fill": "$surface3",
+           "cornerRadius": 8,
+           "layout": "horizontal",
+           "padding": 15
+          }
+         ],
+         "width": 210,
+         "height": 131
+        },
+        {
+         "type": "frame",
+         "id": "2p",
+         "name": "Name row",
+         "children": [
+          {
+           "type": "text",
+           "id": "2n",
+           "name": "Colors HD",
+           "fill": "$text",
+           "content": "Colors HD",
+           "fontFamily": "$font",
+           "fontSize": 12,
+           "fontWeight": "650",
+           "width": "fill_container"
+          },
+          {
+           "type": "text",
+           "id": "2o",
+           "name": "HD",
+           "fill": "$muted",
+           "content": "HD",
+           "fontFamily": "$font",
+           "fontSize": 9,
+           "fontWeight": "700"
+          }
+         ],
+         "width": "fill_container",
+         "layout": "horizontal",
+         "gap": 4
+        },
+        {
+         "type": "frame",
+         "id": "2s",
+         "name": "Tags",
+         "children": [
+          {
+           "type": "frame",
+           "id": "2r",
+           "name": "Pill \u00b7 HD",
+           "children": [
+            {
+             "type": "text",
+             "id": "2q",
+             "name": "HD",
+             "fill": "$muted",
+             "content": "HD",
+             "fontFamily": "$font",
+             "fontSize": 9,
+             "fontWeight": "700"
+            }
+           ],
+           "height": 17,
+           "fill": "$surface2",
+           "stroke": "$border",
+           "strokeWidth": 1,
+           "cornerRadius": 999,
+           "layout": "horizontal",
+           "gap": 4,
+           "padding": 5
+          }
+         ],
+         "width": "fill_container",
+         "layout": "horizontal",
+         "gap": 4
+        }
+       ],
+       "width": 210,
+       "fill": "$surface",
+       "stroke": "$border",
+       "strokeWidth": 1,
+       "cornerRadius": 12,
+       "layout": "vertical",
+       "gap": 8,
+       "padding": 10
+      },
+      {
+       "type": "frame",
+       "id": "27",
+       "name": "Option 1 \u00b7 card",
+       "children": [
+        {
+         "type": "frame",
+         "id": "2w",
+         "name": "Header row",
+         "children": [
+          {
+           "type": "frame",
+           "id": "2v",
+           "name": "Chip \u00b7 Subscription required",
+           "children": [
+            {
+             "type": "text",
+             "id": "2u",
+             "name": "Subscription required",
+             "fill": "$warn",
+             "content": "Subscription required",
+             "fontFamily": "$font",
+             "fontSize": 9,
+             "fontWeight": "750"
+            }
+           ],
+           "height": 18,
+           "fill": "$warnSoft",
+           "cornerRadius": 999,
+           "layout": "horizontal",
+           "gap": 4,
+           "padding": 5
+          }
+         ],
+         "width": "fill_container",
+         "height": 22,
+         "layout": "horizontal",
+         "gap": 4
+        },
+        {
+         "type": "frame",
+         "id": "20",
+         "name": "Artwork",
+         "children": [
+          {
+           "type": "frame",
+           "id": "2z",
+           "name": "Logo plate",
+           "children": [
+            {
+             "type": "frame",
+             "id": "2y",
+             "name": "Logo",
+             "children": [
+              {
+               "type": "text",
+               "id": "2x",
+               "name": "Colors HD",
+               "fill": "#F4F6FA",
+               "content": "Colors HD",
+               "fontFamily": "$font",
+               "fontSize": 15,
+               "fontWeight": "800"
+              }
+             ],
+             "width": 94,
+             "height": 39,
+             "fill": "$surface2",
+             "cornerRadius": 6,
+             "layout": "horizontal",
+             "padding": 6
+            }
+           ],
+           "width": 152,
+           "height": 95,
+           "fill": "$surface3",
+           "cornerRadius": 8,
+           "layout": "horizontal",
+           "padding": 11
+          }
+         ],
+         "width": 152,
+         "height": 95
+        },
+        {
+         "type": "frame",
+         "id": "23",
+         "name": "Name row",
+         "children": [
+          {
+           "type": "text",
+           "id": "21",
+           "name": "Colors HD",
+           "fill": "$text",
+           "content": "Colors HD",
+           "fontFamily": "$font",
+           "fontSize": 12,
+           "fontWeight": "650",
+           "width": "fill_container"
+          },
+          {
+           "type": "text",
+           "id": "22",
+           "name": "HD",
+           "fill": "$muted",
+           "content": "HD",
+           "fontFamily": "$font",
+           "fontSize": 9,
+           "fontWeight": "700"
+          }
+         ],
+         "width": "fill_container",
+         "layout": "horizontal",
+         "gap": 4
+        },
+        {
+         "type": "frame",
+         "id": "26",
+         "name": "Tags",
+         "children": [
+          {
+           "type": "frame",
+           "id": "25",
+           "name": "Pill \u00b7 HD",
+           "children": [
+            {
+             "type": "text",
+             "id": "24",
+             "name": "HD",
+             "fill": "$muted",
+             "content": "HD",
+             "fontFamily": "$font",
+             "fontSize": 9,
+             "fontWeight": "700"
+            }
+           ],
+           "height": 17,
+           "fill": "$surface2",
+           "stroke": "$border",
+           "strokeWidth": 1,
+           "cornerRadius": 999,
+           "layout": "horizontal",
+           "gap": 4,
+           "padding": 5
+          }
+         ],
+         "width": "fill_container",
+         "layout": "horizontal",
+         "gap": 4
+        }
+       ],
+       "width": 152,
+       "fill": "$surface",
+       "stroke": "$border",
+       "strokeWidth": 1,
+       "cornerRadius": 12,
+       "layout": "vertical",
+       "gap": 8,
+       "padding": 10
+      }
+     ],
+     "width": "fill_container",
+     "layout": "horizontal",
+     "gap": 18,
+     "padding": 14
+    },
+    {
+     "type": "frame",
+     "id": "3b",
+     "name": "Trade-offs",
+     "children": [
+      {
+       "type": "text",
+       "id": "29",
+       "name": "Ships now. Nothing overl",
+       "fill": "$ok",
+       "content": "Ships now. Nothing overlaps the logo, every tile in a row is identical, and the tag is impossible to miss.",
+       "fontFamily": "$font",
+       "fontSize": 12,
+       "width": "fill_container"
+      },
+      {
+       "type": "text",
+       "id": "3a",
+       "name": "Costs ~22px of height on",
+       "fill": "$warn",
+       "content": "Costs ~22px of height on cards that do not need it; the eye hits the label before the channel.",
+       "fontFamily": "$font",
+       "fontSize": 12,
+       "width": "fill_container"
+      }
+     ],
+     "width": "fill_container",
+     "layout": "vertical",
+     "gap": 5
+    }
+   ],
+   "width": 1240,
+   "height": 470,
+   "fill": "$surface",
+   "stroke": "$border",
+   "strokeWidth": 1,
+   "cornerRadius": 18,
+   "layout": "vertical",
+   "gap": 16,
+   "padding": 24,
+   "x": 0,
+   "y": 282
+  },
+  {
+   "type": "frame",
+   "id": "4a",
+   "name": "Option 2 \u2014 Flag in the artwork corner",
+   "children": [
+    {
+     "type": "frame",
+     "id": "3f",
+     "name": "Copy",
+     "children": [
+      {
+       "type": "text",
+       "id": "3d",
+       "name": "Option 2 \u2014 Flag in the a",
+       "fill": "$text",
+       "content": "Option 2 \u2014 Flag in the artwork corner",
+       "fontFamily": "$font",
+       "fontSize": 18,
+       "fontWeight": "750"
+      },
+      {
+       "type": "text",
+       "id": "3e",
+       "name": "The chip sits inside the",
+       "fill": "$muted",
+       "content": "The chip sits inside the artwork plate, top-right, over the dark area around the logo.",
+       "fontFamily": "$font",
+       "fontSize": 13,
+       "width": "fill_container"
+      }
+     ],
+     "width": "fill_container",
+     "layout": "vertical",
+     "gap": 6
+    },
+    {
+     "type": "frame",
+     "id": "36",
+     "name": "Preview",
+     "children": [
+      {
+       "type": "frame",
+       "id": "3s",
+       "name": "Option 2 \u00b7 card",
+       "children": [
+        {
+         "type": "frame",
+         "id": "3m",
+         "name": "Artwork plate",
+         "children": [
+          {
+           "type": "frame",
+           "id": "3j",
+           "name": "Plate head",
+           "children": [
+            {
+             "type": "frame",
+             "id": "3g",
+             "name": "Spacer",
+             "children": [],
+             "width": "fill_container",
+             "height": 1
+            },
+            {
+             "type": "frame",
+             "id": "3i",
+             "name": "Chip \u00b7 Subscription required",
+             "children": [
+              {
+               "type": "text",
+               "id": "3h",
+               "name": "Subscription required",
+               "fill": "$warn",
+               "content": "Subscription required",
+               "fontFamily": "$font",
+               "fontSize": 9,
+               "fontWeight": "750"
+              }
+             ],
+             "height": 18,
+             "fill": "$warnSoft",
+             "cornerRadius": 999,
+             "layout": "horizontal",
+             "gap": 4,
+             "padding": 5
+            }
+           ],
+           "width": "fill_container",
+           "layout": "horizontal",
+           "gap": 4
+          },
+          {
+           "type": "frame",
+           "id": "3l",
+           "name": "Logo",
+           "children": [
+            {
+             "type": "text",
+             "id": "3k",
+             "name": "Colors HD",
+             "fill": "$text",
+             "content": "Colors HD",
+             "fontFamily": "$font",
+             "fontSize": 15,
+             "fontWeight": "800"
+            }
+           ],
+           "width": 130,
+           "height": 55,
+           "fill": "$surface2",
+           "cornerRadius": 6,
+           "layout": "horizontal",
+           "padding": 6
+          }
+         ],
+         "width": "fill_container",
+         "height": 131,
+         "fill": "$surface3",
+         "cornerRadius": 8,
+         "layout": "vertical",
+         "gap": 6,
+         "padding": 6,
+         "clip": true
+        },
+        {
+         "type": "frame",
+         "id": "3p",
+         "name": "Name row",
+         "children": [
+          {
+           "type": "text",
+           "id": "3n",
+           "name": "Colors HD",
+           "fill": "$text",
+           "content": "Colors HD",
+           "fontFamily": "$font",
+           "fontSize": 12,
+           "fontWeight": "650",
+           "width": "fill_container"
+          },
+          {
+           "type": "text",
+           "id": "3o",
+           "name": "HD",
+           "fill": "$muted",
+           "content": "HD",
+           "fontFamily": "$font",
+           "fontSize": 9,
+           "fontWeight": "700"
+          }
+         ],
+         "width": "fill_container",
+         "layout": "horizontal",
+         "gap": 4
+        },
+        {
+         "type": "frame",
+         "id": "3r",
+         "name": "Tags",
+         "children": [
+          {
+           "type": "text",
+           "id": "3q",
+           "name": "Entertainment",
+           "fill": "$muted",
+           "content": "Entertainment",
+           "fontFamily": "$font",
+           "fontSize": 10
+          }
+         ],
+         "width": "fill_container",
+         "layout": "horizontal",
+         "gap": 4
+        }
+       ],
+       "width": 210,
+       "fill": "$surface",
+       "stroke": "$border",
+       "strokeWidth": 1,
+       "cornerRadius": 12,
+       "layout": "vertical",
+       "gap": 8,
+       "padding": 10
+      },
+      {
+       "type": "frame",
+       "id": "35",
+       "name": "Option 2 \u00b7 card",
+       "children": [
+        {
+         "type": "frame",
+         "id": "3z",
+         "name": "Artwork plate",
+         "children": [
+          {
+           "type": "frame",
+           "id": "3w",
+           "name": "Plate head",
+           "children": [
+            {
+             "type": "frame",
+             "id": "3t",
+             "name": "Spacer",
+             "children": [],
+             "width": "fill_container",
+             "height": 1
+            },
+            {
+             "type": "frame",
+             "id": "3v",
+             "name": "Chip \u00b7 Subscription required",
+             "children": [
+              {
+               "type": "text",
+               "id": "3u",
+               "name": "Subscription required",
+               "fill": "$warn",
+               "content": "Subscription required",
+               "fontFamily": "$font",
+               "fontSize": 9,
+               "fontWeight": "750"
+              }
+             ],
+             "height": 18,
+             "fill": "$warnSoft",
+             "cornerRadius": 999,
+             "layout": "horizontal",
+             "gap": 4,
+             "padding": 5
+            }
+           ],
+           "width": "fill_container",
+           "layout": "horizontal",
+           "gap": 4
+          },
+          {
+           "type": "frame",
+           "id": "3y",
+           "name": "Logo",
+           "children": [
+            {
+             "type": "text",
+             "id": "3x",
+             "name": "Colors HD",
+             "fill": "$text",
+             "content": "Colors HD",
+             "fontFamily": "$font",
+             "fontSize": 15,
+             "fontWeight": "800"
+            }
+           ],
+           "width": 94,
+           "height": 39,
+           "fill": "$surface2",
+           "cornerRadius": 6,
+           "layout": "horizontal",
+           "padding": 6
+          }
+         ],
+         "width": "fill_container",
+         "height": 95,
+         "fill": "$surface3",
+         "cornerRadius": 8,
+         "layout": "vertical",
+         "gap": 6,
+         "padding": 6,
+         "clip": true
+        },
+        {
+         "type": "frame",
+         "id": "32",
+         "name": "Name row",
+         "children": [
+          {
+           "type": "text",
+           "id": "30",
+           "name": "Colors HD",
+           "fill": "$text",
+           "content": "Colors HD",
+           "fontFamily": "$font",
+           "fontSize": 12,
+           "fontWeight": "650",
+           "width": "fill_container"
+          },
+          {
+           "type": "text",
+           "id": "31",
+           "name": "HD",
+           "fill": "$muted",
+           "content": "HD",
+           "fontFamily": "$font",
+           "fontSize": 9,
+           "fontWeight": "700"
+          }
+         ],
+         "width": "fill_container",
+         "layout": "horizontal",
+         "gap": 4
+        },
+        {
+         "type": "frame",
+         "id": "34",
+         "name": "Tags",
+         "children": [
+          {
+           "type": "text",
+           "id": "33",
+           "name": "Entertainment",
+           "fill": "$muted",
+           "content": "Entertainment",
+           "fontFamily": "$font",
+           "fontSize": 10
+          }
+         ],
+         "width": "fill_container",
+         "layout": "horizontal",
+         "gap": 4
+        }
+       ],
+       "width": 152,
+       "fill": "$surface",
+       "stroke": "$border",
+       "strokeWidth": 1,
+       "cornerRadius": 12,
+       "layout": "vertical",
+       "gap": 8,
+       "padding": 10
+      }
+     ],
+     "width": "fill_container",
+     "layout": "horizontal",
+     "gap": 18,
+     "padding": 14
+    },
+    {
+     "type": "frame",
+     "id": "39",
+     "name": "Trade-offs",
+     "children": [
+      {
+       "type": "text",
+       "id": "37",
+       "name": "Keeps the card compact a",
+       "fill": "$ok",
+       "content": "Keeps the card compact and reads like a badge on a poster; height stays fixed for every card.",
+       "fontFamily": "$font",
+       "fontSize": 12,
+       "width": "fill_container"
+      },
+      {
+       "type": "text",
+       "id": "38",
+       "name": "Can sit on top of a wide",
+       "fill": "$warn",
+       "content": "Can sit on top of a wide logo; needs a soft scrim so it stays legible on bright art.",
+       "fontFamily": "$font",
+       "fontSize": 12,
+       "width": "fill_container"
+      }
+     ],
+     "width": "fill_container",
+     "layout": "vertical",
+     "gap": 5
+    }
+   ],
+   "width": 1240,
+   "height": 470,
+   "fill": "$surface",
+   "stroke": "$border",
+   "strokeWidth": 1,
+   "cornerRadius": 18,
+   "layout": "vertical",
+   "gap": 16,
+   "padding": 24,
+   "x": 0,
+   "y": 784
+  },
+  {
+   "type": "frame",
+   "id": "5e",
+   "name": "Option 3 \u2014 Ribbon along the artwork edge  \u00b7  CHOSEN",
+   "children": [
+    {
+     "type": "frame",
+     "id": "4d",
+     "name": "Copy",
+     "children": [
+      {
+       "type": "text",
+       "id": "4b",
+       "name": "Option 3 \u2014 Ribbon along ",
+       "fill": "$text",
+       "content": "Option 3 \u2014 Ribbon along the artwork edge  \u00b7  CHOSEN",
+       "fontFamily": "$font",
+       "fontSize": 18,
+       "fontWeight": "750"
+      },
+      {
+       "type": "text",
+       "id": "4c",
+       "name": "A full-width amber strip",
+       "fill": "$muted",
+       "content": "A full-width amber strip across the bottom of the artwork, reading \"Subscription may be required\".",
+       "fontFamily": "$font",
+       "fontSize": 13,
+       "width": "fill_container"
+      }
+     ],
+     "width": "fill_container",
+     "layout": "vertical",
+     "gap": 6
+    },
+    {
+     "type": "frame",
+     "id": "5a",
+     "name": "Preview",
+     "children": [
+      {
+       "type": "frame",
+       "id": "4t",
+       "name": "Option 3 \u00b7 card",
+       "children": [
+        {
+         "type": "frame",
+         "id": "4k",
+         "name": "Art wrap",
+         "children": [
+          {
+           "type": "frame",
+           "id": "4h",
+           "name": "Artwork",
+           "children": [
+            {
+             "type": "frame",
+             "id": "4g",
+             "name": "Logo plate",
+             "children": [
+              {
+               "type": "frame",
+               "id": "4f",
+               "name": "Logo",
+               "children": [
+                {
+                 "type": "text",
+                 "id": "4e",
+                 "name": "Colors HD",
+                 "fill": "#F4F6FA",
+                 "content": "Colors HD",
+                 "fontFamily": "$font",
+                 "fontSize": 15,
+                 "fontWeight": "800"
+                }
+               ],
+               "width": 130,
+               "height": 55,
+               "fill": "$surface2",
+               "cornerRadius": 6,
+               "layout": "horizontal",
+               "padding": 6
+              }
+             ],
+             "width": 210,
+             "height": 131,
+             "fill": "$surface3",
+             "cornerRadius": 8,
+             "layout": "horizontal",
+             "padding": 15
+            }
+           ],
+           "width": 210,
+           "height": 131
+          },
+          {
+           "type": "frame",
+           "id": "4j",
+           "name": "Ribbon",
+           "children": [
+            {
+             "type": "text",
+             "id": "4i",
+             "name": "Subscription may be requ",
+             "fill": "$warn",
+             "content": "Subscription may be required",
+             "fontFamily": "$font",
+             "fontSize": 9,
+             "fontWeight": "750"
+            }
+           ],
+           "width": "fill_container",
+           "height": 18,
+           "fill": "$warnSoft",
+           "layout": "horizontal",
+           "gap": 4,
+           "padding": 5
+          }
+         ],
+         "width": "fill_container",
+         "fill": "$surface3",
+         "cornerRadius": 8,
+         "layout": "vertical",
+         "gap": 0,
+         "clip": true
+        },
+        {
+         "type": "frame",
+         "id": "4n",
+         "name": "Name row",
+         "children": [
+          {
+           "type": "text",
+           "id": "4l",
+           "name": "Colors HD",
+           "fill": "$text",
+           "content": "Colors HD",
+           "fontFamily": "$font",
+           "fontSize": 12,
+           "fontWeight": "650",
+           "width": "fill_container"
+          },
+          {
+           "type": "text",
+           "id": "4m",
+           "name": "HD",
+           "fill": "$muted",
+           "content": "HD",
+           "fontFamily": "$font",
+           "fontSize": 9,
+           "fontWeight": "700"
+          }
+         ],
+         "width": "fill_container",
+         "layout": "horizontal",
+         "gap": 4
+        },
+        {
+         "type": "frame",
+         "id": "4s",
+         "name": "Tags",
+         "children": [
+          {
+           "type": "frame",
+           "id": "4p",
+           "name": "Pill \u00b7 HD",
+           "children": [
+            {
+             "type": "text",
+             "id": "4o",
+             "name": "HD",
+             "fill": "$muted",
+             "content": "HD",
+             "fontFamily": "$font",
+             "fontSize": 9,
+             "fontWeight": "700"
+            }
+           ],
+           "height": 17,
+           "fill": "$surface2",
+           "stroke": "$border",
+           "strokeWidth": 1,
+           "cornerRadius": 999,
+           "layout": "horizontal",
+           "gap": 4,
+           "padding": 5
+          },
+          {
+           "type": "frame",
+           "id": "4r",
+           "name": "Pill \u00b7 News",
+           "children": [
+            {
+             "type": "text",
+             "id": "4q",
+             "name": "News",
+             "fill": "$muted",
+             "content": "News",
+             "fontFamily": "$font",
+             "fontSize": 9,
+             "fontWeight": "700"
+            }
+           ],
+           "height": 17,
+           "fill": "$surface2",
+           "stroke": "$border",
+           "strokeWidth": 1,
+           "cornerRadius": 999,
+           "layout": "horizontal",
+           "gap": 4,
+           "padding": 5
+          }
+         ],
+         "width": "fill_container",
+         "layout": "horizontal",
+         "gap": 4
+        }
+       ],
+       "width": 210,
+       "fill": "$surface",
+       "stroke": "$border",
+       "strokeWidth": 1,
+       "cornerRadius": 12,
+       "layout": "vertical",
+       "gap": 8,
+       "padding": 10
+      },
+      {
+       "type": "frame",
+       "id": "49",
+       "name": "Option 3 \u00b7 card",
+       "children": [
+        {
+         "type": "frame",
+         "id": "40",
+         "name": "Art wrap",
+         "children": [
+          {
+           "type": "frame",
+           "id": "4x",
+           "name": "Artwork",
+           "children": [
+            {
+             "type": "frame",
+             "id": "4w",
+             "name": "Logo plate",
+             "children": [
+              {
+               "type": "frame",
+               "id": "4v",
+               "name": "Logo",
+               "children": [
+                {
+                 "type": "text",
+                 "id": "4u",
+                 "name": "Colors HD",
+                 "fill": "#F4F6FA",
+                 "content": "Colors HD",
+                 "fontFamily": "$font",
+                 "fontSize": 15,
+                 "fontWeight": "800"
+                }
+               ],
+               "width": 94,
+               "height": 39,
+               "fill": "$surface2",
+               "cornerRadius": 6,
+               "layout": "horizontal",
+               "padding": 6
+              }
+             ],
+             "width": 152,
+             "height": 95,
+             "fill": "$surface3",
+             "cornerRadius": 8,
+             "layout": "horizontal",
+             "padding": 11
+            }
+           ],
+           "width": 152,
+           "height": 95
+          },
+          {
+           "type": "frame",
+           "id": "4z",
+           "name": "Ribbon",
+           "children": [
+            {
+             "type": "text",
+             "id": "4y",
+             "name": "Subscription may be requ",
+             "fill": "$warn",
+             "content": "Subscription may be required",
+             "fontFamily": "$font",
+             "fontSize": 9,
+             "fontWeight": "750"
+            }
+           ],
+           "width": "fill_container",
+           "height": 18,
+           "fill": "$warnSoft",
+           "layout": "horizontal",
+           "gap": 4,
+           "padding": 5
+          }
+         ],
+         "width": "fill_container",
+         "fill": "$surface3",
+         "cornerRadius": 8,
+         "layout": "vertical",
+         "gap": 0,
+         "clip": true
+        },
+        {
+         "type": "frame",
+         "id": "43",
+         "name": "Name row",
+         "children": [
+          {
+           "type": "text",
+           "id": "41",
+           "name": "Colors HD",
+           "fill": "$text",
+           "content": "Colors HD",
+           "fontFamily": "$font",
+           "fontSize": 12,
+           "fontWeight": "650",
+           "width": "fill_container"
+          },
+          {
+           "type": "text",
+           "id": "42",
+           "name": "HD",
+           "fill": "$muted",
+           "content": "HD",
+           "fontFamily": "$font",
+           "fontSize": 9,
+           "fontWeight": "700"
+          }
+         ],
+         "width": "fill_container",
+         "layout": "horizontal",
+         "gap": 4
+        },
+        {
+         "type": "frame",
+         "id": "48",
+         "name": "Tags",
+         "children": [
+          {
+           "type": "frame",
+           "id": "45",
+           "name": "Pill \u00b7 HD",
+           "children": [
+            {
+             "type": "text",
+             "id": "44",
+             "name": "HD",
+             "fill": "$muted",
+             "content": "HD",
+             "fontFamily": "$font",
+             "fontSize": 9,
+             "fontWeight": "700"
+            }
+           ],
+           "height": 17,
+           "fill": "$surface2",
+           "stroke": "$border",
+           "strokeWidth": 1,
+           "cornerRadius": 999,
+           "layout": "horizontal",
+           "gap": 4,
+           "padding": 5
+          },
+          {
+           "type": "frame",
+           "id": "47",
+           "name": "Pill \u00b7 News",
+           "children": [
+            {
+             "type": "text",
+             "id": "46",
+             "name": "News",
+             "fill": "$muted",
+             "content": "News",
+             "fontFamily": "$font",
+             "fontSize": 9,
+             "fontWeight": "700"
+            }
+           ],
+           "height": 17,
+           "fill": "$surface2",
+           "stroke": "$border",
+           "strokeWidth": 1,
+           "cornerRadius": 999,
+           "layout": "horizontal",
+           "gap": 4,
+           "padding": 5
+          }
+         ],
+         "width": "fill_container",
+         "layout": "horizontal",
+         "gap": 4
+        }
+       ],
+       "width": 152,
+       "fill": "$surface",
+       "stroke": "$border",
+       "strokeWidth": 1,
+       "cornerRadius": 12,
+       "layout": "vertical",
+       "gap": 8,
+       "padding": 10
+      }
+     ],
+     "width": "fill_container",
+     "layout": "horizontal",
+     "gap": 18,
+     "padding": 14
+    },
+    {
+     "type": "frame",
+     "id": "5d",
+     "name": "Trade-offs",
+     "children": [
+      {
+       "type": "text",
+       "id": "5b",
+       "name": "Very readable at a glanc",
+       "fill": "$ok",
+       "content": "Very readable at a glance and on phones; no chip floating over artwork at all.",
+       "fontFamily": "$font",
+       "fontSize": 12,
+       "width": "fill_container"
+      },
+      {
+       "type": "text",
+       "id": "5c",
+       "name": "Adds visual weight to a ",
+       "fill": "$warn",
+       "content": "Adds visual weight to a row of many premium channels; the strip competes with the channel name.",
+       "fontFamily": "$font",
+       "fontSize": 12,
+       "width": "fill_container"
+      }
+     ],
+     "width": "fill_container",
+     "layout": "vertical",
+     "gap": 5
+    }
+   ],
+   "width": 1240,
+   "height": 470,
+   "fill": "$surface",
+   "stroke": "$border",
+   "strokeWidth": 1,
+   "cornerRadius": 18,
+   "layout": "vertical",
+   "gap": 16,
+   "padding": 24,
+   "x": 0,
+   "y": 1286
+  },
+  {
+   "type": "frame",
+   "id": "6c",
+   "name": "Option 4 \u2014 Badges on the title line",
+   "children": [
+    {
+     "type": "frame",
+     "id": "5h",
+     "name": "Copy",
+     "children": [
+      {
+       "type": "text",
+       "id": "5f",
+       "name": "Option 4 \u2014 Badges on the",
+       "fill": "$text",
+       "content": "Option 4 \u2014 Badges on the title line",
+       "fontFamily": "$font",
+       "fontSize": 18,
+       "fontWeight": "750"
+      },
+      {
+       "type": "text",
+       "id": "5g",
+       "name": "No chip: HD sits beside ",
+       "fill": "$muted",
+       "content": "No chip: HD sits beside the name and a small amber dot plus the word Premium shares the meta line.",
+       "fontFamily": "$font",
+       "fontSize": 13,
+       "width": "fill_container"
+      }
+     ],
+     "width": "fill_container",
+     "layout": "vertical",
+     "gap": 6
+    },
+    {
+     "type": "frame",
+     "id": "58",
+     "name": "Preview",
+     "children": [
+      {
+       "type": "frame",
+       "id": "5u",
+       "name": "Option 4 \u00b7 card",
+       "children": [
+        {
+         "type": "frame",
+         "id": "5l",
+         "name": "Artwork",
+         "children": [
+          {
+           "type": "frame",
+           "id": "5k",
+           "name": "Logo plate",
+           "children": [
+            {
+             "type": "frame",
+             "id": "5j",
+             "name": "Logo",
+             "children": [
+              {
+               "type": "text",
+               "id": "5i",
+               "name": "Colors HD",
+               "fill": "#F4F6FA",
+               "content": "Colors HD",
+               "fontFamily": "$font",
+               "fontSize": 15,
+               "fontWeight": "800"
+              }
+             ],
+             "width": 130,
+             "height": 55,
+             "fill": "$surface2",
+             "cornerRadius": 6,
+             "layout": "horizontal",
+             "padding": 6
+            }
+           ],
+           "width": 210,
+           "height": 131,
+           "fill": "$surface3",
+           "cornerRadius": 8,
+           "layout": "horizontal",
+           "padding": 15
+          }
+         ],
+         "width": 210,
+         "height": 131
+        },
+        {
+         "type": "frame",
+         "id": "5o",
+         "name": "Title row",
+         "children": [
+          {
+           "type": "text",
+           "id": "5m",
+           "name": "Colors HD",
+           "fill": "$text",
+           "content": "Colors HD",
+           "fontFamily": "$font",
+           "fontSize": 12,
+           "fontWeight": "650",
+           "width": "fill_container"
+          },
+          {
+           "type": "text",
+           "id": "5n",
+           "name": "HD",
+           "fill": "$muted",
+           "content": "HD",
+           "fontFamily": "$font",
+           "fontSize": 9,
+           "fontWeight": "700"
+          }
+         ],
+         "width": "fill_container",
+         "layout": "horizontal",
+         "gap": 4
+        },
+        {
+         "type": "frame",
+         "id": "5t",
+         "name": "Meta row",
+         "children": [
+          {
+           "type": "text",
+           "id": "5p",
+           "name": "Entertainment",
+           "fill": "$muted",
+           "content": "Entertainment",
+           "fontFamily": "$font",
+           "fontSize": 10,
+           "width": "fill_container"
+          },
+          {
+           "type": "frame",
+           "id": "5r",
+           "name": "Premium dot",
+           "children": [
+            {
+             "type": "rectangle",
+             "id": "5q",
+             "name": "Dot",
+             "width": 5,
+             "height": 5,
+             "fill": "$warn",
+             "cornerRadius": 999
+            }
+           ],
+           "layout": "horizontal",
+           "gap": 4,
+           "padding": 0
+          },
+          {
+           "type": "text",
+           "id": "5s",
+           "name": "Premium",
+           "fill": "$warn",
+           "content": "Premium",
+           "fontFamily": "$font",
+           "fontSize": 9,
+           "fontWeight": "700"
+          }
+         ],
+         "width": "fill_container",
+         "layout": "horizontal",
+         "gap": 4
+        }
+       ],
+       "width": 210,
+       "fill": "$surface",
+       "stroke": "$border",
+       "strokeWidth": 1,
+       "cornerRadius": 12,
+       "layout": "vertical",
+       "gap": 8,
+       "padding": 10
+      },
+      {
+       "type": "frame",
+       "id": "57",
+       "name": "Option 4 \u00b7 card",
+       "children": [
+        {
+         "type": "frame",
+         "id": "5y",
+         "name": "Artwork",
+         "children": [
+          {
+           "type": "frame",
+           "id": "5x",
+           "name": "Logo plate",
+           "children": [
+            {
+             "type": "frame",
+             "id": "5w",
+             "name": "Logo",
+             "children": [
+              {
+               "type": "text",
+               "id": "5v",
+               "name": "Colors HD",
+               "fill": "#F4F6FA",
+               "content": "Colors HD",
+               "fontFamily": "$font",
+               "fontSize": 15,
+               "fontWeight": "800"
+              }
+             ],
+             "width": 94,
+             "height": 39,
+             "fill": "$surface2",
+             "cornerRadius": 6,
+             "layout": "horizontal",
+             "padding": 6
+            }
+           ],
+           "width": 152,
+           "height": 95,
+           "fill": "$surface3",
+           "cornerRadius": 8,
+           "layout": "horizontal",
+           "padding": 11
+          }
+         ],
+         "width": 152,
+         "height": 95
+        },
+        {
+         "type": "frame",
+         "id": "51",
+         "name": "Title row",
+         "children": [
+          {
+           "type": "text",
+           "id": "5z",
+           "name": "Colors HD",
+           "fill": "$text",
+           "content": "Colors HD",
+           "fontFamily": "$font",
+           "fontSize": 12,
+           "fontWeight": "650",
+           "width": "fill_container"
+          },
+          {
+           "type": "text",
+           "id": "50",
+           "name": "HD",
+           "fill": "$muted",
+           "content": "HD",
+           "fontFamily": "$font",
+           "fontSize": 9,
+           "fontWeight": "700"
+          }
+         ],
+         "width": "fill_container",
+         "layout": "horizontal",
+         "gap": 4
+        },
+        {
+         "type": "frame",
+         "id": "56",
+         "name": "Meta row",
+         "children": [
+          {
+           "type": "text",
+           "id": "52",
+           "name": "Entertainment",
+           "fill": "$muted",
+           "content": "Entertainment",
+           "fontFamily": "$font",
+           "fontSize": 10,
+           "width": "fill_container"
+          },
+          {
+           "type": "frame",
+           "id": "54",
+           "name": "Premium dot",
+           "children": [
+            {
+             "type": "rectangle",
+             "id": "53",
+             "name": "Dot",
+             "width": 5,
+             "height": 5,
+             "fill": "$warn",
+             "cornerRadius": 999
+            }
+           ],
+           "layout": "horizontal",
+           "gap": 4,
+           "padding": 0
+          },
+          {
+           "type": "text",
+           "id": "55",
+           "name": "Premium",
+           "fill": "$warn",
+           "content": "Premium",
+           "fontFamily": "$font",
+           "fontSize": 9,
+           "fontWeight": "700"
+          }
+         ],
+         "width": "fill_container",
+         "layout": "horizontal",
+         "gap": 4
+        }
+       ],
+       "width": 152,
+       "fill": "$surface",
+       "stroke": "$border",
+       "strokeWidth": 1,
+       "cornerRadius": 12,
+       "layout": "vertical",
+       "gap": 8,
+       "padding": 10
+      }
+     ],
+     "width": "fill_container",
+     "layout": "horizontal",
+     "gap": 18,
+     "padding": 14
+    },
+    {
+     "type": "frame",
+     "id": "6b",
+     "name": "Trade-offs",
+     "children": [
+      {
+       "type": "text",
+       "id": "59",
+       "name": "Quietest option; the gri",
+       "fill": "$ok",
+       "content": "Quietest option; the grid reads as logos and names first, details second. Keeps cards short.",
+       "fontFamily": "$font",
+       "fontSize": 12,
+       "width": "fill_container"
+      },
+      {
+       "type": "text",
+       "id": "6a",
+       "name": "Least explicit \u2014 a viewe",
+       "fill": "$warn",
+       "content": "Least explicit \u2014 a viewer may miss that the channel needs a subscription.",
+       "fontFamily": "$font",
+       "fontSize": 12,
+       "width": "fill_container"
+      }
+     ],
+     "width": "fill_container",
+     "layout": "vertical",
+     "gap": 5
+    }
+   ],
+   "width": 1240,
+   "height": 470,
+   "fill": "$surface",
+   "stroke": "$border",
+   "strokeWidth": 1,
+   "cornerRadius": 18,
+   "layout": "vertical",
+   "gap": 16,
+   "padding": 24,
+   "x": 0,
+   "y": 1788
+  },
+  {
+   "type": "frame",
+   "id": "66",
+   "name": "Option 5 \u2014 Accent edge on the card",
+   "children": [
+    {
+     "type": "frame",
+     "id": "6f",
+     "name": "Copy",
+     "children": [
+      {
+       "type": "text",
+       "id": "6d",
+       "name": "Option 5 \u2014 Accent edge o",
+       "fill": "$text",
+       "content": "Option 5 \u2014 Accent edge on the card",
+       "fontFamily": "$font",
+       "fontSize": 18,
+       "fontWeight": "750"
+      },
+      {
+       "type": "text",
+       "id": "6e",
+       "name": "A 3px amber edge on the ",
+       "fill": "$muted",
+       "content": "A 3px amber edge on the card's left side with a small 'Subscription required' line at the bottom.",
+       "fontFamily": "$font",
+       "fontSize": 13,
+       "width": "fill_container"
+      }
+     ],
+     "width": "fill_container",
+     "layout": "vertical",
+     "gap": 6
+    },
+    {
+     "type": "frame",
+     "id": "62",
+     "name": "Preview",
+     "children": [
+      {
+       "type": "frame",
+       "id": "6q",
+       "name": "Option 5 \u00b7 card",
+       "children": [
+        {
+         "type": "frame",
+         "id": "6g",
+         "name": "Accent edge",
+         "children": [],
+         "width": 3,
+         "fill": "$warn",
+         "cornerRadius": 2
+        },
+        {
+         "type": "frame",
+         "id": "6p",
+         "name": "Body",
+         "children": [
+          {
+           "type": "frame",
+           "id": "6k",
+           "name": "Artwork",
+           "children": [
+            {
+             "type": "frame",
+             "id": "6j",
+             "name": "Logo plate",
+             "children": [
+              {
+               "type": "frame",
+               "id": "6i",
+               "name": "Logo",
+               "children": [
+                {
+                 "type": "text",
+                 "id": "6h",
+                 "name": "Colors HD",
+                 "fill": "#F4F6FA",
+                 "content": "Colors HD",
+                 "fontFamily": "$font",
+                 "fontSize": 15,
+                 "fontWeight": "800"
+                }
+               ],
+               "width": 114,
+               "height": 48,
+               "fill": "$surface2",
+               "cornerRadius": 6,
+               "layout": "horizontal",
+               "padding": 6
+              }
+             ],
+             "width": 184,
+             "height": 115,
+             "fill": "$surface3",
+             "cornerRadius": 8,
+             "layout": "horizontal",
+             "padding": 13
+            }
+           ],
+           "width": 184,
+           "height": 115
+          },
+          {
+           "type": "frame",
+           "id": "6n",
+           "name": "Title row",
+           "children": [
+            {
+             "type": "text",
+             "id": "6l",
+             "name": "Colors HD",
+             "fill": "$text",
+             "content": "Colors HD",
+             "fontFamily": "$font",
+             "fontSize": 12,
+             "fontWeight": "650",
+             "width": "fill_container"
+            },
+            {
+             "type": "text",
+             "id": "6m",
+             "name": "HD",
+             "fill": "$muted",
+             "content": "HD",
+             "fontFamily": "$font",
+             "fontSize": 9,
+             "fontWeight": "700"
+            }
+           ],
+           "width": "fill_container",
+           "layout": "horizontal",
+           "gap": 4
+          },
+          {
+           "type": "text",
+           "id": "6o",
+           "name": "Subscription required",
+           "fill": "$warn",
+           "content": "Subscription required",
+           "fontFamily": "$font",
+           "fontSize": 9,
+           "fontWeight": "650"
+          }
+         ],
+         "width": "fill_container",
+         "layout": "vertical",
+         "gap": 8
+        }
+       ],
+       "width": 210,
+       "fill": "$surface",
+       "stroke": "$border",
+       "strokeWidth": 1,
+       "cornerRadius": 12,
+       "layout": "horizontal",
+       "gap": 8,
+       "padding": 10,
+       "clip": true
+      },
+      {
+       "type": "frame",
+       "id": "61",
+       "name": "Option 5 \u00b7 card",
+       "children": [
+        {
+         "type": "frame",
+         "id": "6r",
+         "name": "Accent edge",
+         "children": [],
+         "width": 3,
+         "fill": "$warn",
+         "cornerRadius": 2
+        },
+        {
+         "type": "frame",
+         "id": "60",
+         "name": "Body",
+         "children": [
+          {
+           "type": "frame",
+           "id": "6v",
+           "name": "Artwork",
+           "children": [
+            {
+             "type": "frame",
+             "id": "6u",
+             "name": "Logo plate",
+             "children": [
+              {
+               "type": "frame",
+               "id": "6t",
+               "name": "Logo",
+               "children": [
+                {
+                 "type": "text",
+                 "id": "6s",
+                 "name": "Colors HD",
+                 "fill": "#F4F6FA",
+                 "content": "Colors HD",
+                 "fontFamily": "$font",
+                 "fontSize": 15,
+                 "fontWeight": "800"
+                }
+               ],
+               "width": 78,
+               "height": 32,
+               "fill": "$surface2",
+               "cornerRadius": 6,
+               "layout": "horizontal",
+               "padding": 6
+              }
+             ],
+             "width": 126,
+             "height": 78,
+             "fill": "$surface3",
+             "cornerRadius": 8,
+             "layout": "horizontal",
+             "padding": 9
+            }
+           ],
+           "width": 126,
+           "height": 78
+          },
+          {
+           "type": "frame",
+           "id": "6y",
+           "name": "Title row",
+           "children": [
+            {
+             "type": "text",
+             "id": "6w",
+             "name": "Colors HD",
+             "fill": "$text",
+             "content": "Colors HD",
+             "fontFamily": "$font",
+             "fontSize": 12,
+             "fontWeight": "650",
+             "width": "fill_container"
+            },
+            {
+             "type": "text",
+             "id": "6x",
+             "name": "HD",
+             "fill": "$muted",
+             "content": "HD",
+             "fontFamily": "$font",
+             "fontSize": 9,
+             "fontWeight": "700"
+            }
+           ],
+           "width": "fill_container",
+           "layout": "horizontal",
+           "gap": 4
+          },
+          {
+           "type": "text",
+           "id": "6z",
+           "name": "Subscription required",
+           "fill": "$warn",
+           "content": "Subscription required",
+           "fontFamily": "$font",
+           "fontSize": 9,
+           "fontWeight": "650"
+          }
+         ],
+         "width": "fill_container",
+         "layout": "vertical",
+         "gap": 8
+        }
+       ],
+       "width": 152,
+       "fill": "$surface",
+       "stroke": "$border",
+       "strokeWidth": 1,
+       "cornerRadius": 12,
+       "layout": "horizontal",
+       "gap": 8,
+       "padding": 10,
+       "clip": true
+      }
+     ],
+     "width": "fill_container",
+     "layout": "horizontal",
+     "gap": 18,
+     "padding": 14
+    },
+    {
+     "type": "frame",
+     "id": "65",
+     "name": "Trade-offs",
+     "children": [
+      {
+       "type": "text",
+       "id": "63",
+       "name": "Almost no layout cost, k",
+       "fill": "$ok",
+       "content": "Almost no layout cost, keeps every logo unobstructed, and the colour is still a strong cue.",
+       "fontFamily": "$font",
+       "fontSize": 12,
+       "width": "fill_container"
+      },
+      {
+       "type": "text",
+       "id": "64",
+       "name": "Only a colour cue; it ne",
+       "fill": "$warn",
+       "content": "Only a colour cue; it needs the text line to be understood, and left edges are easy to ignore.",
+       "fontFamily": "$font",
+       "fontSize": 12,
+       "width": "fill_container"
+      }
+     ],
+     "width": "fill_container",
+     "layout": "vertical",
+     "gap": 5
+    }
+   ],
+   "width": 1240,
+   "height": 470,
+   "fill": "$surface",
+   "stroke": "$border",
+   "strokeWidth": 1,
+   "cornerRadius": 18,
+   "layout": "vertical",
+   "gap": 16,
+   "padding": 24,
+   "x": 0,
+   "y": 2290
+  },
+  {
+   "type": "frame",
+   "id": "7a",
+   "name": "Notes",
+   "children": [
+    {
+     "type": "text",
+     "id": "67",
+     "name": "How to review",
+     "fill": "$text",
+     "content": "How to review",
+     "fontFamily": "$font",
+     "fontSize": 16,
+     "fontWeight": "750"
+    },
+    {
+     "type": "text",
+     "id": "68",
+     "name": "1. The CTA in each optio",
+     "fill": "$muted",
+     "content": "1. The CTA in each option is the badge only \u2014 logo plate, name, category and radius stay identical, so the comparison is fair. 2. Phone previews are the same card at 152px, which is what a two-column phone grid gives. 3. Options 2, 4 and 5 need no extra vertical space; options 1 and 3 do.",
+     "fontFamily": "$font",
+     "fontSize": 13,
+     "width": 1160
+    },
+    {
+     "type": "text",
+     "id": "69",
+     "name": "Chosen: option 3, built ",
+     "fill": "$text",
+     "content": "Chosen: option 3, built into the app as an amber ribbon on the artwork plate with the copy \"Subscription may be required\" \u2014 the chip above the card (option 1) is gone.",
+     "fontFamily": "$font",
+     "fontSize": 13,
+     "width": 1160
+    }
+   ],
+   "width": 1240,
+   "height": 190,
+   "fill": "$surface2",
+   "stroke": "$border",
+   "strokeWidth": 1,
+   "cornerRadius": 18,
+   "layout": "vertical",
+   "gap": 10,
+   "padding": 24,
+   "x": 0,
+   "y": 2792
+  }
+ ],
+ "variables": {
+  "bg": {
+   "type": "color",
+   "value": "#070A0F"
+  },
+  "surface": {
+   "type": "color",
+   "value": "#11161F"
+  },
+  "surface2": {
+   "type": "color",
+   "value": "#161C27"
+  },
+  "surface3": {
+   "type": "color",
+   "value": "#1D2230"
+  },
+  "border": {
+   "type": "color",
+   "value": "#273143"
+  },
+  "text": {
+   "type": "color",
+   "value": "#F4F6FA"
+  },
+  "muted": {
+   "type": "color",
+   "value": "#8C96A8"
+  },
+  "accent": {
+   "type": "color",
+   "value": "#F24E1E"
+  },
+  "accentSoft": {
+   "type": "color",
+   "value": "#2A1815"
+  },
+  "ok": {
+   "type": "color",
+   "value": "#3DDC97"
+  },
+  "warn": {
+   "type": "color",
+   "value": "#F0A320"
+  },
+  "warnSoft": {
+   "type": "color",
+   "value": "#2B2413"
+  },
+  "font": {
+   "type": "string",
+   "value": "Plus Jakarta Sans"
+  }
+ }
+}

@@ -46,6 +46,20 @@ pub async fn serve_ui(uri: Uri) -> Response {
     }
 }
 
+/// `index.html` names the hashed bundle, so it must be revalidated on every
+/// load: a cached copy keeps pointing at the previous build after an update.
+/// Everything Vite content-hashes under `assets/` can never change under the
+/// same name, so it is cached for a year; the rest gets a short cache.
+fn cache_control(path: &str) -> &'static str {
+    if path == "index.html" {
+        "no-cache"
+    } else if path.starts_with("assets/") {
+        "public, max-age=31536000, immutable"
+    } else {
+        "public, max-age=3600"
+    }
+}
+
 fn not_found() -> Response {
     (StatusCode::NOT_FOUND, "not found").into_response()
 }
@@ -55,6 +69,22 @@ fn respond(path: &str, data: Vec<u8>) -> Response {
     Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, mime.as_ref())
+        .header(header::CACHE_CONTROL, cache_control(path))
         .body(Body::from(data))
         .unwrap()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::cache_control;
+
+    #[test]
+    fn index_is_revalidated_but_hashed_assets_are_immutable() {
+        assert_eq!(cache_control("index.html"), "no-cache");
+        assert_eq!(
+            cache_control("assets/index-abc123.js"),
+            "public, max-age=31536000, immutable"
+        );
+        assert_eq!(cache_control("favicon.ico"), "public, max-age=3600");
+    }
 }
