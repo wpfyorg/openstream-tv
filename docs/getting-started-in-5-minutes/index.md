@@ -74,7 +74,7 @@ If you opened `/` before setting a password, the page points you back to the set
 You can sign in to several providers. Only the **active** one supplies the channel list; switch it with the **Use …** button on the card or with `ost provider use <provider>`.
 
 > [!IMPORTANT]
-> JioTV+, PlayboxTV, Airtel Xstream and Tata Play are disabled by default, and their sign-in endpoints reject requests until they are enabled. Add `tv_plus = true`, `playbox = true`, `airtel = true` or `tataplay = true` to your config file (or start the server with `OPENSTREAM_TVPLUS=true`, `OPENSTREAM_PLAYBOX=true`, `OPENSTREAM_AIRTEL=true` or `OPENSTREAM_TATAPLAY=true`) and restart it. Their OTP sign-in then works, and their cards appear in Settings. See [server configuration](../configuration-reference/index.md) for the file location and every option.
+> JioTV+, PlayboxTV, Airtel Xstream and Tata Play are disabled by default, and their sign-in endpoints reject requests until they are enabled. Add `tv_plus = true`, `playbox = true`, `airtel = true` or `tataplay = true` to your config file (or start the server with `OPENSTREAM_TVPLUS=true`, `OPENSTREAM_PLAYBOX=true`, `OPENSTREAM_AIRTEL=true` or `OPENSTREAM_TATAPLAY=true`) and restart it. Their OTP sign-in then works, and their cards appear in Settings. On an installed service, an `OPENSTREAM_*` value in the service environment overrides the config file, so set that value to `true` or remove it, then restart the service. See [server configuration](../configuration-reference/index.md) for the file location and every option.
 
 | Situation | Where to go |
 | :--- | :--- |
@@ -103,7 +103,7 @@ You can sign in to several providers. Only the **active** one supplies the chann
 
 Settings lists the two URLs to paste into any IPTV app:
 
-The guide URL returns HTTP 503 until EPG is enabled and the guide file is ready. Enable it first with `ost epg on`.
+The guide URL returns HTTP 503 until EPG is enabled and the guide file is ready. Enable it with `ost epg on` before copying it. If you started the server in the foreground with `ost serve`, restart it afterwards; the command prints the same reminder when it cannot restart an installed service.
 
 | File | Where |
 | :--- | :--- |
@@ -113,7 +113,7 @@ The guide URL returns HTTP 503 until EPG is enabled and the guide file is ready.
 Copy the complete URLs from Settings rather than typing them: the `/k/<key>/` segment is what authorises the request, and the bare paths return HTTP 401 when authentication is on. If authentication is deliberately disabled, Settings shows the unkeyed `/playlist.m3u` and `/epg.xml.gz` paths instead.
 
 > [!CAUTION]
-> Anyone with the playlist URL can watch. Keep it private. If it leaks, rotate it with `ost key rotate`. When authentication is disabled, rotation does not revoke the unkeyed `/playlist.m3u` URL; restore authentication or restrict network access instead.
+> Anyone with the playlist URL can watch. Keep it private. If it leaks, rotate it from Settings, which updates the running server immediately. `ost key rotate` from a shell only writes the new key to the store, so restart the server afterwards. When authentication is disabled, rotation does not revoke the unkeyed `/playlist.m3u` URL; restore authentication or restrict network access instead.
 
 More: [using IPTV playlists](../using-iptv-playlists/index.md).
 
