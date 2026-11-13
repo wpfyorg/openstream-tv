@@ -109,7 +109,7 @@ It listens on `http://localhost:5001` by default and keeps its credentials in `~
 
 ### 🔑 Step 2: Set the admin password
 
-Open `http://localhost:5001` and set the password the first time. Prefer the CLI? Run `ost admin password`.
+Open the keyed **Web setup** link the server prints on first launch, and set the password there. Opening `http://localhost:5001/` alone cannot set the first password. Prefer the CLI? Run `ost admin password`.
 
 ### 📲 Step 3: Sign in to a provider
 
@@ -166,7 +166,7 @@ Copy the complete URL with its `/k/<key>/` segment. The bare paths return HTTP 4
 
 ## ⚙️ Configuration
 
-Configuration lives in a TOML file in the data directory, and every option has an `OPENSTREAM_*` environment variable of the same name. Legacy `JIOTV_*` names are still read for migration; the OpenStream name wins when both are set.
+Configuration is a TOML file that the server looks for in the current working directory by default (`openstream.toml`, `config.toml` and a few legacy names); point it elsewhere with `--config PATH`. Every option also has an `OPENSTREAM_*` environment variable of the same name. Legacy `JIOTV_*` names are still read for migration; the OpenStream name wins when both are set.
 
 | Variable | Purpose |
 | :--- | :--- |
@@ -180,8 +180,8 @@ Configuration lives in a TOML file in the data directory, and every option has a
 | `OPENSTREAM_DRM` | Enable DRM playback paths. |
 | `OPENSTREAM_PROXY` | Route provider traffic through a proxy. |
 | `OPENSTREAM_PUBLIC_ORIGIN` | Force the origin used in playlist links. |
-| `OPENSTREAM_PATH_PREFIX` | Serve under a sub-path, for reverse proxies. |
-| `OPENSTREAM_DISABLE_AUTH` | Turn off the web login (only on a trusted network). |
+| `OPENSTREAM_PATH_PREFIX` | Path of the data directory (credentials, EPG, logs). Empty uses `~/.openstream-tv` (`/etc/openstream` on OpenWrt). |
+| `OPENSTREAM_DISABLE_AUTH` | Bypass the access gate: unkeyed playlists and protected API routes become reachable without a session. Only on a trusted network. |
 | `OPENSTREAM_DEFAULT_CATEGORIES` / `OPENSTREAM_DEFAULT_LANGUAGES` | Seed the channel filters. |
 | `OPENSTREAM_TITLE` | Rename the instance. |
 | `OPENSTREAM_DEBUG` / `OPENSTREAM_LOG_TO_STDOUT` | Verbose logging. |
@@ -227,7 +227,7 @@ Configuration lives in a TOML file in the data directory, and every option has a
 ## 🔒 Golden Rules
 
 1. **Keep the playlist URL private.** It is a bearer key: anyone with it can watch.
-2. **Put it behind TLS or a tunnel before exposing it.** `ost serve --tls` locally, `ost tunnel` for the internet.
+2. **Put it behind a tunnel or another protected exposure before opening it to the internet.** `ost serve --tls` adds an HTTPS listener but leaves the plain-HTTP one running, so TLS alone does not remove plaintext access. Use `ost serve --tunnel` (or a reverse proxy that only exposes the protected origin).
 3. **Your provider credentials live in the data directory.** Back that up; never commit it.
 4. **One active provider at a time.** Sign in to as many as you like — only the active catalogue is listed.
 5. **Do not share accounts.** Every stream is yours, and providers notice concurrent use.

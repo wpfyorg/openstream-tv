@@ -73,6 +73,9 @@ If you opened `/` before setting a password, the page points you back to the set
 
 You can sign in to several providers. Only the **active** one supplies the channel list; switch it with the **Use …** button on the card or with `ost provider use <provider>`.
 
+> [!IMPORTANT]
+> JioTV+ and PlayboxTV are disabled by default, and their sign-in endpoints reject requests until they are enabled. Add `tv_plus = true` or `playbox = true` to your config file (or start the server with `OPENSTREAM_TVPLUS=true` / `OPENSTREAM_PLAYBOX=true`) and restart it. Their OTP sign-in then works, and the PlayboxTV card appears in Settings. See [server configuration](../configuration-reference/index.md) for the file location and every option.
+
 | Situation | Where to go |
 | :--- | :--- |
 | JioTV number and OTP | [Connect JioTV](../account-connect-jiotv/index.md) |
@@ -102,8 +105,10 @@ Settings lists the two URLs to paste into any IPTV app:
 
 | File | Where |
 | :--- | :--- |
-| Playlist | `http://<server>:5001/playlist.m3u` |
-| Guide | `http://<server>:5001/epg.xml.gz` |
+| Playlist | `http://<server>:5001/k/<key>/playlist.m3u` |
+| Guide | `http://<server>:5001/k/<key>/epg.xml.gz` |
+
+Copy the complete URLs from Settings rather than typing them: the `/k/<key>/` segment is what authorises the request, and the bare paths return HTTP 401 when authentication is on. If authentication is deliberately disabled, Settings shows the unkeyed `/playlist.m3u` and `/epg.xml.gz` paths instead.
 
 > [!CAUTION]
 > Anyone with the playlist URL can watch. Keep it private and rotate it with `ost key rotate` if it leaks.
