@@ -1034,7 +1034,7 @@ pub async fn render_dash_handler(
     if let Some(ct) = ct {
         builder = builder.header(header::CONTENT_TYPE, ct);
     }
-    builder.body(Body::from(body)).unwrap()
+    builder.body(body).unwrap()
 }
 
 async fn proxy_dash_segment(
@@ -1042,7 +1042,7 @@ async fn proxy_dash_segment(
     channel_id: &str,
     url: &str,
     hdnea: Option<&str>,
-) -> (u16, Vec<u8>, Option<String>) {
+) -> (u16, Body, Option<String>) {
     let mut req = state.http.get(url);
     if crate::playbox::is_playbox_channel(channel_id) {
         let mut has_user_agent = false;
@@ -1076,10 +1076,10 @@ async fn proxy_dash_segment(
                 .get(header::CONTENT_TYPE)
                 .and_then(|v| v.to_str().ok())
                 .map(str::to_string);
-            let body = resp.bytes().await.map(|b| b.to_vec()).unwrap_or_default();
+            let body = crate::stream::passthrough_body(resp);
             (status, body, ct)
         }
-        Err(_) => (502, Vec::new(), None),
+        Err(_) => (502, Body::empty(), None),
     }
 }
 

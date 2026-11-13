@@ -1520,7 +1520,7 @@ pub async fn render_ts_handler(
     if let Some(ct) = headers {
         builder = builder.header(header::CONTENT_TYPE, ct);
     }
-    builder.body(Body::from(body)).unwrap()
+    builder.body(body).unwrap()
 }
 
 async fn proxy_segment(
@@ -1528,7 +1528,7 @@ async fn proxy_segment(
     channel_id: &str,
     url: &str,
     hdnea: Option<&str>,
-) -> (u16, Vec<u8>, Option<String>) {
+) -> (u16, Body, Option<String>) {
     let mut req = state.http.get(url);
     if let Some(headers) = provider_media_headers(state, channel_id).await {
         let mut has_user_agent = false;
@@ -1569,11 +1569,20 @@ async fn proxy_segment(
                 .get(header::CONTENT_TYPE)
                 .and_then(|v| v.to_str().ok())
                 .map(str::to_string);
-            let body = resp.bytes().await.map(|b| b.to_vec()).unwrap_or_default();
-            (status, body, ct)
+            (status, passthrough_body(resp), ct)
         }
-        Err(_) => (502, Vec::new(), None),
+        Err(_) => (502, Body::empty(), None),
     }
+}
+
+/// Forwards an upstream body to the client frame by frame instead of
+/// collecting it first. A segment is therefore never held in memory as a
+/// whole, back pressure reaches the CDN while the client is slow, and a client
+/// that disconnects drops the upstream request together with the body. A body
+/// that fails mid-transfer surfaces as a stream error rather than a short
+/// successful response.
+pub(crate) fn passthrough_body(resp: reqwest::Response) -> Body {
+    Body::new(reqwest::Body::from(resp))
 }
 
 /// `/render.key` — an AES-128 HLS key request. Mirrors `RenderKeyHandler`:
@@ -2888,5 +2897,136 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::OK);
         assert_eq!(resolve_calls.load(Ordering::SeqCst), 2);
         assert!(state.playbox.playlist_ready("pb_ch1"));
+    }
+
+    /// Serves one HTTP response from a fresh listener and returns its URL.
+    async fn upstream(
+        handler: impl FnOnce(tokio::net::TcpStream) + Send + 'static,
+    ) -> String {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.unwrap();
+            handler(socket);
+        });
+        format!("http://{addr}/segment.ts")
+    }
+
+    /// The response body is the upstream response itself: the first chunk must
+    /// reach the caller while the upstream is still sending the rest.
+    #[tokio::test]
+    async fn segment_body_is_forwarded_as_it_arrives() {
+        use http_body_util::BodyExt;
+        use tokio::io::AsyncWriteExt;
+
+        let (release, wait) = tokio::sync::oneshot::channel::<()>();
+        let url = upstream(|mut socket| {
+            tokio::spawn(async move {
+                socket
+                    .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 8\r\n\r\nfirst")
+                    .await
+                    .unwrap();
+                let _ = wait.await;
+                let _ = socket.write_all(b"end").await;
+            });
+        })
+        .await;
+
+        let resp = crate::http_client::client()
+            .unwrap()
+            .get(&url)
+            .send()
+            .await
+            .unwrap();
+        let mut body = passthrough_body(resp);
+
+        let frame = tokio::time::timeout(std::time::Duration::from_secs(2), body.frame())
+            .await
+            .expect("the first chunk waited for the whole segment")
+            .unwrap()
+            .unwrap();
+        assert_eq!(frame.into_data().unwrap().as_ref(), b"first");
+
+        release.send(()).unwrap();
+        let mut rest = Vec::new();
+        while let Some(frame) = body.frame().await {
+            rest.extend_from_slice(&frame.unwrap().into_data().unwrap());
+        }
+        assert_eq!(rest, b"end");
+    }
+
+    /// A body that breaks mid-transfer is an error, not a short success.
+    #[tokio::test]
+    async fn an_interrupted_segment_is_a_stream_error() {
+        use http_body_util::BodyExt;
+        use tokio::io::AsyncWriteExt;
+
+        let url = upstream(|mut socket| {
+            tokio::spawn(async move {
+                // Promises more than it sends, then closes the connection.
+                let _ = socket
+                    .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 64\r\n\r\npartial")
+                    .await;
+                drop(socket);
+            });
+        })
+        .await;
+
+        let resp = crate::http_client::client()
+            .unwrap()
+            .get(&url)
+            .send()
+            .await
+            .unwrap();
+        let mut body = passthrough_body(resp);
+        let mut saw_error = false;
+        while let Some(frame) = body.frame().await {
+            if frame.is_err() {
+                saw_error = true;
+                break;
+            }
+        }
+        assert!(saw_error, "a truncated segment read as a complete body");
+    }
+
+    /// Dropping the downstream body cancels the upstream request instead of
+    /// leaving it downloading for a client that is gone.
+    #[tokio::test]
+    async fn dropping_the_body_closes_the_upstream_request() {
+        use http_body_util::BodyExt;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let (closed, closed_seen) = tokio::sync::oneshot::channel::<()>();
+        let url = upstream(|mut socket| {
+            tokio::spawn(async move {
+                let _ = socket
+                    .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 1024\r\n\r\nstart")
+                    .await;
+                let mut buf = [0u8; 64];
+                loop {
+                    match socket.read(&mut buf).await {
+                        Ok(0) | Err(_) => break,
+                        Ok(_) => {}
+                    }
+                }
+                let _ = closed.send(());
+            });
+        })
+        .await;
+
+        let resp = crate::http_client::client()
+            .unwrap()
+            .get(&url)
+            .send()
+            .await
+            .unwrap();
+        let mut body = passthrough_body(resp);
+        body.frame().await.unwrap().unwrap();
+        drop(body);
+
+        tokio::time::timeout(std::time::Duration::from_secs(5), closed_seen)
+            .await
+            .expect("the upstream request outlived the client")
+            .unwrap();
     }
 }
