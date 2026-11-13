@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>openstream tv — logo sheet</title>
+<style>
+@layer od-layout {
+  [hidden]:not([hidden="until-found" i]) { display: none !important; }
+  dialog:not([open]) { display: none !important; }
+
+  :where(.od-stack,.od-row,.od-row-top,.od-cluster,.od-grid,.od-field,.od-stat,.od-cell,.od-tile) > :where(*) { min-width: 0; }
+
+  .od-stack   { display: flex; flex-direction: column; gap: var(--od-gap, 8px); }
+  .od-row     { display: flex; align-items: center; gap: var(--od-gap, 8px); }
+  .od-row-top { display: flex; align-items: flex-start; gap: var(--od-gap, 8px); }
+  .od-cluster { display: flex; flex-wrap: wrap; align-items: center; gap: var(--od-gap, 8px); }
+  .od-fill    { flex: 1 1 0; min-width: 0; }
+  .od-fixed   { flex: none; }
+  .od-grid    { display: grid; gap: var(--od-gap, 12px); grid-template-columns: repeat(var(--od-cols, 3), minmax(0, 1fr)); }
+
+  .od-stat, .od-field, .od-cell { display: grid; gap: var(--od-gap, 2px); }
+  :where(.od-stat,.od-field,.od-cell) > :where(*) { display: block; }
+  .od-tile { display: grid; grid-template-rows: auto 1fr; }
+  :where(.od-tile) > :where(*) { display: block; }
+
+  .od-media { display: block; width: 100%; height: auto; aspect-ratio: var(--od-ratio, auto); }
+  .od-media-cover { object-fit: cover; }
+
+  .od-icon { display: inline-block; inline-size: var(--od-icon-size, 1em); block-size: var(--od-icon-size, 1em); flex: none; }
+
+  .od-truncate { display: block; max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .od-clamp-2, .od-clamp-3 { display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+  .od-clamp-2 { -webkit-line-clamp: 2; }
+  .od-clamp-3 { -webkit-line-clamp: 3; }
+  .od-lines-2 { min-height: calc(2 * 1.4em); }
+  .od-nowrap  { white-space: nowrap; }
+  .od-keep    { word-break: keep-all; overflow-wrap: anywhere; }
+
+  .od-screen { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; height: 100%; }
+  .od-scroll { overflow-y: auto; overscroll-behavior: contain; min-height: 0; }
+
+  .od-rail { display: flex; gap: var(--od-gap, 8px); overflow-x: auto; scroll-snap-type: x proximity; scrollbar-width: none;
+             padding-inline: var(--od-rail-pad, 16px); scroll-padding-inline: var(--od-rail-pad, 16px); }
+  .od-rail::-webkit-scrollbar { display: none; }
+  :where(.od-rail) > :where(*) { flex: none; scroll-snap-align: start; }
+  :where(.od-rail) > :where(:last-child) { margin-inline-end: var(--od-rail-pad, 16px); }
+
+  .od-spacer { flex: none; visibility: hidden; pointer-events: none; }
+  .od-touch  { min-width: 44px; min-height: 44px; }
+}
+:root [hidden]:where(:not([hidden="until-found" i])) { display: none; }
+
+/* ---- brand tokens ---- */
+:root {
+  --ink: #0B0F1A;
+  --onair: #FF4438;
+  --paper: #FFFFFF;
+  --page: #E5E8EC;
+  --mid: #6B707A;
+  --hair: rgba(11, 15, 26, 0.12);
+
+  --fs-micro: 11px;
+  --fs-label: 13px;
+  --fs-body: 16px;
+  --fs-h2: 18px;
+  --fs-h1: clamp(26px, 4.2vw, 36px);
+
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+  --sp-7: 48px;
+  --sp-8: 64px;
+
+  --gutter: clamp(20px, 4vw, 48px);
+  --sheet: 1000px;
+
+  --ui: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--ink);
+  font-family: var(--ui);
+  font-size: var(--fs-body);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: inherit; text-decoration: none; }
+a:focus-visible { outline: 2px solid var(--onair); outline-offset: 4px; border-radius: 2px; }
+
+img { max-width: 100%; }
+
+.sheet {
+  max-width: var(--sheet);
+  margin: 0 auto;
+  padding: var(--sp-8) var(--gutter) var(--sp-7);
+}
+
+/* ---- masthead ---- */
+.masthead { padding-block: var(--sp-4) var(--sp-7); }
+
+.eyebrow {
+  margin: 0 0 var(--sp-3);
+  font-size: var(--fs-micro);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(11, 15, 26, 0.56);
+}
+
+.masthead h1 {
+  margin: 0;
+  font-size: var(--fs-h1);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+
+.standfirst {
+  margin: var(--sp-3) 0 0;
+  max-width: 58ch;
+  color: rgba(11, 15, 26, 0.68);
+  font-size: var(--fs-body);
+}
+
+/* ---- panels ---- */
+.panel {
+  padding: var(--sp-6) var(--gutter);
+  margin-bottom: var(--sp-5);
+}
+
+.panel--light { background: var(--paper); }
+.panel--dark  { background: var(--ink); color: var(--paper); }
+.panel--mid   { background: var(--mid); color: var(--paper); }
+
+.panel-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sp-2) var(--sp-4);
+  margin-bottom: var(--sp-6);
+}
+
+.panel-head h2 {
+  margin: 0;
+  font-size: var(--fs-h2);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.panel-head .num {
+  font-family: var(--mono);
+  font-size: var(--fs-micro);
+  letter-spacing: 0.1em;
+  opacity: 0.5;
+  margin-right: var(--sp-2);
+}
+
+.panel-file {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: var(--fs-micro);
+  letter-spacing: 0.02em;
+  opacity: 0.56;
+  word-break: break-all;
+}
+
+.panel--dark .standfirst,
+.panel--dark .eyebrow,
+.panel--mid .standfirst { color: rgba(255, 255, 255, 0.72); }
+
+.lockup {
+  display: block;
+  width: 100%;
+  max-width: 560px;
+}
+
+.lockup + .lockup { margin-top: var(--sp-5); }
+
+.lockup img { display: block; width: 100%; height: auto; }
+
+/* marks at real pixel sizes */
+.sizes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--sp-6);
+  margin-top: var(--sp-6);
+}
+
+.size {
+  display: grid;
+  gap: var(--sp-1);
+  justify-items: start;
+}
+
+.size img { display: block; width: var(--s); height: auto; }
+
+.size-num {
+  font-family: var(--mono);
+  font-size: var(--fs-micro);
+  letter-spacing: 0.06em;
+  opacity: 0.72;
+  margin-top: var(--sp-2);
+}
+
+.size-cap {
+  font-size: var(--fs-micro);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.5;
+}
+
+.size--xl { --s: 96px; }
+.size--md { --s: 48px; }
+.size--sm { --s: 32px; }
+
+/* two-polarity comparison */
+.pair {
+  display: grid;
+  gap: var(--sp-6);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+}
+
+.pair .lockup { max-width: none; }
+
+.pair figcaption {
+  margin-top: var(--sp-3);
+  font-size: var(--fs-micro);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  opacity: 0.7;
+}
+
+figure { margin: 0; }
+
+.hint {
+  margin: var(--sp-5) 0 0;
+  font-size: var(--fs-label);
+  color: rgba(11, 15, 26, 0.56);
+}
+
+.panel--dark .hint, .panel--mid .hint { color: rgba(255, 255, 255, 0.62); }
+
+/* ---- files ---- */
+.files { padding-block: var(--sp-7) 0; }
+
+.files h2 {
+  margin: 0 0 var(--sp-4);
+  font-size: var(--fs-h2);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.file-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--sp-4) var(--sp-6);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.file { gap: var(--sp-1); padding-top: var(--sp-3); border-top: 1px solid var(--hair); }
+
+.file a {
+  font-family: var(--mono);
+  font-size: var(--fs-label);
+  word-break: break-all;
+  text-decoration: underline;
+  text-decoration-color: rgba(11, 15, 26, 0.24);
+  text-underline-offset: 3px;
+}
+
+.file a:hover { text-decoration-color: var(--onair); }
+
+.file-note { font-size: var(--fs-label); color: rgba(11, 15, 26, 0.6); line-height: 1.45; }
+
+/* ---- palette ---- */
+.palette {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-6);
+  margin: var(--sp-6) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.swatch { display: grid; gap: var(--sp-2); }
+
+.chip {
+  width: 48px;
+  height: 48px;
+  border-radius: 3px;
+  box-shadow: inset 0 0 0 1px rgba(11, 15, 26, 0.14);
+}
+
+.chip--ink { background: var(--ink); }
+.chip--onair { background: var(--onair); }
+.chip--paper { background: var(--paper); }
+
+.swatch-name { font-size: var(--fs-label); font-weight: 600; }
+.swatch-hex { font-family: var(--mono); font-size: var(--fs-micro); letter-spacing: 0.04em; opacity: 0.6; }
+
+/* ---- rules ---- */
+.rules {
+  margin: var(--sp-6) 0 0;
+  padding: var(--sp-5) 0 0;
+  border-top: 1px solid var(--hair);
+  list-style: none;
+  display: grid;
+  gap: var(--sp-3);
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  font-size: var(--fs-label);
+  color: rgba(11, 15, 26, 0.7);
+}
+
+.rules b { color: var(--ink); font-weight: 600; }
+
+/* ---- responsive ---- */
+@media (max-width: 767px) {
+  .sheet { padding-top: var(--sp-6); }
+  .panel { padding: var(--sp-5) var(--sp-5); }
+  .pair { grid-template-columns: minmax(0, 1fr); gap: var(--sp-5); }
+  .file-list { grid-template-columns: minmax(0, 1fr); }
+  .sizes { gap: var(--sp-5); }
+  .panel-file { margin-left: 0; flex-basis: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition-duration: 0.001ms !important; animation-duration: 0.001ms !important; }
+}
+</style>
+</head>
+<body>
+<main class="sheet">
+
+  <header class="masthead">
+    <p class="eyebrow">Brand sheet · logo files</p>
+    <h1>openstream tv</h1>
+    <p class="standfirst">
+      The ring is the <em>o</em> of openstream: one open ring sized to the width of the word’s own letters,
+      sitting on the x-height band with its opening turned away from the word with the on-air dot held in it. Every specimen sits on a solid ground rather than
+      a transparent pane, so nothing can disappear. Click any logo to open the original file.
+    </p>
+  </header>
+
+  <section class="panel panel--light" aria-labelledby="sec-ink">
+    <div class="panel-head">
+      <h2 id="sec-ink"><span class="num">01</span>Ink on white</h2>
+      <span class="panel-file">openstream-lockup.svg</span>
+    </div>
+
+    <a class="lockup" href="openstream-lockup.svg" aria-label="Open the ink lockup file">
+      <img src="openstream-lockup.svg" width="570" height="86" alt="openstream tv lockup in ink on a white ground">
+    </a>
+
+    <div class="sizes">
+      <a class="size size--xl" href="openstream-mark.svg" aria-label="Open the ink mark file">
+        <img src="openstream-mark.svg" width="96" height="96" alt="openstream mark in ink at 96 pixels">
+        <span class="size-num">96 px</span>
+        <span class="size-cap">App icon</span>
+      </a>
+      <span class="size size--md">
+        <img src="openstream-mark.svg" width="96" height="96" alt="openstream mark in ink at 48 pixels">
+        <span class="size-num">48 px</span>
+        <span class="size-cap">Avatar</span>
+      </span>
+      <span class="size size--sm">
+        <img src="openstream-mark.svg" width="96" height="96" alt="openstream mark in ink at 32 pixels">
+        <span class="size-num">32 px</span>
+        <span class="size-cap">Smallest usable</span>
+      </span>
+    </div>
+
+    <p class="hint">The ring is cut to the width of the word’s letters, so it reads as a letter rather than a badge. An 80° opening at 9 o’clock, facing away from the word, holds the dot — now one stroke thick; clear space is a quarter of the ring’s height on every side.</p>
+  </section>
+
+  <section class="panel panel--dark" aria-labelledby="sec-reverse">
+    <div class="panel-head">
+      <h2 id="sec-reverse"><span class="num">02</span>White on ink</h2>
+      <span class="panel-file">openstream-lockup-inverse.svg</span>
+    </div>
+
+    <a class="lockup" href="openstream-lockup-inverse.svg" aria-label="Open the reversed lockup file">
+      <img src="openstream-lockup-inverse.svg" width="570" height="86" alt="openstream tv lockup in white on an ink ground">
+    </a>
+
+    <div class="sizes">
+      <a class="size size--xl" href="openstream-mark-inverse.svg" aria-label="Open the reversed mark file">
+        <img src="openstream-mark-inverse.svg" width="96" height="96" alt="openstream mark in white at 96 pixels">
+        <span class="size-num">96 px</span>
+        <span class="size-cap">App icon</span>
+      </a>
+      <span class="size size--md">
+        <img src="openstream-mark-inverse.svg" width="96" height="96" alt="openstream mark in white at 48 pixels">
+        <span class="size-num">48 px</span>
+        <span class="size-cap">Avatar</span>
+      </span>
+      <span class="size size--sm">
+        <img src="openstream-mark-inverse.svg" width="96" height="96" alt="openstream mark in white at 32 pixels">
+        <span class="size-num">32 px</span>
+        <span class="size-cap">Smallest usable</span>
+      </span>
+    </div>
+
+    <p class="hint">Use this polarity on video, dark UI, and photography. The dot stays on-air red at every size.</p>
+  </section>
+
+  <section class="panel panel--mid" aria-labelledby="sec-mid">
+    <div class="panel-head">
+      <h2 id="sec-mid"><span class="num">03</span>Both on mid grey</h2>
+      <span class="panel-file">#6B707A</span>
+    </div>
+
+    <div class="pair">
+      <figure>
+        <span class="lockup">
+          <img src="openstream-lockup.svg" width="570" height="86" alt="openstream tv lockup in ink on mid grey">
+        </span>
+        <figcaption>Ink — weakest case</figcaption>
+      </figure>
+      <figure>
+        <span class="lockup">
+          <img src="openstream-lockup-inverse.svg" width="570" height="86" alt="openstream tv lockup in white on mid grey">
+        </span>
+        <figcaption>White — preferred here</figcaption>
+      </figure>
+    </div>
+
+    <p class="hint">This is the honest test: the ground both polarities fight with. If a partner has to place the logo on a mid-tone image, pick white and keep the crop clear of the ring.</p>
+  </section>
+
+  <section class="files" aria-labelledby="sec-files">
+    <h2 id="sec-files">Files</h2>
+    <ul class="file-list">
+      <li class="file od-stat">
+        <a href="openstream-lockup.svg">openstream-lockup.svg</a>
+        <span class="file-note">Primary lockup, ink, transparent, 570 × 86 units.</span>
+      </li>
+      <li class="file od-stat">
+        <a href="openstream-lockup-inverse.svg">openstream-lockup-inverse.svg</a>
+        <span class="file-note">Reversed lockup for dark grounds and video.</span>
+      </li>
+      <li class="file od-stat">
+        <a href="openstream-mark.svg">openstream-mark.svg</a>
+        <span class="file-note">The ring and dot alone on a 96 grid, ink — icons, avatars, favicons.</span>
+      </li>
+      <li class="file od-stat">
+        <a href="openstream-mark-inverse.svg">openstream-mark-inverse.svg</a>
+        <span class="file-note">Reversed mark for dark tiles and app icons.</span>
+      </li>
+      <li class="file od-stat">
+        <a href="exports/openstream-lockup-1020.png">exports/openstream-lockup-1020.png</a>
+        <span class="file-note">Lockup, ink, transparent PNG at 1020 × 154.</span>
+      </li>
+      <li class="file od-stat">
+        <a href="exports/openstream-lockup-inverse-1020.png">exports/openstream-lockup-inverse-1020.png</a>
+        <span class="file-note">Lockup, reversed, transparent PNG at 1020 × 154.</span>
+      </li>
+      <li class="file od-stat">
+        <a href="exports/openstream-mark-1024.png">exports/openstream-mark-1024.png</a>
+        <span class="file-note">Mark, ink, transparent PNG at 1024 × 1024.</span>
+      </li>
+      <li class="file od-stat">
+        <a href="exports/openstream-mark-inverse-1024.png">exports/openstream-mark-inverse-1024.png</a>
+        <span class="file-note">Mark, reversed, transparent PNG at 1024 × 1024.</span>
+      </li>
+      <li class="file od-stat">
+        <a href="exports/openstream-mark-256.png">exports/openstream-mark-256.png</a>
+        <span class="file-note">Mark, ink, transparent PNG at 256 × 256.</span>
+      </li>
+      <li class="file od-stat">
+        <a href="README.md">README.md</a>
+        <span class="file-note">Palette, clear space, minimum sizes, licence note.</span>
+      </li>
+    </ul>
+
+    <ul class="palette" aria-label="Palette">
+      <li class="swatch">
+        <span class="chip chip--ink" role="img" aria-label="Ink swatch"></span>
+        <span class="swatch-name">Ink</span>
+        <span class="swatch-hex">#0B0F1A</span>
+      </li>
+      <li class="swatch">
+        <span class="chip chip--onair" role="img" aria-label="On-air red swatch"></span>
+        <span class="swatch-name">On air</span>
+        <span class="swatch-hex">#FF4438</span>
+      </li>
+      <li class="swatch">
+        <span class="chip chip--paper" role="img" aria-label="White swatch"></span>
+        <span class="swatch-name">White</span>
+        <span class="swatch-hex">#FFFFFF</span>
+      </li>
+    </ul>
+
+    <ul class="rules">
+      <li><b>The ring is the o</b> — never set it beside a typed o.</li>
+      <li><b>The opening</b> — stays at 9 o’clock, turned away from the word, with the dot in it.</li>
+      <li><b>Clear space</b> — a quarter of the ring’s height, all sides.</li>
+      <li><b>Minimum size</b> — mark 32 px, lockup 320 px wide; below that use the mark.</li>
+      <li><b>Red</b> — the dot only. Never on the ring or the wordmark.</li>
+      <li><b>Don’t</b> — stretch, recolour, or add a shadow.</li>
+    </ul>
+  </section>
+
+</main>
+</body>
+</html>
