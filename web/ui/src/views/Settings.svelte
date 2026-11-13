@@ -146,22 +146,24 @@
       {/if}
     </section>
 
-      <section class="card">
-        <div class="card-head">
-          <h2>JioTV+ <span class="pill stable">Stable</span></h2>
-          {#if activeProvider === "jiotv_plus"}<span class="pill active">Active</span>{/if}
-        </div>
-        {#if status.extras.connected}
-          <p class="ok">Connected</p>
-          {#if activeProvider !== "jiotv_plus"}
-            <button class="btn" disabled={providerBusy !== ""} onclick={() => activate("jiotv_plus")}>Use JioTV+</button>
+      {#if status.extras.enabled}
+        <section class="card">
+          <div class="card-head">
+            <h2>JioTV+ <span class="pill stable">Stable</span></h2>
+            {#if activeProvider === "jiotv_plus"}<span class="pill active">Active</span>{/if}
+          </div>
+          {#if status.extras.connected}
+            <p class="ok">Connected</p>
+            {#if activeProvider !== "jiotv_plus"}
+              <button class="btn" disabled={providerBusy !== ""} onclick={() => activate("jiotv_plus")}>Use JioTV+</button>
+            {/if}
+            {#if !status.logoutDisabled}<button class="btn" onclick={() => logout("extras")}>Disconnect</button>{/if}
+          {:else}
+            <p class="muted">Use the JioFiber or AirFiber mobile number.</p>
+            <ExtrasLogin ondone={loginChanged} />
           {/if}
-          {#if !status.logoutDisabled}<button class="btn" onclick={() => logout("extras")}>Disconnect</button>{/if}
-        {:else}
-          <p class="muted">Use the JioFiber or AirFiber mobile number.</p>
-          <ExtrasLogin ondone={loginChanged} />
-        {/if}
-      </section>
+        </section>
+      {/if}
 
       <section class="card">
         <div class="card-head">
@@ -234,22 +236,24 @@
         </section>
       {/if}
 
-      <section class="card">
-        <div class="card-head">
-          <h2>Tata Play <span class="pill beta">Beta</span></h2>
-          {#if activeProvider === "tataplay"}<span class="pill active">Active</span>{/if}
-        </div>
-        {#if status.tataplay.connected}
-          <p class="ok">Connected</p>
-          {#if activeProvider !== "tataplay"}
-            <button class="btn" disabled={providerBusy !== ""} onclick={() => activate("tataplay")}>Use Tata Play</button>
+      {#if status.tataplay.enabled}
+        <section class="card">
+          <div class="card-head">
+            <h2>Tata Play <span class="pill beta">Beta</span></h2>
+            {#if activeProvider === "tataplay"}<span class="pill active">Active</span>{/if}
+          </div>
+          {#if status.tataplay.connected}
+            <p class="ok">Connected</p>
+            {#if activeProvider !== "tataplay"}
+              <button class="btn" disabled={providerBusy !== ""} onclick={() => activate("tataplay")}>Use Tata Play</button>
+            {/if}
+            {#if !status.logoutDisabled}<button class="btn" onclick={() => logout("tataplay")}>Disconnect</button>{/if}
+          {:else}
+            <p class="muted">Use the Tata Play mobile number for your subscription.</p>
+            <TataPlayLogin ondone={loginChanged} />
           {/if}
-          {#if !status.logoutDisabled}<button class="btn" onclick={() => logout("tataplay")}>Disconnect</button>{/if}
-        {:else}
-          <p class="muted">Use the Tata Play mobile number for your subscription.</p>
-          <TataPlayLogin ondone={loginChanged} />
-        {/if}
-      </section>
+        </section>
+      {/if}
 
     </div>
   </section>
