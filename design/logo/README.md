@@ -77,9 +77,12 @@ the same skeleton.
 
 ## Rebuilding
 
-The SVGs in this directory are the source of truth. They are kept as plain outlined vector, so a
-geometry change is an edit to the SVG itself — no build script is required, and the internal
+The SVGs in this directory are the design source of truth. They are kept as plain outlined vector,
+so a geometry change is an edit to the SVG itself — no build script is required, and the internal
 generator scripts used for the original artwork are not part of this repository.
+
+The web UI does not read these files. Vite serves copies from `web/ui/public/brand/`, so after a
+geometry change here, copy the edited SVGs there as well; otherwise the UI keeps the old logo.
 
 Re-cut the PNGs whenever a vector changes, at the sizes listed under **Files** (1020 × 154 for the
 lockups; 1024 × 1024 and 256 × 256 for the marks) with a transparent background. Any SVG
