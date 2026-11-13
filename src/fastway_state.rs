@@ -97,10 +97,13 @@ impl FastwayState {
     /// Safe to call again after login/logout.
     pub fn init(&self, http: &reqwest::Client, store: &crate::store::Store) {
         *self.http.write().unwrap() = Some(http.clone());
-        // A client built by a sign-in must survive later init calls, so only a
-        // provider that is off *and* never signed in stays without one.
+        // A sign-in made while the provider was off is saved in the store, so
+        // it is restored on the next start even though the config default is
+        // still off. Only a provider that is off, never signed in and has no
+        // saved login stays without a client.
+        let creds = Credentials::load(store);
         let need_new_client = self.client.read().unwrap().is_none();
-        if !self.config_enabled && need_new_client {
+        if !self.config_enabled && need_new_client && creds.is_none() {
             return;
         }
         if need_new_client {
@@ -115,7 +118,6 @@ impl FastwayState {
                 }
             }
         }
-        let creds = Credentials::load(store);
         if let Some(client) = self.client.read().unwrap().as_ref() {
             client.set_credentials(creds.clone());
         }
@@ -580,6 +582,33 @@ mod tests {
         assert!(s.enabled());
         assert!(!s.connected());
         assert_eq!(s.route("fw_1"), Some("1".to_string()));
+    }
+
+    #[test]
+    fn disabled_state_with_no_saved_login_stays_without_a_client() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = crate::store::Store::open(dir.path().to_str().unwrap()).unwrap();
+        let s = FastwayState::new(false);
+        s.init(&reqwest::Client::new(), &store);
+        assert!(!s.enabled());
+        assert!(!s.connected());
+    }
+
+    #[test]
+    fn disabled_state_restores_a_saved_login() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = crate::store::Store::open(dir.path().to_str().unwrap()).unwrap();
+        Credentials {
+            username: "viewer".into(),
+            password: "secret".into(),
+            access_token: "token".into(),
+        }
+        .save(&store)
+        .unwrap();
+        let s = FastwayState::new(false);
+        s.init(&reqwest::Client::new(), &store);
+        assert!(s.enabled());
+        assert!(s.connected());
     }
 
     #[test]
