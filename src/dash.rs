@@ -231,6 +231,9 @@ pub(crate) async fn get_drm_mpd(
         return Ok(cached);
     }
     let live = crate::stream::fetch_live(state, channel_id).await?;
+    if state.secure.current_epoch() == epoch {
+        state.observe_playback(channel_id, &live);
+    }
     let out = build_drm_mpd_output(state, &live, channel_id, quality)?;
     // If an account switch landed mid-fetch, `out` carries the old account's
     // data under new-epoch URLs: neither cache it nor return it.
@@ -689,10 +692,16 @@ async fn render_mpd_inner(state: Arc<AppState>, q: RenderMpdQuery) -> Response {
     };
     let quality = q.q.clone().unwrap_or_default();
 
+    let epoch = state.secure.current_epoch();
     if let Ok(live) = crate::stream::fetch_live(&state, channel_id).await {
-        let fresh = television::select_best_live_mpd_url(&live, &quality);
-        if !fresh.is_empty() {
-            decrypted = fresh;
+        // Successful resolution only: a failed refetch leaves what was learned
+        // untouched, and a switch during the fetch discards the observation.
+        if state.secure.current_epoch() == epoch {
+            state.observe_playback(channel_id, &live);
+            let fresh = television::select_best_live_mpd_url(&live, &quality);
+            if !fresh.is_empty() {
+                decrypted = fresh;
+            }
         }
     }
 

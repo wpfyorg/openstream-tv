@@ -294,6 +294,24 @@ pub struct Credentials {
     pub refresh_token: String,
 }
 
+impl Credentials {
+    /// A stable fingerprint for the account these credentials belong to. The
+    /// learned playback observations are stored against it, so a different
+    /// login discards them. Hashed so the store does not carry a second
+    /// plaintext copy of the account identifiers.
+    pub fn learned_account(&self) -> String {
+        if self.crm.is_empty() && self.unique_id.is_empty() {
+            return String::new();
+        }
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(self.crm.as_bytes());
+        hasher.update(b"\0");
+        hasher.update(self.unique_id.as_bytes());
+        hex::encode(hasher.finalize())
+    }
+}
+
 /// Bitrates for one stream family (HLS `bitrates`, or DASH `mpd.bitrates`).
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct Bitrates {

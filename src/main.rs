@@ -837,9 +837,12 @@ fn build_app_state(
         http.clone(),
         device_id,
     ));
+    let mut learned_account = String::new();
     if let Some(creds) = login::load(&store) {
+        learned_account = creds.learned_account();
         tv.set_credentials(creds);
     }
+    let learned_playback = state::load_learned_playback(&store, &learned_account);
 
     let custom_channels = Arc::new(custom_channels::CustomChannels::new());
     if !cfg.custom_channels_file.is_empty() {
@@ -881,7 +884,7 @@ fn build_app_state(
         tv,
         secure,
         http: http.clone(),
-        drm_channels: Default::default(),
+        drm_channels: std::sync::RwLock::new(learned_playback),
         custom_channels,
         render_caches: Default::default(),
         dash_state: Default::default(),

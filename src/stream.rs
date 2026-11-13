@@ -760,15 +760,22 @@ async fn live_impl_inner(
         return Redirect::to(&ch.url).into_response();
     }
 
+    // Observations only count for the account that produced them: a resolution
+    // that raced an account switch is dropped instead of being learned.
+    let epoch = state.secure.current_epoch();
     let live = match fetch_live(state, id).await {
         Ok(l) => l,
         Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     };
+    if state.secure.current_epoch() == epoch {
+        state.observe_playback(id, &live);
+    }
 
     let mut live_url = television::select_best_live_hls_url(&live, quality);
     if live_url.is_empty() {
-        // A provider-backed DASH-only channel: send the player to the MPD
-        // route. Fastway's whole catalogue is DASH, including clear channels.
+        // A DASH-only channel: send the player to the MPD route. Fastway's
+        // whole catalogue is DASH, including clear channels, and a JioTV
+        // channel can become DASH-only between releases.
         let is_custom = state.custom_channels.contains(id);
         let via_fastway = state.fastway.route(id).is_some();
         let via_extras = state
@@ -779,9 +786,17 @@ async fn live_impl_inner(
         let via_vzy = crate::vzy::is_vzy_channel(id);
         let via_airtel = crate::airtel::is_airtel_channel(id);
         let via_tataplay = crate::tataplay::is_tataplay_channel(id);
-        if (via_fastway || via_extras || via_playbox || via_vzy || via_airtel || via_tataplay)
-            && television::has_dash(&live)
-        {
+        let via_provider = via_fastway
+            || via_extras
+            || via_playbox
+            || via_vzy
+            || via_airtel
+            || via_tataplay;
+        let dash_route = television::has_dash(&live)
+            && (via_provider || state.resolves_through_jiotv(id))
+            // A protected channel can only play while the DRM pathway is on.
+            && (state.config.drm || !live.has_drm_stream());
+        if dash_route {
             let prefix_str = prefix.as_ref().map(|p| p.0 .0.clone()).unwrap_or_default();
             return Redirect::to(&format!("{prefix_str}/live/mpd/{id}?q={quality}"))
                 .into_response();

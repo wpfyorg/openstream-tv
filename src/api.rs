@@ -387,7 +387,11 @@ pub async fn jiotv_verify_otp(
         tracing::warn!("cannot save the active provider: {e}");
     }
     state.invalidate_context();
+    let account = creds.learned_account();
     state.tv.set_credentials(creds);
+    // Observations belong to the login that produced them; adopting this
+    // account drops anything learned under the previous one.
+    state.set_learned_playback_account(&account);
     state.extras.invalidate_account_context();
     // A request that entered after the first rotation still used the old
     // credentials; rotate again now that the new ones are installed.
@@ -403,6 +407,7 @@ pub async fn jiotv_logout(State(state): State<SharedState>) -> Response {
     let _ = crate::login::clear(&state.store);
     state.invalidate_context();
     state.tv.clear_credentials();
+    state.set_learned_playback_account("");
     state.extras.invalidate_account_context();
     state.invalidate_context();
     crate::epg::trigger_regeneration(&state);
@@ -1589,6 +1594,7 @@ pub async fn live_play(
         };
         let response = live_play_response_from_live(&state, &live, &id, &quality);
         if state.secure.current_epoch() == epoch {
+            state.observe_playback(&id, &live);
             return response;
         }
     }
