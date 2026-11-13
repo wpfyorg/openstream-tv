@@ -48,7 +48,7 @@ Run it on a laptop, a Raspberry Pi, a NAS or an OpenWrt router, open `http://loc
 | **Windows 10 / 11** | PowerShell installer | Windows service support |
 | **Raspberry Pi and SBCs** | one-line installer | aarch64 and armv7 builds |
 | **OpenWrt** | package in `openwrt/openstream` | procd service, `/etc/openstream` data dir |
-| **Docker** | `docker/` compose file | mount a data volume for credentials |
+| **Docker** | released container image (or a Compose file) | mount a data volume for credentials |
 | **Android (Termux)** | one-line installer | arm64 builds |
 | **Android TV / phone** | app in `android/` | talks to a server you host |
 
