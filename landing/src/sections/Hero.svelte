@@ -48,11 +48,13 @@
         <BookOpen size={18} aria-hidden="true" />
         {hero.secondary.label}
       </a>
+    </div>
+    <div class="rise mt-[18px] flex justify-center" style="--rise-delay: 0.26s">
       <a
         href={hero.discord.href}
         target="_blank"
         rel="noreferrer"
-        class="inline-flex h-[45px] items-center gap-2 px-3 text-[17px] font-semibold text-muted transition-colors hover:text-fg"
+        class="inline-flex h-[40px] items-center gap-2 px-3 text-[17px] font-semibold text-muted transition-colors hover:text-fg"
       >
         <DiscordIcon size={20} class="text-[#5865F2]" />
         {hero.discord.label}
