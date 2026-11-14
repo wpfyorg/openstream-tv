@@ -5,16 +5,18 @@ on:
     branches: [main]
     paths:
       - 'docs/**'
+      - 'docs-site/**'
       - '.github/workflows/docs.yml'
       - 'scripts/check-doc-links.py'
-      - 'scripts/build-docs-pages.py'
+      - 'scripts/build-docs-site.py'
   pull_request:
     types: [labeled, synchronize, reopened]
     paths:
       - 'docs/**'
+      - 'docs-site/**'
       - '.github/workflows/docs.yml'
       - 'scripts/check-doc-links.py'
-      - 'scripts/build-docs-pages.py'
+      - 'scripts/build-docs-site.py'
 
 permissions:
   contents: read
@@ -36,13 +38,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: taiki-e/install-action@mdbook
-      - uses: actions/configure-pages@v5
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
       - run: python3 scripts/check-doc-links.py
-      - run: python3 scripts/build-docs-pages.py
+      - run: bun install --frozen-lockfile
+        working-directory: docs-site
+      # The site serves from https://wpfyorg.github.io/openstream-tv/.
+      - run: bun run build
+        working-directory: docs-site
+        env:
+          DOCS_BASE: /openstream-tv
       - uses: actions/upload-pages-artifact@v4
         with:
-          path: docs/book
+          path: docs-site/build
 
   deploy:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
