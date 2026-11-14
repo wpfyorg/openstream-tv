@@ -1,0 +1,25 @@
+{
+  "name": "openstream-tv-landing",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "vite build && node scripts/postbuild.mjs",
+    "preview": "vite preview",
+    "test": "bun test tests"
+  },
+  "dependencies": {
+    "hono": "^4.13.0",
+    "lucide-svelte": "^0.545.0"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.64.0",
+    "@sveltejs/vite-plugin-svelte": "^7.3.0",
+    "@tailwindcss/vite": "^4.3.0",
+    "svelte": "^5.57.1",
+    "tailwindcss": "^4.3.0",
+    "vite": "^8.3.0",
+    "wrangler": "^4.151.0"
+  }
+}
