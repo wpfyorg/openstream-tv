@@ -4,15 +4,16 @@
   import { brand } from './content.js'
   import Landing from './pages/Landing.svelte'
   import NotFound from './pages/NotFound.svelte'
+  import { routePath } from './lib/ui.js'
 
   // Routes: / (landing) and a friendly 404. Everything lives on one page.
   let path = $state('/')
   let title = $derived(path === '/' ? `${brand.name}: ${brand.tagline}` : `Page not found · ${brand.name}`)
 
   onMount(() => {
-    path = window.location.pathname
+    path = routePath(window.location.pathname)
     const sync = () => {
-      path = window.location.pathname
+      path = routePath(window.location.pathname)
     }
     window.addEventListener('popstate', sync)
 
@@ -28,7 +29,7 @@
       if (url.pathname === window.location.pathname) return
       event.preventDefault()
       history.pushState({}, '', url.pathname + url.search + url.hash)
-      path = url.pathname
+      path = routePath(url.pathname)
     }
     document.addEventListener('click', onClick)
 

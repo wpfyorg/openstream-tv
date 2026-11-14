@@ -8,7 +8,7 @@ export const brand = {
 }
 
 const repo = 'https://github.com/wpfyorg/openstream-tv'
-const docs = 'https://wpfyorg.github.io/openstream-tv/'
+const docs = 'https://wpfyorg.github.io/openstream-tv/docs/'
 
 export const links = {
   repo,
