@@ -101,7 +101,16 @@ impl Access {
 
     pub fn rotate(&self) -> Result<String, AccessError> {
         let next = random_hex(16);
-        self.store.set(STORE_KEY_ACCESS, &next)?;
+        match self.store.set(STORE_KEY_ACCESS, &next) {
+            Ok(()) => {}
+            // The replacement is already on disk; only its durability could not
+            // be confirmed. Keeping the previous key in memory would reject
+            // every request until the next restart, so adopt the new one.
+            Err(e) if e.committed() => {
+                tracing::warn!("access key stored but not made durable: {e}");
+            }
+            Err(e) => return Err(e.into()),
+        }
         *self.key.lock().unwrap() = Some(next.clone());
         Ok(next)
     }
@@ -134,7 +143,16 @@ impl Access {
             base64::engine::general_purpose::STANDARD_NO_PAD.encode(salt),
             base64::engine::general_purpose::STANDARD_NO_PAD.encode(hash)
         );
-        self.store.set(STORE_KEY_PASSWORD, &encoded)?;
+        match self.store.set(STORE_KEY_PASSWORD, &encoded) {
+            Ok(()) => {}
+            // The new password is already on disk; only its durability could not
+            // be confirmed. Sessions still have to be invalidated.
+            Err(e) if e.committed() => {
+                tracing::warn!("admin password stored but not made durable: {e}");
+            }
+            // Nothing was replaced, so the old password is still the live one.
+            Err(e) => return Err(e.into()),
+        }
         self.sign_out_everywhere()?;
         Ok(())
     }
@@ -181,8 +199,23 @@ impl Access {
     fn new_secret(&self) -> Result<Vec<u8>, AccessError> {
         let mut b = vec![0u8; 32];
         rand::thread_rng().fill_bytes(&mut b);
-        self.store.set(STORE_KEY_SECRET, &hex::encode(&b))?;
-        *self.secret.lock().unwrap() = Some(b.clone());
+        // Hold the cache lock across the write and the publication: two
+        // rotations racing here could otherwise leave the cached secret and the
+        // stored one disagreeing, so this process would sign sessions a restart
+        // does not accept.
+        let mut guard = self.secret.lock().unwrap();
+        match self.store.set(STORE_KEY_SECRET, &hex::encode(&b)) {
+            Ok(()) => {}
+            // The secret is already on disk, so adopt it before reporting:
+            // sessions are signed with the secret a restart would load, and the
+            // caller still learns that durability was not confirmed.
+            Err(e) if e.committed() => {
+                *guard = Some(b.clone());
+                return Err(e.into());
+            }
+            Err(e) => return Err(e.into()),
+        }
+        *guard = Some(b.clone());
         Ok(b)
     }
 
@@ -303,6 +336,72 @@ mod tests {
         let k1 = a.key().unwrap();
         let k2 = a.rotate().unwrap();
         assert_ne!(k1, k2);
+    }
+
+    #[test]
+    fn sign_out_adopts_a_secret_that_is_stored_but_not_durable() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(Store::open(dir.path().to_str().unwrap()).unwrap());
+        let access = Access::new(store.clone());
+        let before = access.session_secret().unwrap();
+
+        store.fail_dir_sync_for_test();
+        let result = access.sign_out_everywhere();
+
+        assert!(
+            result.is_err(),
+            "the unconfirmed durability is still reported"
+        );
+        let after = access.session_secret().unwrap();
+        assert_ne!(before, after, "the new secret must be adopted");
+        // The adopted secret is the one on disk, so a restart agrees with it.
+        assert_eq!(
+            store.get_opt("session_secret").as_deref(),
+            Some(hex::encode(&after).as_str())
+        );
+    }
+
+    #[test]
+    fn a_password_write_that_committed_still_signs_out_everywhere() {
+        let a = access();
+        a.set_password("hunter22").unwrap();
+        let now = SystemTime::now();
+        let session = a.new_session(now).unwrap();
+        assert!(a.valid_session(&session, now));
+
+        a.store.fail_dir_sync_for_test();
+        // Both writes report the durability failure; the password and the
+        // session secret are applied regardless.
+        let _ = a.set_password("hunter23");
+
+        assert!(a.check_password("hunter23").unwrap());
+        assert!(
+            !a.valid_session(&session, now),
+            "the old session survived a committed password write"
+        );
+    }
+
+    #[test]
+    fn rotate_adopts_a_key_that_is_stored_but_not_durable() {
+        let dir = tempfile::tempdir().unwrap();
+        let path_prefix = dir.path().to_str().unwrap().to_string();
+        let store = Arc::new(Store::open(&path_prefix).unwrap());
+        let access = Access::new(store.clone());
+        let previous = access.key().unwrap();
+
+        store.fail_dir_sync_for_test();
+        let rotated = access
+            .rotate()
+            .expect("a committed key must be adopted, not reported as unwritten");
+
+        assert_ne!(rotated, previous);
+        assert_eq!(access.key().unwrap(), rotated);
+        // The new key is the one on disk, so a restart keeps the same key.
+        let reopened = Store::open(&path_prefix).unwrap();
+        assert_eq!(
+            reopened.get_opt("access_key").as_deref(),
+            Some(rotated.as_str())
+        );
     }
 
     #[test]

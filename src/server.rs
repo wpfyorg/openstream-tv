@@ -654,8 +654,15 @@ mod tests {
                 name: "Free".into(),
                 ..Default::default()
             },
+            crate::television::Channel {
+                id: "999998".into(),
+                name: "Clear DASH".into(),
+                ..Default::default()
+            },
         ]);
-        state.drm_channels.write().unwrap().insert("154".into());
+        state.learn_playback("154", true);
+        // A clear DASH channel learns the container without a license.
+        state.learn_playback("999998", false);
         let key = state.access.key().unwrap();
         let playlist_path = format!("/k/{key}/channels?type=m3u");
 
@@ -680,10 +687,16 @@ mod tests {
             format!("x-tvg-url=\"{base}/epg.xml.gz\""),
             format!("{base}/live/mpd/154"),
             format!("{base}/live/key/154"),
+            format!("{base}/live/mpd/999998"),
             format!("{base}/live/999999.m3u8"),
         ] {
             assert!(m3u.contains(&item), "missing {item} from {m3u}");
         }
+        // The clear DASH channel is MPD without a license key.
+        assert!(
+            !m3u.contains("/live/key/999998"),
+            "clear DASH channel advertised a license: {m3u}"
+        );
         assert!(
             !m3u.contains("http://tv.example.com"),
             "mixed-content URL in {m3u}"

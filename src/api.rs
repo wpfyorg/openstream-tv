@@ -1574,6 +1574,7 @@ pub async fn live_play(
         };
         let response = live_play_response_from_live(&state, &live, &id, &quality);
         if state.secure.current_epoch() == epoch {
+            state.observe_playback(&id, &live);
             return response;
         }
     }

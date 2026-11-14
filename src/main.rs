@@ -14,6 +14,7 @@ mod extras;
 mod extras_state;
 mod fastway;
 mod fastway_state;
+mod http_client;
 mod keyed_locks;
 mod login;
 mod playbox;
@@ -828,7 +829,9 @@ fn build_app_state(
     access: Arc<access::Access>,
     secure: Arc<secureurl::SecureUrl>,
 ) -> anyhow::Result<Arc<state::AppState>> {
-    let http = reqwest::Client::builder().build()?;
+    // Bounded handshake and read-idle timeouts; see `http_client` for why the
+    // two are separate and why media streams keep working.
+    let http = http_client::client()?;
     let device_id = device_id(&store)?;
     let tv = Arc::new(television::Television::with_device_id(
         http.clone(),
@@ -870,7 +873,7 @@ fn build_app_state(
     let tataplay_state = Arc::new(tataplay_state::TataplayState::new(cfg.tataplay));
     tataplay_state.init(&http, &store);
 
-    Ok(Arc::new(state::AppState {
+    let state = Arc::new(state::AppState {
         config: cfg.clone(),
         path_prefix: path_prefix.to_string(),
         access,
@@ -894,7 +897,11 @@ fn build_app_state(
         unlock_limiter: Arc::new(unlock::AttemptLimiter::default()),
         listen: Default::default(),
         tunnel_origin: Default::default(),
-    }))
+    });
+    // Adopt the provider + account this server starts with, then restore what
+    // was learned for it (a fresh install writes the marker here).
+    state.init_learned_playback();
+    Ok(state)
 }
 
 async fn shutdown_signal() {

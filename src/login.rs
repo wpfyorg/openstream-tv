@@ -97,6 +97,7 @@ impl LoginClient {
         let resp = self
             .app_headers(self.client.post(url))
             .json(&json!({"number": encode_number(&number)}))
+            .timeout(crate::http_client::METADATA_TIMEOUT)
             .send()
             .await?;
         if !resp.status().is_success() {
@@ -140,12 +141,18 @@ impl LoginClient {
         let resp = self
             .app_headers(self.client.post(url))
             .json(&payload)
+            .timeout(crate::http_client::METADATA_TIMEOUT)
             .send()
             .await?;
         if !resp.status().is_success() {
             anyhow::bail!("verify OTP failed with status {}", resp.status());
         }
-        let body: VerifyOtpResponse = resp.json().await.unwrap_or_default();
+        // A body that fails to arrive (timeout, truncated connection) is a
+        // transport error, not a rejected OTP: reporting "Invalid OTP" here
+        // would tell the user to retype a correct code.
+        let body: VerifyOtpResponse = resp.json().await.map_err(|e| {
+            anyhow::anyhow!("could not read the OTP verification response: {e}")
+        })?;
         if body.auth_token.is_empty() {
             return Ok(None);
         }
@@ -178,6 +185,7 @@ impl LoginClient {
             .header(reqwest::header::USER_AGENT, USER_AGENT)
             .header("accesstoken", &creds.access_token)
             .json(&json!({"appName": "RJIL_JioTV", "deviceId": device_id, "refreshToken": creds.refresh_token}))
+            .timeout(crate::http_client::METADATA_TIMEOUT)
             .send()
             .await?;
         if !resp.status().is_success() {
@@ -217,6 +225,7 @@ impl LoginClient {
             .header("ssoToken", &creds.sso_token)
             .header("uniqueid", &creds.unique_id)
             .header("deviceid", device_id)
+            .timeout(crate::http_client::METADATA_TIMEOUT)
             .send()
             .await?;
         if !resp.status().is_success() {
@@ -376,6 +385,25 @@ mod tests {
                 .await
                 .unwrap()
                 .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn an_unreadable_verification_body_is_an_error_not_a_rejection() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path(super::super::television::LOGIN_VERIFY_OTP_PATH))
+            .respond_with(ResponseTemplate::new(200).set_body_string("not json"))
+            .mount(&server)
+            .await;
+        let client = LoginClient::with_base(reqwest::Client::new(), &server.uri());
+        let error = client
+            .verify_otp("+91XXXXXXXXXX", "0000", "dev")
+            .await
+            .expect_err("a malformed body must not read as an invalid OTP");
+        assert!(
+            error.to_string().contains("could not read"),
+            "unexpected error: {error}"
         );
     }
 
