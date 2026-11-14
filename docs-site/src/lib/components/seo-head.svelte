@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import { docsConfig } from '$lib/docs/config.js';
+	import { absoluteUrl, sitePath } from '$lib/docs/urls.js';
 
 	let {
 		title,
@@ -12,10 +13,13 @@
 
 	let siteTitle = docsConfig.site.title;
 	let fullTitle = $derived(title === siteTitle ? title : `${title} — ${siteTitle}`);
-	let url = $derived(docsConfig.site.url ? `${docsConfig.site.url}${page.url.pathname}` : page.url.pathname);
+	// `site.url` already carries the deployment subpath, so the base comes off
+	// the request path before the two are joined.
+	let path = $derived(sitePath(page.url.pathname));
+	let url = $derived(absoluteUrl(page.url.pathname));
 
 	let breadcrumbItems = $derived.by(() => {
-		const parts = page.url.pathname.split('/').filter(Boolean);
+		const parts = path.split('/').filter(Boolean);
 		const baseUrl = docsConfig.site.url ?? '';
 		return parts.map((part, i) => ({
 			'@type': 'ListItem' as const,

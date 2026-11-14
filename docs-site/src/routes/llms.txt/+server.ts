@@ -44,7 +44,9 @@ export const GET: RequestHandler = async ({ url }) => {
 
 	const siteTitle = docsConfig.site.title;
 	const siteDesc = docsConfig.site.description;
-	const baseUrl = url.origin;
+	// `site.url` already carries the deployment base; fall back to the request
+	// origin when it is not configured.
+	const baseUrl = docsConfig.site.url ?? url.origin;
 
 	const lines: string[] = [];
 	lines.push(`# ${siteTitle}`);

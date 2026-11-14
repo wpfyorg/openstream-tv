@@ -29,7 +29,7 @@
     "sync:content": "python3 ../scripts/build-docs-site.py --sync-only",
     "dev": "bun run sync:content && vite dev",
     "build": "bun run sync:content && vite build",
-    "postbuild": "pagefind --site .svelte-kit/output/prerendered/pages --output-path static/pagefind",
+    		"postbuild": "pagefind --site .svelte-kit/output/prerendered/pages --output-path build/pagefind",
     "preview": "vite preview",
     "prepare": "svelte-kit sync || echo ''",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",

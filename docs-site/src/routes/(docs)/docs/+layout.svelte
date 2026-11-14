@@ -3,7 +3,13 @@
 	import SidebarLeft from "$lib/components/layout/sidebar-left.svelte";
 	import SidebarRight from "$lib/components/layout/sidebar-right.svelte";
 	import * as Sidebar from "$lib/components/ui/sidebar/index.js";
+	import { docsConfig } from "$lib/docs/config.js";
 	let { children, data } = $props();
+
+	const socialLinks = [
+		...(docsConfig.site.social?.github ? [{ platform: "github", url: docsConfig.site.social.github }] : []),
+		...(docsConfig.site.social?.discord ? [{ platform: "discord", url: docsConfig.site.social.discord }] : []),
+	];
 </script>
 
 <a
@@ -13,20 +19,9 @@
 	Skip to content
 </a>
 <Sidebar.Provider>
-	<SidebarLeft
-		navigation={data.navigation}
-		socialLinks={[
-			{ platform: "github", url: "https://github.com/code-gio/svelte-docs-starter" },
-			{ platform: "twitter", url: "https://twitter.com" },
-		]}
-	/>
+	<SidebarLeft navigation={data.navigation} {socialLinks} />
 	<Sidebar.Inset>
-		<Header
-			socialLinks={[
-				{ platform: "github", url: "https://github.com/code-gio/svelte-docs-starter" },
-				{ platform: "twitter", url: "https://twitter.com" },
-			]}
-		/>
+		<Header {socialLinks} />
 		<div class="flex flex-1 flex-col gap-4 p-4">
 			{@render children()}
 		</div>

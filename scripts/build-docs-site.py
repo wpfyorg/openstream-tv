@@ -47,13 +47,14 @@ def copy_articles() -> int:
                 "[Browse all articles](../SUMMARY.md) · [Documentation home](../README.md)",
                 "[Browse all articles](./getting-started/)",
             )
-            text = text.replace("](./help-centre/)", "./")
+            # Keep the Markdown link syntax: only the destination changes.
+            text = text.replace("](./help-centre/)", "](./)")
             target = content / "index.md"
         else:
             text = slug_link.sub(lambda m: f"](../{m.group(1)}/)", text)
             text = image_link.sub(lambda m: f"](../../images/{m.group(1)})", text)
             # The help centre is the docs home now, not a separate article.
-            text = text.replace("](../help-centre/)", "../")
+            text = text.replace("](../help-centre/)", "](../)")
             target = content / f"{slug}.md"
         # The page header already renders the title from the frontmatter, so a
         # leading `# Title` in the body would duplicate the <h1>.

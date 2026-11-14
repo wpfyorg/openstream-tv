@@ -1,15 +1,14 @@
-import { getAllDocs, docsConfig } from '$lib/docs/index.js';
+import { getAllDocs } from '$lib/docs/index.js';
+import { absoluteUrl } from '$lib/docs/urls.js';
 
 export const prerender = true;
-
 export function GET() {
 	const docs = getAllDocs();
-	const siteUrl = docsConfig.site.url ?? 'https://example.com';
 
 	const urls = docs.map(
 		(doc) => `
   <url>
-    <loc>${siteUrl}${doc.href}</loc>
+    <loc>${absoluteUrl(doc.href)}</loc>
     <changefreq>weekly</changefreq>
     <priority>${doc.slug === '' ? '1.0' : '0.8'}</priority>
   </url>`

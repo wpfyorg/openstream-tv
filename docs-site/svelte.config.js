@@ -69,9 +69,10 @@ const config = {
 		adapter: adapter({ pages: 'build', assets: 'build', fallback: undefined }),
 		paths: { base: process.env.DOCS_BASE ?? '' },
 		prerender: {
-			// The sidebar links every article, so crawling from these two
-			// entry points renders the whole site.
-			entries: ['/', '/docs'],
+			// The sidebar links every article, so crawling from the docs entry
+			// point renders the whole site. The feed and crawler files are not
+			// linked from any page, so they are listed explicitly.
+			entries: ['/', '/docs', '/sitemap.xml', '/rss.xml', '/llms.txt', '/llms-full.txt'],
 			handleHttpError: 'warn',
 			handleUnseenRoutes: 'warn'
 		}

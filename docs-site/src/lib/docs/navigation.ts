@@ -47,8 +47,11 @@ export function getPrevNext(
 	currentSlug: string,
 	locale?: string
 ): { prev?: NavItem; next?: NavItem } {
-	const allDocs = getAllDocs(locale);
-	const index = allDocs.findIndex((doc) => doc.slug === currentSlug);
+	  const allDocs = getAllDocs(locale);
+  // A `[...slug]` rest parameter carries the trailing slash the pages are
+  // served with, while document keys never do.
+  const clean = currentSlug.replace(/^\/+|\/+$/g, '');
+  const index = allDocs.findIndex((doc) => doc.slug === clean);
 	if (index === -1) return {};
 
 	return {

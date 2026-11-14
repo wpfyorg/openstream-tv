@@ -32,8 +32,10 @@
 		const github = docsConfig.site.social?.github;
 		if (!github) return '';
 		// The published content is generated from `docs/`, which stays the
-		// source of truth, so point contributors at that file.
-		const filePath = slug ? `docs/${slug}/index.md` : 'docs/help-centre/index.md';
+		// source of truth, so point contributors at that file. The rest
+		// parameter carries the page's trailing slash.
+		const clean = slug?.replace(/\/+$/, '');
+		const filePath = clean ? `docs/${clean}/index.md` : 'docs/help-centre/index.md';
 		return `${github}/edit/main/${filePath}`;
 	});
 

@@ -1,7 +1,7 @@
 import { getAllDocs, docsConfig } from '$lib/docs/index.js';
+import { absoluteUrl } from '$lib/docs/urls.js';
 
 export const prerender = true;
-
 export function GET() {
 	const docs = getAllDocs();
 	const siteUrl = docsConfig.site.url ?? 'https://example.com';
@@ -14,8 +14,8 @@ export function GET() {
 			(doc) => `
     <item>
       <title>${escapeXml(doc.meta.title)}</title>
-      <link>${siteUrl}${doc.href}</link>
-      <guid>${siteUrl}${doc.href}</guid>
+      <link>${absoluteUrl(doc.href)}</link>
+      <guid>${absoluteUrl(doc.href)}</guid>
       <description>${escapeXml(doc.meta.description)}</description>
       ${doc.meta.lastUpdated ? `<pubDate>${new Date(doc.meta.lastUpdated).toUTCString()}</pubDate>` : ''}
     </item>`
@@ -26,7 +26,7 @@ export function GET() {
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
   <channel>
     <title>${escapeXml(siteTitle)}</title>
-    <link>${siteUrl}/docs</link>
+    <link>${absoluteUrl('/docs')}</link>
     <description>${escapeXml(siteDescription)}</description>
     <language>en</language>
     <atom:link href="${siteUrl}/rss.xml" rel="self" type="application/rss+xml" />

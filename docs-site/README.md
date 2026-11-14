@@ -36,4 +36,6 @@ directory with `DOCS_BASE=/openstream-tv` and uploads `docs-site/build` to
 GitHub Pages. Trailing-slash URLs let the articles keep their relative links at
 any base path; `paths.base` handles navigation, assets and canonical URLs.
 
-Search is Pagefind, generated after the prerender step into `static/pagefind`.
+Search is Pagefind: the postbuild step indexes the prerender and writes the
+index into `build/pagefind`, so it ships with the uploaded artifact. The search
+box loads it from `${base}/pagefind/pagefind.js` beside the deployed pages.
