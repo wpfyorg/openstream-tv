@@ -41,17 +41,27 @@ For a system-wide service, choose a stable data directory and set `OPENSTREAM_PA
 
 ## 🔧 Step 3: Verify
 
+Do not start a second server here: the steps above already started one, either as a service or in a terminal.
+
 ```sh
 ost --help
-ost serve --host 0.0.0.0 --tls
+sudo systemctl status openstream
 ```
 
-Visit `https://<sbc-lan-address>:5443/` from another device on the trusted network.
+`systemctl status` shows the service as **active (running)**; without a system service, check the process you started in the foreground instead.
+
+Then confirm the server answers:
+
+| Build | Check |
+| :--- | :--- |
+| **full** | Open `https://<sbc-lan-address>:5443/` from another device on the trusted network |
+| **slim** | Request the playlist URL the server printed: `curl -s -o /dev/null -w '%{http_code}\n' http://<sbc-lan-address>:5001/k/<key>/playlist.m3u` should print `200` |
 
 | Symptom | Cause | Fix |
 | :--- | :--- | :--- |
 | Architecture or loader error | Board CPU is not a release target | Confirm with `uname -m` and pick the matching release, or use a 64-bit OS on ARMv8 boards |
 | Page unreachable from another device | Bound to localhost, or firewall | Bind `--host 0.0.0.0` and allow ports 5001 and 5443 on the LAN |
+| Playlist check prints `401` | The URL lost its `/k/<key>/` segment | Copy the URL exactly as the server printed it, or run `ost key show` |
 
 ---
 

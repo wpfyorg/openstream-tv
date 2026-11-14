@@ -52,3 +52,6 @@ Then restart OpenStream TV with your original command or service manager. On Ope
 | Channels differ after login | The new account has different entitlements | Expected — see [login troubleshooting](../troubleshooting-accounts-and-extras/index.md) |
 
 Switching JioTV does not automatically reconnect or disconnect [JioTV+](../account-extras/index.md).
+
+> [!NOTE]
+> Both methods activate JioTV: a web sign-in and `ost login otp` each make JioTV the active provider. A connected JioTV+ stays connected but its channels leave the active catalogue, playlist and guide; select **Use JioTV+** in Settings to bring them back.

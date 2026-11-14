@@ -50,13 +50,7 @@ $env:OPENSTREAM_EPG = 'true'
 
 ## ▶️ Step 3: Start the Server
 
-The guided installer configures the account and admin password but does not keep the server running. Reuse the exact `Start it with:` command it printed — it includes the provider settings and, for a temporary or named tunnel, the required `--tunnel` option.
-
-For LAN-only access the equivalent is:
-
-```powershell
-ost serve --host 0.0.0.0 --tls
-```
+The guided installer configures the account and admin password but does not keep the server running. Finish the sign-in and password steps first, then start it — reuse the exact `Start it with:` command the installer printed, which includes the provider settings and, for a temporary or named tunnel, the required `--tunnel` option.
 
 If you skipped guided setup with `OPENSTREAM_ONBOARD=never`, set the provider flags in the same session before signing in and keep it open for `serve`:
 
@@ -81,6 +75,12 @@ For the full web build, set the admin password before serving:
 
 ```powershell
 ost admin password
+```
+
+Only then start it. For LAN-only access the equivalent of the printed command is:
+
+```powershell
+ost serve --host 0.0.0.0 --tls
 ```
 
 | Where to open it | URL |

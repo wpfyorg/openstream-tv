@@ -43,12 +43,26 @@ The container starts the server on all interfaces with HTTPS enabled.
 
 ```sh
 docker exec -it openstream /usr/local/bin/ost admin password
+docker restart openstream
 ```
 
-Then sign in to the web interface and complete the provider login in **Settings** or from the container:
+The container keeps the store it read at startup, so restart it before signing in; only then does the server accept the new password.
+
+Then open the web interface, sign in and connect a provider in **Settings**:
+
+| Provider | Sign-in |
+| :--- | :--- |
+| JioTV | Mobile number and OTP — [JioTV guide](../account-connect-jiotv/index.md) |
+| JioTV+ | Its own OTP and a connection picker — [JioTV+ guide](../account-extras/index.md) |
+| Fastway | Username and password — [Fastway guide](../account-fastway/index.md) |
+
+From a terminal, `ost login otp` is the JioTV mobile-number login only; it does not sign in whichever provider the container was set up for. Stop the container first so the running server cannot write its in-memory state over the new login, then start it again so it loads the saved credentials and active provider:
 
 ```sh
-docker exec -it openstream /usr/local/bin/ost login otp
+docker stop openstream
+docker run --rm -it -v openstream-data:/app/.openstream-tv \
+  ghcr.io/wpfyorg/openstream-tv:latest /usr/local/bin/ost login otp
+docker start openstream
 ```
 
 View output with `docker logs -f openstream`. For updates and backup instructions see [Docker maintenance](../maintenance-docker/index.md).

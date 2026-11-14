@@ -69,6 +69,8 @@ install -m 0755 "$asset" "$HOME/.local/bin/ost"
 
 Choose an admin password and complete the OTP prompts for your own JioTV account, then open `https://localhost:5443/` on that machine and accept the self-signed certificate warning. The server also listens on HTTP port 5001 for IPTV clients. To reach it from another device, read [network configuration](../configuration-network-security/index.md) before changing the bind address.
 
+A **slim** binary serves no browser interface, so nothing opens on 5443. Verify it with the playlist URL it prints at startup instead — `curl -s -o /dev/null -w '%{http_code}\n' <playlist URL>` should print `200` — and give that URL to your IPTV client.
+
 The executable runs while its terminal is open; [background services](../maintenance-background-service/index.md) covers startup options. Account sign-in can also be done in [Settings](../account-connect-jiotv/index.md).
 
 ---

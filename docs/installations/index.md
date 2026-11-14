@@ -39,8 +39,18 @@ OpenStream TV runs as a server on a computer, a router or a container. Pick the 
 
 ## ▶️ After Installing
 
+**Full build, with the web interface:**
+
 1. Complete [first launch](../getting-started-first-launch/index.md) to set the admin password.
 2. Sign in to a provider in [Accounts](../account/index.md).
-3. Keep the server on a trusted network, or follow [network access and HTTPS](../configuration-network-security/index.md) before exposing it.
+
+**Slim build, headless:**
+
+1. Sign in from a terminal with the login command for your provider — `ost login otp` for JioTV, or the matching `ost tv+ login` or `ost fastway login`; see [CLI commands](../configuration-cli/index.md).
+2. Point your IPTV client at the playlist URL the server prints at startup, which carries its `/k/<key>/` access segment.
+
+The slim build has no browser interface, so nothing on this page needs a browser.
+
+**Both builds:** keep the server on a trusted network, or follow [network access and HTTPS](../configuration-network-security/index.md) before exposing it.
 
 [Back to the help centre](../help-centre/index.md).

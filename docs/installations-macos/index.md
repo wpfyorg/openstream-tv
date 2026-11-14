@@ -50,7 +50,7 @@ curl -fsSL https://raw.githubusercontent.com/wpfyorg/openstream-tv/main/scripts/
 
 ## 🔑 Step 3: First Run
 
-The guided setup connects the account for you. If it printed a retry command that sources `installer.env`, use that exact command so the selected provider settings are loaded.
+The guided setup connects the account for you. If it reports that the background service started, open the browser address it prints and do **not** run `ost serve` — the service is already serving. If it printed a retry command that sources `installer.env`, use that exact command so the selected provider settings are loaded.
 
 If you skipped guided setup, set the matching provider flags in the same shell and keep it open for `serve`:
 
@@ -68,14 +68,14 @@ export OPENSTREAM_TVPLUS=false OPENSTREAM_FASTWAY=true
 ost fastway login
 ```
 
-Then protect and start the full web build:
+If guided setup did not start a service, protect and start the full web build yourself:
 
 ```sh
 ost admin password
 ost serve --host 127.0.0.1 --tls
 ```
 
-Open `https://localhost:5443/` and accept the self-signed certificate warning. For other devices on your home network, bind with `--host 0.0.0.0` and use your Mac's LAN address — and keep access to a trusted network. The `slim` build has no browser interface.
+Open `https://localhost:5443/` and accept the self-signed certificate warning. For other devices on your home network, bind with `--host 0.0.0.0` and use your Mac's LAN address — and keep access to a trusted network. The `slim` build has no browser interface; use the playlist URL the server prints instead.
 
 For boot-time service setup see [Background service](../maintenance-background-service/index.md); for updates [How to Update OpenStream TV](../maintenance-update/index.md); for removal [Uninstall OpenStream TV Safely](../maintenance-update-uninstall/index.md).
 

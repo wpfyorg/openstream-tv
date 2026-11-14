@@ -12,7 +12,7 @@ Two different things are called "signing in" here, and they are independent:
 | Sign-in | What it unlocks | Article |
 | :--- | :--- | :--- |
 | **Admin session** | The web interface, using the server's admin password | [Admin sessions and sign out](../account-sessions/index.md) |
-| **Provider account** | Channels, playlist and guide, using your TV provider's credentials | The articles below |
+| **Provider account** | Channels, the M3U playlist and the guide, using your TV provider's credentials | The articles below |
 
 Signing out of the web interface never disconnects a provider, and disconnecting a provider never ends your admin session.
 
@@ -29,6 +29,6 @@ Signing out of the web interface never disconnects a provider, and disconnecting
 | [Admin sessions and sign out](../account-sessions/index.md) | Ending a browser session, or what a password change does |
 
 > [!NOTE]
-> Only one provider is active at a time. Whichever account is active supplies the channel list, the M3U playlist and the XMLTV guide.
+> Only one provider is active at a time. Whichever account is active supplies the channel list and the M3U playlist. The XMLTV guide follows it too, but its contents depend on the provider: PlayboxTV and Tata Play publish channel entries without programme listings, so those providers cannot fill a programme guide.
 
 [Back to the help centre](../help-centre/index.md).

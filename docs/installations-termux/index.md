@@ -24,7 +24,7 @@ The binary installs to Termux's `$PREFIX/bin`.
 The installer runs the guided setup in the Termux terminal: build (`full` or `slim`), account (JioTV, JioTV+, Fastway, or Airtel Xstream beta when the release supports it), the address other devices will use, an optional Cloudflare tunnel, whether to turn on the programme guide, and the account sign-in. Arrow keys select and Enter confirms.
 
 > [!IMPORTANT]
-> Guided setup writes the provider settings and guide choice to `installer.env`, but they are **not** loaded back into the Termux shell that ran the installer. Before a later manual sign-in or `serve`, source the generated environment file or reuse the installer's printed `Start it with:` command, which already sources it. Configuring autostart only affects future startup and does not load those settings into the current shell.
+> Guided setup writes the provider settings and guide choice to `${XDG_CONFIG_HOME:-$HOME/.config}/openstream/installer.env`, but they are **not** loaded back into the Termux shell that ran the installer. Before a manual `ost serve` or before rerunning `ost autostart`, source that file — or reuse the installer's printed `Start it with:` command, which already sources it. When autostart succeeded the installer may print no start command at all, so source the file yourself for any manual step. Configuring autostart only affects future startup and never loads those settings into the current shell.
 
 If you skipped the questions with `OPENSTREAM_ONBOARD=never`, set the matching flags in the same shell and keep it open for `serve`:
 

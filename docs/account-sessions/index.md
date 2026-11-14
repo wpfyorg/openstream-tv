@@ -13,14 +13,14 @@ The web interface keeps an admin session in your browser. Signing out of the web
 
 ## 🚪 Sign Out
 
-| Where you are | How to sign out |
+| Window width | How to sign out |
 | :--- | :--- |
-| Desktop or tablet | **Sign out** at the bottom of the sidebar |
-| Phone | **Settings** → **This browser** → **Sign out** (the sidebar is hidden on small screens) |
+| 901px and wider | **Sign out** at the bottom of the sidebar |
+| 900px and narrower | **Settings** → **This browser** → **Sign out**, because the sidebar is hidden at that width |
 
 Sign in again with the admin password when you return.
 
-**Expected result:** the sign-in page appears. Provider account status stays exactly as it was until you disconnect that account in Settings.
+**Expected result:** the sign-in page appears. With `disable_auth = true` sign-out does not lead to the sign-in page, because access checks are off and the interface stays signed in after the reload. Provider account status stays exactly as it was until you disconnect that account in Settings.
 
 ---
 
@@ -32,6 +32,7 @@ Sign in again with the admin password when you return.
 | Password change | Signs out other browsers; the browser that changed the password stays signed in |
 | Provider logout disabled | With `disable_logout` set, Settings hides provider disconnect controls; the web sign-out still works |
 | Provider accounts | Unaffected by web sign-out; disconnect them separately |
+| Access checks disabled | With `disable_auth = true` the interface reports itself signed in for every request, so signing out does not lock the page |
 
 ---
 

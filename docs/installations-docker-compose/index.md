@@ -66,7 +66,7 @@ docker compose exec openstream /usr/local/bin/ost admin password
 docker compose restart openstream
 ```
 
-Then open the page, sign in with the admin password and connect your provider in **Settings** using its OTP form. See [first launch](../getting-started-first-launch/index.md) and [connect JioTV](../account-connect-jiotv/index.md).
+Then open the page, sign in with the admin password and connect your provider in **Settings**. Each provider has its own flow: JioTV, JioTV+, PlayboxTV, Airtel Xstream and Tata Play use a mobile number and OTP, JioTV+ also asks which connection to use, and Fastway takes a username and password. Follow [connect JioTV](../account-connect-jiotv/index.md), [connect JioTV+](../account-extras/index.md) or [connect Fastway](../account-fastway/index.md); [first launch](../getting-started-first-launch/index.md) covers the password step.
 
 ---
 

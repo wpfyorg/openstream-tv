@@ -11,16 +11,16 @@ keywords: [Fastway, provider, account, DASH, Widevine, PallyCon, channels]
 
 ---
 
-## ⚙️ Step 1: Enable Fastway
+## ⚙️ Step 1 (optional): Enable Fastway at Startup
 
-Fastway ships in the standard build but stays off until the configuration enables it:
+Fastway ships in the standard build and starts switched off. You can enable it by signing in from **Settings** in Step 2 — no configuration flag and no restart needed, because a saved login turns the provider on. To have it enabled from server startup instead, set the flag:
 
 ```toml
 # openstream.toml
 fastway = true
 ```
 
-Or set `OPENSTREAM_FASTWAY=true` for the process, then restart the server. A **Fastway** card then appears in **Settings**. See [configuration reference](../configuration-reference/index.md).
+Or set `OPENSTREAM_FASTWAY=true` for the process and restart. Either route works and the **Fastway** card is always present in Settings, so you can skip this step. See [configuration reference](../configuration-reference/index.md).
 
 ---
 
@@ -73,7 +73,7 @@ Local `ost serve --tls` protects only the browser-to-OpenStream connection; it d
 | Playback | DASH. Protected channels use Widevine through the provider's PallyCon service; the server proxies the license request but does not decrypt or bypass DRM. See [protected playback](../troubleshooting-protected-playback/index.md). |
 | IPTV clients | Fastway channels appear as `/live/mpd/...` entries with `inputstream.adaptive` and `manifest_type=mpd`. |
 
-Fastway does not use the JioTV+ unlock-code gate; it is controlled by the `fastway` flag and the saved login.
+Fastway does not use the JioTV+ unlock-code gate; it is turned on by the saved login, with the `fastway` flag as an optional way to enable it from startup.
 
 ---
 
@@ -87,7 +87,7 @@ Select **Disconnect** on the Fastway card, or stop the server, run `ost fastway 
 
 | Symptom | Cause | Fix |
 | :--- | :--- | :--- |
-| The card is missing | `fastway = true` or `OPENSTREAM_FASTWAY=true` is not active for the running process | Enable it and restart |
+| Channels still show the JioTV catalogue | Fastway is connected but not the active provider | Select **Use Fastway** on its card |
 | Connect fails | Credentials rejected by Fastway | Check the username and password. The server reports the provider's message and does not reveal whether the account has a subscription. |
 | Channels missing after connecting | Catalogue request failed, or nothing is subscribed | Refresh the channel list; only subscribed channels are shown |
 | Playback or license errors | DRM or environment problem | See [Fastway troubleshooting](../troubleshooting-fastway/index.md), then [protected playback](../troubleshooting-protected-playback/index.md) |
