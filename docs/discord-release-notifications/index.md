@@ -1,3 +1,10 @@
+---
+title: Discord Release Notifications
+description: Configure repository secrets so OpenStream TV announces stable and beta releases in Discord.
+category: Maintenance
+keywords: [Discord, release, notifications, webhook, GitHub Actions, secrets, beta]
+---
+
 # Discord release notifications
 
 Add these repository Actions secrets to enable notifications:
