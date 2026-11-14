@@ -75,28 +75,38 @@ impl ActiveProduct {
     }
 }
 
-/// Store keys for playback observations learned from successful JioTV
-/// resolutions. `...FOR` records which account they belong to, so a different
-/// login discards them instead of trusting another account's stream shapes.
+/// Store keys for playback observations learned from successful resolutions.
+/// Each key is suffixed with the provider it describes (`… .jiotv`,
+/// `… .fastway`), so switching providers keeps every catalogue's facts instead
+/// of overwriting them. `...FOR` records the scope the facts belong to
+/// (provider + account identity), so another login is not trusted with them.
 pub const STORE_KEY_LEARNED_DASH: &str = "playbackLearnedDash";
 pub const STORE_KEY_LEARNED_DRM: &str = "playbackLearnedDrm";
 pub const STORE_KEY_LEARNED_FOR: &str = "playbackLearnedFor";
 
-/// What this server has observed about JioTV playback: channels whose
+/// What this server has observed about a provider's playback: channels whose
 /// catalogue entry has no HLS rendition, and which of those also need a
 /// Widevine license (a DASH channel is not automatically protected).
-#[derive(Debug, Default)]
+#[derive(Debug, Default, PartialEq, Eq)]
 pub struct LearnedPlayback {
     dash: HashSet<String>,
     drm: HashSet<String>,
-    /// Account fingerprint the observations were made for.
+    /// Scope (hashed provider + account identity) the facts belong to; empty
+    /// when there is no identity to scope them with.
     account: String,
+    /// Provider store-key suffix the facts were loaded for.
+    product: String,
 }
 
-/// JioTV channel IDs are bare numeric strings. Every other provider uses a
-/// prefixed id space of its own, so this also keeps observations to JioTV.
+/// Channel IDs this server may record: JioTV's numeric ids and the providers'
+/// prefixed id spaces. Deliberately narrow, so a malformed store entry cannot
+/// inject anything odd into the playlist path.
 pub fn is_learnable_channel_id(id: &str) -> bool {
-    !id.is_empty() && id.len() <= 8 && id.bytes().all(|b| b.is_ascii_digit())
+    !id.is_empty()
+        && id.len() <= 64
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
 }
 
 fn parse_learned_ids(csv: &str) -> HashSet<String> {
@@ -113,22 +123,47 @@ fn learned_ids_csv(ids: &HashSet<String>) -> String {
     sorted.join(",")
 }
 
-/// Restores persisted observations, but only when they were made for the same
-/// JioTV account. A missing, malformed or foreign record is simply ignored.
-pub fn load_learned_playback(store: &Store, account: &str) -> LearnedPlayback {
-    let mut learned = LearnedPlayback::default();
-    if account.is_empty() {
+fn learned_store_key(base: &str, product: &str) -> String {
+    format!("{base}.{product}")
+}
+
+fn learned_scope_hash(parts: &[&str]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    for part in parts {
+        hasher.update(part.as_bytes());
+        hasher.update(b"\0");
+    }
+    hex::encode(hasher.finalize())
+}
+
+/// Restores persisted observations for `product`, but only when they were made
+/// under `scope`. A missing, malformed or foreign record is ignored.
+pub fn load_learned_playback(store: &Store, product: &str, scope: &str) -> LearnedPlayback {
+    let mut learned = LearnedPlayback {
+        product: product.to_string(),
+        ..Default::default()
+    };
+    if scope.is_empty() {
         return learned;
     }
-    match store.get_opt(STORE_KEY_LEARNED_FOR) {
-        Some(stored) if stored == account => {}
+    match store.get_opt(&learned_store_key(STORE_KEY_LEARNED_FOR, product)) {
+        Some(stored) if stored == scope => {}
         _ => return learned,
     }
-    learned.dash = parse_learned_ids(&store.get_opt(STORE_KEY_LEARNED_DASH).unwrap_or_default());
-    learned.drm = parse_learned_ids(&store.get_opt(STORE_KEY_LEARNED_DRM).unwrap_or_default());
+    learned.dash = parse_learned_ids(
+        &store
+            .get_opt(&learned_store_key(STORE_KEY_LEARNED_DASH, product))
+            .unwrap_or_default(),
+    );
+    learned.drm = parse_learned_ids(
+        &store
+            .get_opt(&learned_store_key(STORE_KEY_LEARNED_DRM, product))
+            .unwrap_or_default(),
+    );
     // Only channels known to be DASH-only can require DASH.
     learned.drm.retain(|id| learned.dash.contains(id));
-    learned.account = account.to_string();
+    learned.account = scope.to_string();
     learned
 }
 
@@ -222,6 +257,9 @@ impl AppState {
         self.vzy.clear();
         self.airtel.clear();
         self.tataplay.clear();
+        // Learned playback routing belongs to one provider + account; adopting
+        // the new context here keeps a switch from carrying facts across.
+        self.init_learned_playback();
     }
 
     /// The provider the user explicitly activated, if any. A stored choice is
@@ -399,14 +437,17 @@ impl AppState {
         if !self.config.drm {
             return false;
         }
+        // Observations only ever add routing; a provider's own answer wins
+        // when it has one.
+        let learned = self.learned_drm(id);
         if FastwayState::is_fastway_channel(id) {
-            return self.fastway.is_drm(id);
+            return self.fastway.is_drm(id) || learned;
         }
         if crate::playbox::is_playbox_channel(id) {
-            return self.playbox.is_drm(id);
+            return self.playbox.is_drm(id) || learned;
         }
         if crate::airtel::is_airtel_channel(id) {
-            return self.airtel.is_drm(id);
+            return self.airtel.is_drm(id) || learned;
         }
         if crate::tataplay::is_tataplay_channel(id) {
             // Every Tata Play live channel is Widevine DASH, independent of
@@ -421,71 +462,106 @@ impl AppState {
                 let is_ex_id = ExtrasState::is_extras_channel(id);
                 self.extras
                     .is_drm(&content_id, is_ex_id)
-                    .unwrap_or_else(|| {
-                        crate::drm_channels::is_drm_channel(id) || self.learned_drm(id)
-                    })
+                    .unwrap_or_else(|| crate::drm_channels::is_drm_channel(id) || learned)
             }
-            None => {
-                crate::drm_channels::is_drm_channel(id) || self.learned_drm(id)
-            }
+            None => crate::drm_channels::is_drm_channel(id) || learned,
         }
     }
 
-    /// Whether the channel is DASH even without a Widevine license. Fastway's
-    /// whole catalogue is DASH, while Playbox learns the container from its
-    /// resolved playback metadata.
+    /// Whether the channel is DASH even without a Widevine license. A
+    /// provider's own metadata answers when it has any (Fastway's catalogue,
+    /// Playbox/Airtel's resolved playback, Tata Play's fixed format); the
+    /// learned facts cover the rest, including providers whose metadata is not
+    /// persisted.
     pub fn is_dash_channel(&self, id: &str) -> bool {
+        let learned = self.learned_dash(id);
         if FastwayState::is_fastway_channel(id) {
-            return self.fastway.is_dash(id);
+            return self.fastway.is_dash(id) || learned;
         }
         if crate::playbox::is_playbox_channel(id) {
-            return self.playbox.is_dash(id);
+            return self.playbox.is_dash(id) || learned;
         }
         if crate::airtel::is_airtel_channel(id) {
-            return self.airtel.is_dash(id);
+            return self.airtel.is_dash(id) || learned;
         }
         if crate::tataplay::is_tataplay_channel(id) {
             return true;
         }
-        if is_learnable_channel_id(id) {
-            let learned = self.drm_channels.read().unwrap();
-            if learned.dash.contains(id) {
-                // A protected DASH channel still needs the DRM pathway enabled.
-                return self.config.drm || !learned.drm.contains(id);
-            }
-        }
-        false
+        // A protected DASH channel still needs the DRM pathway enabled.
+        learned && (self.config.drm || !self.learned_drm(id))
+    }
+
+    fn learned_dash(&self, id: &str) -> bool {
+        self.drm_channels.read().unwrap().dash.contains(id)
     }
 
     fn learned_drm(&self, id: &str) -> bool {
         self.drm_channels.read().unwrap().drm.contains(id)
     }
 
-    /// Whether `fetch_live` resolves this id with the JioTV provider, rather
-    /// than a custom channel or another provider. A numeric id alone is not
-    /// enough: extras can claim it while it is the active source.
-    pub fn resolves_through_jiotv(&self, id: &str) -> bool {
-        if !is_learnable_channel_id(id) || self.custom_channels.contains(id) {
-            return false;
+    /// Scope for this session's observations: the active provider plus whatever
+    /// account identity it exposes. Empty when nothing identifies an account,
+    /// which keeps a logged-out server from persisting or trusting facts.
+    pub fn learned_playback_scope(&self) -> String {
+        let product = self.active_product();
+        let identity = match product {
+            ActiveProduct::Tv => crate::login::load(&self.store)
+                .map(|creds| creds.learned_account())
+                .unwrap_or_default(),
+            ActiveProduct::Extras => self
+                .extras
+                .credentials_marker()
+                .map(|(number, sso, auth)| learned_scope_hash(&["extras", &number, &sso, &auth]))
+                .unwrap_or_default(),
+            ActiveProduct::Fastway => self.fastway.account_fingerprint(),
+            ActiveProduct::Playbox => self.playbox.account_fingerprint(),
+            ActiveProduct::Vzy => self.vzy.account_fingerprint(),
+            ActiveProduct::Airtel => self.airtel.account_fingerprint(),
+            ActiveProduct::TataPlay => self.tataplay.account_fingerprint(),
+        };
+        if identity.is_empty() {
+            return String::new();
         }
-        if self.fastway.route(id).is_some()
-            || crate::playbox::is_playbox_channel(id)
-            || crate::vzy::is_vzy_channel(id)
-            || crate::airtel::is_airtel_channel(id)
-            || crate::tataplay::is_tataplay_channel(id)
-        {
-            return false;
-        }
-        self.extras.route(id, self.tv.logged_in(), false).is_none()
+        learned_scope_hash(&["openstream-learned-v1", product.store_name(), &identity])
     }
 
-    /// Records what a successful JioTV resolution showed: a channel with an
-    /// HLS rendition plays over HLS, a channel that only has DASH needs the
-    /// MPD route, and a DASH channel with a license URL needs a license too.
-    /// Only successful resolutions are passed in, so transient errors never
-    /// change what is stored.
+    /// Loads the facts that belong to this provider and account. Called at
+    /// startup and at every account or provider transition (from
+    /// `invalidate_context`), so a switch never carries facts across.
+    pub fn init_learned_playback(&self) {
+        let product = self.active_product().store_name().to_string();
+        let scope = self.learned_playback_scope();
+        let restored = load_learned_playback(&self.store, &product, &scope);
+        let mut learned = self.drm_channels.write().unwrap();
+        if learned.product == product
+            && learned.account == restored.account
+            && learned.dash == restored.dash
+            && learned.drm == restored.drm
+        {
+            return;
+        }
+        learned.product = product;
+        // Adopt the current scope even when nothing was restored, so the first
+        // observation is persisted under this account instead of being dropped.
+        learned.account = scope.clone();
+        learned.dash = restored.dash;
+        learned.drm = restored.drm;
+        drop(learned);
+        // Without an identity there is nothing to persist; the stored facts of
+        // a logged-out session are left for the next login of the same account.
+        if !scope.is_empty() {
+            self.persist_learned_playback();
+        }
+    }
+
+    /// Records what a successful resolution showed: a channel with an HLS
+    /// rendition plays over HLS, a channel that only has DASH needs the MPD
+    /// route, and a DASH channel with a license URL needs a license too. Only
+    /// successful resolutions are passed in, so transient errors never change
+    /// what is stored. Applies to every provider, not just JioTV.
     pub fn observe_playback(&self, id: &str, live: &crate::television::LiveUrlOutput) {
-        if !self.resolves_through_jiotv(id) {
+        // A custom channel is a user-supplied URL, not a provider resolution.
+        if self.custom_channels.contains(id) || !is_learnable_channel_id(id) {
             return;
         }
         let has_hls = !crate::television::select_best_live_hls_url(live, "auto").is_empty();
@@ -497,13 +573,19 @@ impl AppState {
     }
 
     /// Remembers that `id` needs the MPD route, and whether it also needs a
-    /// license. Persisted only when an observation actually changes.
+    /// license. A channel that turns out to be clear DASH drops a license fact
+    /// learned earlier. Persisted only when an observation actually changes.
     pub(crate) fn learn_playback(&self, id: &str, needs_license: bool) {
-        let (dash_csv, drm_csv) = {
+        if !is_learnable_channel_id(id) {
+            return;
+        }
+        {
             let mut learned = self.drm_channels.write().unwrap();
             let mut changed = learned.dash.insert(id.to_string());
             if needs_license {
                 changed |= learned.drm.insert(id.to_string());
+            } else {
+                changed |= learned.drm.remove(id);
             }
             if !changed {
                 return;
@@ -511,60 +593,50 @@ impl AppState {
             tracing::info!(
                 channel = id,
                 needs_license,
-                "learned that a JioTV channel needs the DASH route"
+                provider = %self.active_product().store_name(),
+                "learned a channel's playback route"
             );
-            (
-                learned_ids_csv(&learned.dash),
-                learned_ids_csv(&learned.drm),
-            )
-        };
-        self.persist_learned_playback(&dash_csv, &drm_csv);
+        }
+        self.persist_learned_playback();
     }
 
     /// Forgets a channel that has an HLS rendition again.
     fn forget_learned_playback(&self, id: &str) {
-        let (dash_csv, drm_csv) = {
+        {
             let mut learned = self.drm_channels.write().unwrap();
             let removed_dash = learned.dash.remove(id);
             let removed_drm = learned.drm.remove(id);
             if !removed_dash && !removed_drm {
                 return;
             }
-            tracing::info!(channel = id, "JioTV channel has HLS again");
-            (
-                learned_ids_csv(&learned.dash),
-                learned_ids_csv(&learned.drm),
-            )
-        };
-        self.persist_learned_playback(&dash_csv, &drm_csv);
+            tracing::info!(channel = id, "channel has HLS again");
+        }
+        self.persist_learned_playback();
     }
 
-    fn persist_learned_playback(&self, dash_csv: &str, drm_csv: &str) {
-        if let Err(e) = self.store.set(STORE_KEY_LEARNED_DASH, dash_csv) {
-            tracing::warn!("cannot save learned DASH channels: {e}");
+    /// Commits the account marker and both observation sets in one store
+    /// mutation, so a restart can never read one account's facts under
+    /// another's marker.
+    fn persist_learned_playback(&self) {
+        let learned = self.drm_channels.read().unwrap();
+        if learned.account.is_empty() || learned.product.is_empty() {
+            return;
         }
-        if let Err(e) = self.store.set(STORE_KEY_LEARNED_DRM, drm_csv) {
-            tracing::warn!("cannot save learned DRM channels: {e}");
+        let product = learned.product.clone();
+        let account = learned.account.clone();
+        let dash_csv = learned_ids_csv(&learned.dash);
+        let drm_csv = learned_ids_csv(&learned.drm);
+        drop(learned);
+        let marker_key = learned_store_key(STORE_KEY_LEARNED_FOR, &product);
+        let dash_key = learned_store_key(STORE_KEY_LEARNED_DASH, &product);
+        let drm_key = learned_store_key(STORE_KEY_LEARNED_DRM, &product);
+        if let Err(e) = self.store.set_many(&[
+            (marker_key.as_str(), account.as_str()),
+            (dash_key.as_str(), dash_csv.as_str()),
+            (drm_key.as_str(), drm_csv.as_str()),
+        ]) {
+            tracing::warn!("cannot save learned playback routing: {e}");
         }
-    }
-
-    /// Adopts `account` as the login the observations belong to. A different
-    /// account invalidates whatever was learned for the previous one.
-    pub fn set_learned_playback_account(&self, account: &str) {
-        let (dash_csv, drm_csv) = {
-            let mut learned = self.drm_channels.write().unwrap();
-            if learned.account == account {
-                return;
-            }
-            learned.account = account.to_string();
-            learned.dash.clear();
-            learned.drm.clear();
-            (String::new(), String::new())
-        };
-        if let Err(e) = self.store.set(STORE_KEY_LEARNED_FOR, account) {
-            tracing::warn!("cannot save the account for learned playback: {e}");
-        }
-        self.persist_learned_playback(&dash_csv, &drm_csv);
     }
 
     /// The user agent a provider's CDN expects for manifests and segments.
@@ -904,6 +976,27 @@ mod tests {
         (store, state)
     }
 
+    fn jiotv_creds(unique: &str) -> crate::television::Credentials {
+        crate::television::Credentials {
+            sso_token: "sso".into(),
+            crm: "crm".into(),
+            unique_id: unique.into(),
+            access_token: "access".into(),
+            refresh_token: "refresh".into(),
+        }
+    }
+
+    fn logged_in_state(store: Arc<Store>, unique: &str) -> Arc<AppState> {
+        crate::login::save(&store, &jiotv_creds(unique), crate::login::TOUCH_ALL).unwrap();
+        let state = state_with_providers(
+            store,
+            Arc::new(ExtrasState::new(false, None)),
+            Arc::new(PlayboxState::new(false)),
+        );
+        state.init_learned_playback();
+        state
+    }
+
     #[test]
     fn playback_learning_tracks_dash_separately_from_licenses() {
         let s = state();
@@ -934,52 +1027,88 @@ mod tests {
     }
 
     #[test]
-    fn playback_learning_ignores_channels_from_other_providers() {
+    fn playback_learning_covers_every_provider_id_space() {
         let s = state();
-        for id in ["pb_1", "ex_1", "fw_1", "at_1", "tp_1", "vz_1", "custom"] {
+        for id in ["9701", "fw_77", "pb_1", "ex_1", "at_1", "tp_1", "vz_1"] {
             s.observe_playback(id, &live("", "https://cdn/a.mpd", "https://cdn/lic"));
-            // Providers answer for their own ids; the learning must not claim
-            // them (an `ex_` id is DRM by default before its first playback).
             let learned = s.drm_channels.read().unwrap();
-            assert!(!learned.dash.contains(id), "{id} was learned as DASH");
-            assert!(!learned.drm.contains(id), "{id} was learned as DRM");
+            assert!(learned.dash.contains(id), "{id} was not learned as DASH");
+            assert!(learned.drm.contains(id), "{id} was not learned as DRM");
+        }
+
+        // A clear resolution drops the license fact but keeps the route.
+        s.observe_playback("fw_77", &live("", "https://cdn/a.mpd", ""));
+        assert!(s.is_dash_channel("fw_77"));
+        assert!(!s.is_drm_channel("fw_77"));
+
+        // A custom channel is a user URL, never a provider observation.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("custom.json");
+        std::fs::write(
+            &path,
+            r#"{"channels":[{"id":"mine","name":"Mine","url":"https://example.test/mine.m3u8"}]}"#,
+        )
+        .unwrap();
+        s.custom_channels.load(path.to_str().unwrap()).unwrap();
+        for channel in s.custom_channels.all() {
+            s.observe_playback(&channel.id, &live("", "https://cdn/a.mpd", ""));
+            assert!(!s.drm_channels.read().unwrap().dash.contains(&channel.id));
         }
     }
 
     #[test]
-    fn learned_playback_persists_for_the_same_account_only() {
-        let (store, s) = state_with_shared_store();
-        s.set_learned_playback_account("account-a");
-        s.observe_playback("9701", &live("", "https://cdn/a.mpd", "https://cdn/lic"));
+    fn learned_playback_survives_a_restart_for_the_same_account_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(Store::open(dir.path().to_str().unwrap()).unwrap());
+        std::mem::forget(dir);
 
-        let same = load_learned_playback(&store, "account-a");
-        assert!(same.dash.contains("9701"));
-        assert!(same.drm.contains("9701"));
+        let first = logged_in_state(store.clone(), "user-a");
+        first.observe_playback("9701", &live("", "https://cdn/a.mpd", "https://cdn/lic"));
+
+        // A restart with the same login restores both facts.
+        let restarted = logged_in_state(store.clone(), "user-a");
+        assert!(restarted.is_dash_channel("9701"));
+        assert!(restarted.is_drm_channel("9701"));
 
         // Another login must not inherit account A's observations.
-        let other = load_learned_playback(&store, "account-b");
-        assert!(other.dash.is_empty());
-        assert!(other.drm.is_empty());
-
-        // Switching in memory drops them as well.
-        s.set_learned_playback_account("account-b");
-        assert!(!s.is_dash_channel("9701"));
-        assert!(!s.is_drm_channel("9701"));
+        crate::login::save(&store, &jiotv_creds("user-b"), crate::login::TOUCH_ALL).unwrap();
+        let other = state_with_providers(
+            store.clone(),
+            Arc::new(ExtrasState::new(false, None)),
+            Arc::new(PlayboxState::new(false)),
+        );
+        other.init_learned_playback();
+        assert!(!other.is_dash_channel("9701"));
+        assert!(!other.is_drm_channel("9701"));
     }
 
     #[test]
     fn malformed_learned_entries_are_ignored() {
         let (store, _s) = state_with_shared_store();
-        store.set(STORE_KEY_LEARNED_FOR, "acct").unwrap();
+        let key = |base: &str| format!("{base}.jiotv");
         store
-            .set(STORE_KEY_LEARNED_DASH, " 154 , ,x,99999999,0001,car")
+            .set(&key(STORE_KEY_LEARNED_FOR), "scope")
             .unwrap();
-        store.set(STORE_KEY_LEARNED_DRM, "154,99999999,abc").unwrap();
+        store
+            .set(
+                &key(STORE_KEY_LEARNED_DASH),
+                " 154 , ,bad id,a/b,99999999,0001,car",
+            )
+            .unwrap();
+        store
+            .set(&key(STORE_KEY_LEARNED_DRM), "154,bad id,99999999")
+            .unwrap();
 
-        let learned = load_learned_playback(&store, "acct");
-        assert_eq!(learned.dash.len(), 3, "{:?}", learned.dash);
+        let learned = load_learned_playback(&store, "jiotv", "scope");
+        // Entries with a space or a slash are rejected; ids with letters
+        // (another provider's id space) are valid channel identifiers.
+        assert_eq!(learned.dash.len(), 4, "{:?}", learned.dash);
         assert_eq!(learned.drm.len(), 2, "{:?}", learned.drm);
         assert!(learned.drm.iter().all(|id| learned.dash.contains(id)));
+
+        // A marker written for another scope is not trusted.
+        let foreign = load_learned_playback(&store, "jiotv", "other");
+        assert!(foreign.dash.is_empty() && foreign.drm.is_empty());
     }
 
     #[test]

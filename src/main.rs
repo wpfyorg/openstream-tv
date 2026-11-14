@@ -837,12 +837,9 @@ fn build_app_state(
         http.clone(),
         device_id,
     ));
-    let mut learned_account = String::new();
     if let Some(creds) = login::load(&store) {
-        learned_account = creds.learned_account();
         tv.set_credentials(creds);
     }
-    let learned_playback = state::load_learned_playback(&store, &learned_account);
 
     let custom_channels = Arc::new(custom_channels::CustomChannels::new());
     if !cfg.custom_channels_file.is_empty() {
@@ -876,7 +873,7 @@ fn build_app_state(
     let tataplay_state = Arc::new(tataplay_state::TataplayState::new(cfg.tataplay));
     tataplay_state.init(&http, &store);
 
-    Ok(Arc::new(state::AppState {
+    let state = Arc::new(state::AppState {
         config: cfg.clone(),
         path_prefix: path_prefix.to_string(),
         access,
@@ -884,7 +881,7 @@ fn build_app_state(
         tv,
         secure,
         http: http.clone(),
-        drm_channels: std::sync::RwLock::new(learned_playback),
+        drm_channels: Default::default(),
         custom_channels,
         render_caches: Default::default(),
         dash_state: Default::default(),
@@ -900,7 +897,11 @@ fn build_app_state(
         unlock_limiter: Arc::new(unlock::AttemptLimiter::default()),
         listen: Default::default(),
         tunnel_origin: Default::default(),
-    }))
+    });
+    // Adopt the provider + account this server starts with, then restore what
+    // was learned for it (a fresh install writes the marker here).
+    state.init_learned_playback();
+    Ok(state)
 }
 
 async fn shutdown_signal() {

@@ -792,8 +792,11 @@ async fn live_impl_inner(
             || via_vzy
             || via_airtel
             || via_tataplay;
+        // Any channel now known to be DASH-only takes the MPD route: the
+        // providers answer from their own metadata and the learned facts cover
+        // the rest, whichever provider it came from.
         let dash_route = television::has_dash(&live)
-            && (via_provider || state.resolves_through_jiotv(id))
+            && (via_provider || state.is_dash_channel(id))
             // A protected channel can only play while the DRM pathway is on.
             && (state.config.drm || !live.has_drm_stream());
         if dash_route {
