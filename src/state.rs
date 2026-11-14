@@ -479,7 +479,11 @@ impl AppState {
         // routable either way.
         let learned = self.learned_dash(id) && (self.config.drm || !self.learned_drm(id));
         if FastwayState::is_fastway_channel(id) {
-            return self.fastway.is_dash(id) || learned;
+            // A protected Fastway row is DASH but cannot play without the DRM
+            // pathway, so it is not offered as a DASH route while DRM is off.
+            let provider_dash =
+                self.fastway.is_dash(id) && (self.config.drm || !self.fastway.is_drm(id));
+            return provider_dash || learned;
         }
         if crate::playbox::is_playbox_channel(id) {
             return self.playbox.is_dash(id) || learned;
@@ -1116,12 +1120,40 @@ mod tests {
     }
 
     #[test]
+    fn protected_fastway_channel_is_not_dash_while_drm_is_disabled() {
+        fn fastway_channel(id: i64, encryption_url: &str) -> crate::fastway::FastwayChannel {
+            crate::fastway::FastwayChannel {
+                id,
+                channel_number: id,
+                title: format!("Fastway {id}"),
+                stream_url: format!("https://cdn.example/{id}.mpd"),
+                channel_mode: "live".into(),
+                encryption_url: encryption_url.into(),
+                ..Default::default()
+            }
+        }
+
+        let mut s = state();
+        s.fastway
+            .prime_for_test(vec![fastway_channel(1, "https://cdn.example/license")]);
+        assert!(s.is_dash_channel("fw_1"));
+
+        Arc::get_mut(&mut s).unwrap().config.drm = false;
+        assert!(
+            !s.is_dash_channel("fw_1"),
+            "protected Fastway rows need the DRM pathway"
+        );
+
+        // A clear Fastway row stays routable with DRM disabled.
+        s.fastway.prime_for_test(vec![fastway_channel(2, "")]);
+        assert!(s.is_dash_channel("fw_2"));
+    }
+
+    #[test]
     fn malformed_learned_entries_are_ignored() {
         let (store, _s) = state_with_shared_store();
         let key = |base: &str| format!("{base}.jiotv");
-        store
-            .set(&key(STORE_KEY_LEARNED_FOR), "scope")
-            .unwrap();
+        store.set(&key(STORE_KEY_LEARNED_FOR), "scope").unwrap();
         store
             .set(
                 &key(STORE_KEY_LEARNED_DASH),
