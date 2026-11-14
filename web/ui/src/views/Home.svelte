@@ -249,6 +249,10 @@
       <p class="muted small">No other channels available.</p>
     {/if}
     <p class="rail-note muted small">M3U and XMLTV links for VLC, Kodi and TiviMate are in Settings.</p>
+    <a class="rail-discord" href="https://discord.gg/Xn3bUsBCZU" target="_blank" rel="noreferrer">
+      <strong>Join the Discord</strong>
+      <span class="muted small">Setup help and development chat</span>
+    </a>
   </aside>
 </section>
 
@@ -399,6 +403,19 @@
   .row:hover .row-play { color: var(--accent); }
   .rail-more { margin-top: 2px; }
   .rail-note { margin: 4px 0 0; }
+  .rail-discord {
+    display: grid;
+    gap: 2px;
+    margin-top: 2px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    color: var(--text);
+    text-decoration: none;
+  }
+  .rail-discord:hover, .rail-discord:focus-visible { border-color: var(--accent); }
+  .rail-discord strong { font-size: 13px; }
 
   .panel {
     display: grid;
