@@ -115,23 +115,24 @@ mod tests {
         let url = serve_once(|mut socket| {
             tokio::spawn(async move {
                 socket
-                    .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\n")
+                    .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 16\r\n\r\n")
                     .await
                     .unwrap();
-                for _ in 0..10 {
+                for _ in 0..16 {
                     tokio::time::sleep(Duration::from_millis(100)).await;
                     socket.write_all(b"x").await.unwrap();
                 }
+                let _ = socket.shutdown().await;
             });
         })
         .await;
         let client = builder()
-            .read_timeout(Duration::from_millis(400))
+            .read_timeout(Duration::from_millis(1000))
             .build()
             .unwrap();
 
         let body = client.get(&url).send().await.unwrap().text().await.unwrap();
-        assert_eq!(body, "x".repeat(10));
+        assert_eq!(body, "x".repeat(16));
     }
 
     /// A body that errors mid-transfer surfaces the failure instead of reading
@@ -150,7 +151,11 @@ mod tests {
         .await;
         let client = builder().build().unwrap();
 
-        let response = client.get(&url).send().await.unwrap();
+        // Windows can report the peer's abort while reading the headers rather
+        // than while reading the body; both are the same failure for the caller.
+        let Ok(response) = client.get(&url).send().await else {
+            return;
+        };
         assert!(response.text().await.is_err());
     }
 }
