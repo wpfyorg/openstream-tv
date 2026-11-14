@@ -11,9 +11,11 @@ jiotv_credentials.json
 # Playlist .m3u file
 *.m3u
 
-# Node (web/ui)
+# Node (web/ui and the landing page)
 web/ui/node_modules/
 web/node_modules/
+landing/node_modules/
+landing/dist/
 
 # Local playback / QA artifacts
 /qa-results/
