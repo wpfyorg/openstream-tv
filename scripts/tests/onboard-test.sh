@@ -181,7 +181,13 @@ start_flow() {
 }
 send() { printf '%s' "$1" >&6; }
 enter() { printf '\r' >&6; }
-finish_flow() { exec 6>&-; wait "$flow_pid"; }
+finish_flow() {
+  exec 6>&-
+  wait "$flow_pid"
+  ansi_esc=$(printf '\033')
+  sed "s/${ansi_esc}\\[[0-9;]*m//g" "$flow_out" >"$flow_out.normalized"
+  mv "$flow_out.normalized" "$flow_out"
+}
 
 # ---- default path: full build, JioTV account ------------------------------
 OPENSTREAM_TEST_STUB_LOG="$tmp/stub-calls.log"
@@ -201,9 +207,7 @@ finish_flow
 
 grep -F "Signed in to JioTV" "$tmp/out" >/dev/null
 grep -F "http://192.168.1.9:5001/k/secret-key/playlist.m3u" "$tmp/out" >/dev/null
-ansi_esc=$(printf '\033')
-sed "s/${ansi_esc}\\[[0-9;]*m//g" "$tmp/out" >"$tmp/out-no-color"
-grep -F "guide     off" "$tmp/out-no-color" >/dev/null
+grep -F "guide     off" "$tmp/out" >/dev/null
 if grep -F "epg" "$OPENSTREAM_TEST_STUB_LOG" >/dev/null; then
   echo "declining the programme guide on a fresh install changed the EPG setting" >&2
   exit 1
