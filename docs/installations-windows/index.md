@@ -5,25 +5,37 @@ category: Installation
 keywords: [Windows, PowerShell, install, Windows 11, Windows 10]
 ---
 
-# Install on Windows
+# 🪟 Install on Windows
 
-The PowerShell installer supports x64, x86, and ARM64 Windows. It downloads the latest matching GitHub release by default, verifies it with the release SHA-256 manifest, installs `ost.exe` under your local Programs directory, and adds that directory to your user `PATH`. Use `-Version 1.5.0` or set `$env:OPENSTREAM_VERSION = '1.5.0'` before running the installer when you need to pin the installed version.
+The PowerShell installer supports x64, x86 and ARM64 Windows. It downloads the latest matching release, verifies it with the SHA-256 manifest, installs `ost.exe` under your local Programs directory and adds that directory to your user `PATH`.
 
-Open PowerShell and run:
+---
+
+## 📥 Step 1: Install
 
 ```powershell
 irm https://raw.githubusercontent.com/wpfyorg/openstream-tv/main/scripts/install.ps1 | iex
 ```
 
-Close and reopen PowerShell if `ost` is not found.
+Close and reopen PowerShell if `ost` is not found. To pin a version, use `-Version <release>` or set `$env:OPENSTREAM_VERSION`.
 
-## Guided setup
+---
 
-In a PowerShell window, the installer switches to a guided setup after downloading: build (`full` or `slim`), account (JioTV, JioTV+, Fastway, or Airtel Xstream beta when the release supports it), the address other devices will use, whether to expose the server through Cloudflare, whether to turn on the programme guide, and then the account sign-in. Use the arrow keys (or `j`/`k`, or the number keys) and press Enter.
+## 🧭 Step 2: Guided Setup
 
-The sign-in step asks JioTV and Airtel Xstream for the mobile number and one-time password inside the wizard. The OTP is masked, and provider output is captured rather than printed over the screen. For JioTV+ the wizard lists registered connections and asks which one to use; Fastway signs in with a username and password instead. The installer does not store the mobile number or OTP. It saves the selected provider, any named-tunnel token, and the guide choice in your Windows user environment. A failed sign-in leaves the binary installed and prints a retry command.
+In a PowerShell window the installer switches to a guided setup: build (`full` or `slim`), account (JioTV, JioTV+, Fastway, or Airtel Xstream beta when the release supports it), the address other devices will use, whether to expose the server through Cloudflare, whether to turn on the programme guide, and the account sign-in. Arrow keys (or `j`/`k`, or number keys) select; Enter confirms.
 
-Skip the questions by setting the environment before running the script, or turn the flow off entirely:
+| Provider | What the wizard asks |
+| :--- | :--- |
+| **JioTV** | Mobile number and one-time password inside the wizard. |
+| **Airtel Xstream** (beta) | Same mobile number and OTP flow. |
+| **JioTV+** | Lists registered connections and asks which one to use. |
+| **Fastway** | Username and password. |
+
+> [!IMPORTANT]
+> The OTP is masked and provider output is captured rather than printed over the screen. The installer never stores the mobile number or OTP. It saves the selected provider, any named-tunnel token and the guide choice in your Windows user environment. A failed sign-in leaves the binary installed and prints a retry command.
+
+Skip the questions by setting the environment before running the script:
 
 ```powershell
 $env:OPENSTREAM_VARIANT = 'slim'
@@ -34,13 +46,13 @@ $env:OPENSTREAM_EPG = 'true'
 
 `$env:OPENSTREAM_ONBOARD = 'never'` keeps the plain non-interactive install. Redirected output (CI, scheduled tasks) skips the flow automatically.
 
-The guided installer configures the selected account and admin password but does not keep the server running. After successful guided setup, reuse the exact `Start it with:` command printed by the installer. It includes the selected provider settings and, when you chose a temporary or named Cloudflare tunnel, the required `--tunnel` option. If you selected LAN-only access, the equivalent start command is:
+---
 
-```powershell
-ost serve --host 0.0.0.0 --tls
-```
+## ▶️ Step 3: Start the Server
 
-If guided setup ran, it saves the selected provider flags in your user environment. If you skipped it with `OPENSTREAM_ONBOARD=never`, set the matching provider flags in the same PowerShell session before signing in and keep that session open for `serve`:
+The guided installer configures the account and admin password but does not keep the server running. Finish the sign-in and password steps first, then start it — reuse the exact `Start it with:` command the installer printed, which includes the provider settings and, for a temporary or named tunnel, the required `--tunnel` option.
+
+If you skipped guided setup with `OPENSTREAM_ONBOARD=never`, set the provider flags in the same session before signing in and keep it open for `serve`:
 
 ```powershell
 # JioTV: mobile-number OTP
@@ -59,25 +71,56 @@ $env:OPENSTREAM_FASTWAY = 'true'
 ost fastway login
 ```
 
-For the full web build, set the admin password before `serve`:
+For the full web build, set the admin password before serving:
 
 ```powershell
 ost admin password
 ```
 
-Open `https://localhost:5443/` on the same PC and accept the self-signed certificate warning. Other devices on your trusted LAN can use `https://<this-PC-ip>:5443/`; find the address with `ipconfig`. IPTV players use the authenticated playlist URL printed by the installer. When the guide is on, the installer prints its URL below the playlist. The `slim` build has no browser interface.
+Only then start it. For LAN-only access the equivalent of the printed command is:
 
-The installer accepts `-Variant full|slim`, `-Version latest|<version>`, `-InstallDir <directory>`, and `-Repo <owner/repository>`. For example, to install a specific release in a custom directory:
+```powershell
+ost serve --host 0.0.0.0 --tls
+```
+
+| Where to open it | URL |
+| :--- | :--- |
+| On this PC | `https://localhost:5443/` (accept the self-signed warning) |
+| Other trusted LAN devices | `https://<this-PC-ip>:5443/` (`ipconfig` shows the address) |
+| IPTV players | The authenticated playlist URL printed by the installer; the guide URL prints below it when the guide is on |
+
+The `slim` build has no browser interface.
+
+> [!NOTE]
+> The installer does not register a Windows service. Keep the terminal running while serving, or use a separately managed service wrapper only if you know how to configure and secure it.
+
+---
+
+## ⚙️ Installer Parameters
+
+| Parameter | Values |
+| :--- | :--- |
+| `-Variant` | `full` or `slim` |
+| `-Version` | `latest` or a release version |
+| `-InstallDir` | Target directory |
+| `-Repo` | `owner/repository` |
+
+Installing a pinned release into a custom directory:
 
 ```powershell
 irm https://raw.githubusercontent.com/wpfyorg/openstream-tv/main/scripts/install.ps1 -OutFile install-openstream.ps1
 .\install-openstream.ps1 -Version 1.5.0 -InstallDir "$env:LOCALAPPDATA\OpenStream TV"
 ```
 
-The installer does not register a Windows service. Keep the terminal running while serving, or use a separately managed service wrapper only if you know how to configure and secure it. Update with `ost update`; see [How to Update OpenStream TV](../maintenance-update/index.md) and [Uninstall OpenStream TV Safely](../maintenance-update-uninstall/index.md).
+---
 
-## Verify and troubleshoot
+## 🔧 Verify and Troubleshoot
 
-Open a new PowerShell window, run `Get-Command ost` and `ost --help`, then open the selected server address in a browser while the server is running. If Windows cannot find `ost`, verify the install folder is on your user `PATH` and reopen PowerShell. If the server cannot bind its port, see [startup errors](../troubleshooting-installation-startup/index.md).
+| Check | Command or action |
+| :--- | :--- |
+| Binary installed | New PowerShell window: `Get-Command ost` then `ost --help` |
+| Page opens | Browse the selected address while the server runs |
+| Windows cannot find `ost` | Confirm the install folder is on your user `PATH`, then reopen PowerShell |
+| Port cannot bind | See [startup errors](../troubleshooting-installation-startup/index.md) |
 
-Update with `ost update` and restart the server. To uninstall, stop it, remove `ost.exe` from the install directory, and remove an unneeded `PATH` entry. See [uninstall and saved data](../maintenance-update-uninstall/index.md).
+Update with `ost update` and restart the server; see [How to Update OpenStream TV](../maintenance-update/index.md). To uninstall, stop it, remove `ost.exe`, and remove an unneeded `PATH` entry — see [uninstall and saved data](../maintenance-update-uninstall/index.md).

@@ -5,11 +5,19 @@ category: Installation
 keywords: [Docker, container, GHCR, linux, arm64, persistent volume]
 ---
 
-# Install with Docker
+# 🐳 Install with Docker
 
-The published image supports Linux `amd64`, `arm64`, ARMv7 and 386. Docker selects the matching architecture. The `latest` tag tracks the current full image and `slim` tracks the current slim image. For a fixed release, use a versioned tag such as `1.5.0` for full or `1.5.0-slim` for slim.
+The published image supports Linux `amd64`, `arm64`, ARMv7 and 386; Docker selects the matching architecture.
 
-Create and start a container with a persistent named volume:
+| Tag | Contains |
+| :--- | :--- |
+| `latest` | Current full image with the web interface |
+| `slim` | Current headless image for IPTV clients |
+| `1.5.0` / `1.5.0-slim` | A pinned release in either variant |
+
+---
+
+## 📥 Step 1: Run the Container
 
 ```sh
 docker run -d --name openstream --restart unless-stopped \
@@ -18,20 +26,64 @@ docker run -d --name openstream --restart unless-stopped \
   ghcr.io/wpfyorg/openstream-tv:latest
 ```
 
-The container starts the server on all interfaces with HTTPS enabled. On the Docker host, open `https://localhost:5443/`; from another trusted LAN device, use `https://<docker-host-ip>:5443/`. Accept the self-signed certificate warning. IPTV players use the HTTP playlist on port `5001`. Keep both the container and volume private; the volume contains credentials and the generated TLS key.
+The container starts the server on all interfaces with HTTPS enabled.
 
-Set the admin password from the container's terminal, then sign in to the web interface and complete JioTV OTP login:
+| Where to open it | URL |
+| :--- | :--- |
+| On the Docker host | `https://localhost:5443/` (accept the self-signed warning) |
+| From a trusted LAN device | `https://<docker-host-ip>:5443/` |
+| IPTV players | The HTTP playlist on port `5001` |
+
+> [!IMPORTANT]
+> Keep the container and the volume private: the volume contains credentials and the generated TLS key.
+
+---
+
+## 🔑 Step 2: Set the Admin Password and Sign In
 
 ```sh
 docker exec -it openstream /usr/local/bin/ost admin password
+docker restart openstream
 ```
 
-View output with `docker logs -f openstream`. For updates and backup instructions, see [Docker maintenance](../maintenance-docker/index.md).
+The container keeps the store it read at startup, so restart it before signing in; only then does the server accept the new password.
 
-To run headless, use `ghcr.io/wpfyorg/openstream-tv:slim`. To pass configuration, add supported options such as `-e OPENSTREAM_TITLE="Living Room TV"` before the image name. Container arguments replace the image's default command, so preserve `--skip-update-check serve --host 0.0.0.0 --port 5001 --tls --tls-port 5443` when setting a custom command. See [CLI options](../configuration-cli/index.md).
+Then open the web interface, sign in and connect a provider in **Settings**:
 
-## Verify and troubleshoot
+| Provider | Sign-in |
+| :--- | :--- |
+| JioTV | Mobile number and OTP — [JioTV guide](../account-connect-jiotv/index.md) |
+| JioTV+ | Its own OTP and a connection picker — [JioTV+ guide](../account-extras/index.md) |
+| Fastway | Username and password — [Fastway guide](../account-fastway/index.md) |
 
-Run `docker ps --filter name=openstream` to confirm the container is running and `docker logs --tail 50 openstream` to inspect startup messages. Open the HTTPS page at the host's configured port. If the port is occupied, choose a different host-side port mapping; if saved accounts disappear after recreation, confirm the `openstream-data` volume was retained.
+From a terminal, `ost login otp` is the JioTV mobile-number login only; it does not sign in whichever provider the container was set up for. Stop the container first so the running server cannot write its in-memory state over the new login, then start it again so it loads the saved credentials and active provider:
+
+```sh
+docker stop openstream
+docker run --rm -it -v openstream-data:/app/.openstream-tv \
+  ghcr.io/wpfyorg/openstream-tv:latest login otp
+docker start openstream
+```
+
+View output with `docker logs -f openstream`. For updates and backup instructions see [Docker maintenance](../maintenance-docker/index.md).
+
+---
+
+## ⚙️ Optional Settings
+
+- **Headless:** use `ghcr.io/wpfyorg/openstream-tv:slim`.
+- **Configuration:** add supported options before the image name, for example `-e OPENSTREAM_TITLE="Living Room TV"`.
+- **Custom command:** container arguments replace the image's default command, so keep `--skip-update-check serve --host 0.0.0.0 --port 5001 --tls --tls-port 5443` when overriding it. See [CLI options](../configuration-cli/index.md).
+
+---
+
+## 🔧 Verify and Troubleshoot
+
+| Check | Command |
+| :--- | :--- |
+| Container running | `docker ps --filter name=openstream` |
+| Startup messages | `docker logs --tail 50 openstream` |
+| Port occupied | Choose a different host-side port mapping |
+| Saved accounts gone after recreation | Confirm the `openstream-data` volume was retained |
 
 Use [Docker maintenance](../maintenance-docker/index.md) to pull updates, back up the volume and uninstall the container. For network errors see [Docker and web troubleshooting](../troubleshooting-server-and-maintenance/index.md).
