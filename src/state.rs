@@ -474,7 +474,10 @@ impl AppState {
     /// learned facts cover the rest, including providers whose metadata is not
     /// persisted.
     pub fn is_dash_channel(&self, id: &str) -> bool {
-        let learned = self.learned_dash(id);
+        // A learned channel that is also known to need a license only routes
+        // while the DRM pathway is enabled; a clear learned channel stays
+        // routable either way.
+        let learned = self.learned_dash(id) && (self.config.drm || !self.learned_drm(id));
         if FastwayState::is_fastway_channel(id) {
             return self.fastway.is_dash(id) || learned;
         }
@@ -487,8 +490,7 @@ impl AppState {
         if crate::tataplay::is_tataplay_channel(id) {
             return true;
         }
-        // A protected DASH channel still needs the DRM pathway enabled.
-        learned && (self.config.drm || !self.learned_drm(id))
+        learned
     }
 
     fn learned_dash(&self, id: &str) -> bool {
@@ -534,7 +536,7 @@ impl AppState {
         let restored = load_learned_playback(&self.store, &product, &scope);
         let mut learned = self.drm_channels.write().unwrap();
         if learned.product == product
-            && learned.account == restored.account
+            && learned.account == scope
             && learned.dash == restored.dash
             && learned.drm == restored.drm
         {
@@ -1083,6 +1085,37 @@ mod tests {
     }
 
     #[test]
+    fn logging_in_after_startup_scopes_later_observations() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(Store::open(dir.path().to_str().unwrap()).unwrap());
+        std::mem::forget(dir);
+
+        // Server starts logged out, so there is no scope to record facts under.
+        let state = state_with_providers(
+            store.clone(),
+            Arc::new(ExtrasState::new(false, None)),
+            Arc::new(PlayboxState::new(false)),
+        );
+        state.init_learned_playback();
+        assert!(state.learned_playback_scope().is_empty());
+
+        // A login with no earlier observation record must adopt the new scope,
+        // otherwise the first observation has no account and is never saved.
+        crate::login::save(&store, &jiotv_creds("user-a"), crate::login::TOUCH_ALL).unwrap();
+        state.init_learned_playback();
+        state.observe_playback("9701", &live("", "https://cdn/a.mpd", "https://cdn/lic"));
+
+        let restarted = state_with_providers(
+            store.clone(),
+            Arc::new(ExtrasState::new(false, None)),
+            Arc::new(PlayboxState::new(false)),
+        );
+        restarted.init_learned_playback();
+        assert!(restarted.is_dash_channel("9701"));
+        assert!(restarted.is_drm_channel("9701"));
+    }
+
+    #[test]
     fn malformed_learned_entries_are_ignored() {
         let (store, _s) = state_with_shared_store();
         let key = |base: &str| format!("{base}.jiotv");
@@ -1126,5 +1159,11 @@ mod tests {
         s.learn_playback("9703", false);
         assert!(s.is_dash_channel("9703"));
         assert!(!s.is_drm_channel("9703"));
+
+        // The same rule holds for a learned id from another provider's space.
+        s.learn_playback("fw_88", true);
+        assert!(!s.is_dash_channel("fw_88"));
+        s.learn_playback("fw_89", false);
+        assert!(s.is_dash_channel("fw_89"));
     }
 }
