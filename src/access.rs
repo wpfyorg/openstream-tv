@@ -199,18 +199,23 @@ impl Access {
     fn new_secret(&self) -> Result<Vec<u8>, AccessError> {
         let mut b = vec![0u8; 32];
         rand::thread_rng().fill_bytes(&mut b);
+        // Hold the cache lock across the write and the publication: two
+        // rotations racing here could otherwise leave the cached secret and the
+        // stored one disagreeing, so this process would sign sessions a restart
+        // does not accept.
+        let mut guard = self.secret.lock().unwrap();
         match self.store.set(STORE_KEY_SECRET, &hex::encode(&b)) {
             Ok(()) => {}
             // The secret is already on disk, so adopt it before reporting:
             // sessions are signed with the secret a restart would load, and the
             // caller still learns that durability was not confirmed.
             Err(e) if e.committed() => {
-                *self.secret.lock().unwrap() = Some(b.clone());
+                *guard = Some(b.clone());
                 return Err(e.into());
             }
             Err(e) => return Err(e.into()),
         }
-        *self.secret.lock().unwrap() = Some(b.clone());
+        *guard = Some(b.clone());
         Ok(b)
     }
 
