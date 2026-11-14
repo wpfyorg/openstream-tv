@@ -8,7 +8,7 @@
   scaling is height-only so the proportions set by the brand stay intact.
 -->
 <img
-  src="/brand/openstream-lockup.svg"
+  src={`${import.meta.env.BASE_URL}brand/openstream-lockup.svg`}
   alt="OpenStream TV"
   width={Math.round(size * 6.63)}
   height={size}
