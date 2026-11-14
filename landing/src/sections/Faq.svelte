@@ -30,7 +30,12 @@
             />
           </button>
         </h3>
-        <div id="{id}-{i}" role="region" class="faq-panel {isOpen ? 'open' : ''}">
+        <div
+          id="{id}-{i}"
+          role="region"
+          aria-hidden={!isOpen}
+          class="faq-panel {isOpen ? 'open' : ''}"
+        >
           <div>
             <p class="pb-5 text-[15px] leading-6 text-muted">{item.a}</p>
           </div>

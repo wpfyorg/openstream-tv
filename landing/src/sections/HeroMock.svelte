@@ -39,10 +39,12 @@
   /*
     The window tilts up and settles as it scrolls into place, and scales down
     with the viewport so the fixed 1018px design always fits. Both are skipped
-    when the reader prefers reduced motion.
+    when the reader prefers reduced motion, and following the media query keeps
+    that true when the setting changes while the page is open.
   */
   onMount(() => {
-    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const motion = window.matchMedia('(prefers-reduced-motion: reduce)')
+    let reduce = motion.matches
     let frame = 0
 
     const fit = () => {
@@ -74,17 +76,25 @@
       frame = requestAnimationFrame(update)
     }
 
+    const onMotionChange = (event) => {
+      reduce = event.matches
+      if (reduce) tilt = { rotateX: 0, scale: 1, y: 0 }
+      update()
+    }
+
     update()
     const observer = new ResizeObserver(fit)
     if (wrap) observer.observe(wrap)
     window.addEventListener('scroll', onScroll, { passive: true })
     window.addEventListener('resize', onScroll)
+    motion.addEventListener('change', onMotionChange)
 
     return () => {
       if (frame) cancelAnimationFrame(frame)
       observer.disconnect()
       window.removeEventListener('scroll', onScroll)
       window.removeEventListener('resize', onScroll)
+      motion.removeEventListener('change', onMotionChange)
     }
   })
 </script>
