@@ -34,6 +34,10 @@ pub struct Store {
     path: PathBuf,
     lock_path: PathBuf,
     inner: Mutex<FileFormat>,
+    /// Test hook: makes the post-rename directory sync fail, so the committed
+    /// but not durable path can be exercised deterministically.
+    #[cfg(test)]
+    fail_dir_sync: std::sync::atomic::AtomicBool,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -49,11 +53,25 @@ pub enum StoreError {
     Decode(#[from] toml::de::Error),
     #[error(transparent)]
     Encode(#[from] toml::ser::Error),
+    /// The new content already replaced the file, but the directory could not
+    /// be synchronised, so it is visible now while a power cut could still undo
+    /// it. Distinct from a write that never happened.
+    #[error("store replaced but not made durable: {0}")]
+    NotDurable(#[source] std::io::Error),
+}
+
+impl StoreError {
+    /// Whether the change is already visible on disk. Callers that keep an
+    /// in-memory copy of what they wrote must still adopt it in this case.
+    pub fn committed(&self) -> bool {
+        matches!(self, StoreError::NotDurable(_))
+    }
 }
 
 /// Distinguishes a write that never replaced the file from one whose rename
 /// already happened but could not be made durable. The caller needs the
 /// difference to keep its in-memory snapshot aligned with the disk.
+#[derive(Debug)]
 enum WriteFailure {
     BeforeReplace(StoreError),
     AfterReplace(StoreError),
@@ -74,6 +92,8 @@ impl Store {
             path: PathBuf::from(path_prefix).join(STORE_FILE),
             lock_path: PathBuf::from(path_prefix).join(LOCK_FILE),
             inner: Mutex::new(FileFormat::default()),
+            #[cfg(test)]
+            fail_dir_sync: std::sync::atomic::AtomicBool::new(false),
         };
         {
             let mut guard = store.inner.lock().unwrap();
@@ -152,14 +172,30 @@ impl Store {
     /// with a fresh name; only a temporary file this attempt created is ever
     /// removed.
     fn write_atomic(&self, data: &FileFormat) -> Result<(), WriteFailure> {
-        let text = toml::to_string(data).map_err(|e| WriteFailure::BeforeReplace(e.into()))?;
         let dir = self.path.parent().unwrap_or_else(|| Path::new("."));
-        for _ in 0..8 {
-            let tmp = dir.join(format!(
+        self.write_atomic_with(data, dir, || {
+            dir.join(format!(
                 ".{STORE_FILE}.{}.{}.tmp",
                 std::process::id(),
                 next_temp_id()
-            ));
+            ))
+        })
+    }
+
+    /// The retry loop, with the temporary-name source injected so its collision
+    /// path can be exercised deterministically.
+    fn write_atomic_with<F>(
+        &self,
+        data: &FileFormat,
+        dir: &Path,
+        mut temp_name: F,
+    ) -> Result<(), WriteFailure>
+    where
+        F: FnMut() -> PathBuf,
+    {
+        let text = toml::to_string(data).map_err(|e| WriteFailure::BeforeReplace(e.into()))?;
+        for _ in 0..8 {
+            let tmp = temp_name();
             let mut file = match self.create_temp(&tmp) {
                 Ok(file) => file,
                 Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
@@ -211,6 +247,12 @@ impl Store {
         file.sync_all()
             .map_err(|e| WriteFailure::BeforeReplace(e.into()))?;
         std::fs::rename(tmp, &self.path).map_err(|e| WriteFailure::BeforeReplace(e.into()))?;
+        #[cfg(test)]
+        if self.fail_dir_sync.load(Ordering::Relaxed) {
+            return Err(WriteFailure::AfterReplace(StoreError::NotDurable(
+                std::io::Error::other("injected directory sync failure"),
+            )));
+        }
         // Making the rename itself durable needs a directory handle, which
         // Windows cannot open this way. On Unix a failure here means the new
         // content is in place but may not survive a power cut, so it is
@@ -218,16 +260,23 @@ impl Store {
         #[cfg(unix)]
         {
             let dir_handle =
-                File::open(dir).map_err(|e| WriteFailure::AfterReplace(e.into()))?;
+                File::open(dir).map_err(|e| WriteFailure::AfterReplace(StoreError::NotDurable(e)))?;
             dir_handle
                 .sync_all()
-                .map_err(|e| WriteFailure::AfterReplace(e.into()))?;
+                .map_err(|e| WriteFailure::AfterReplace(StoreError::NotDurable(e)))?;
         }
         #[cfg(not(unix))]
         {
             let _ = dir;
         }
         Ok(())
+    }
+
+    /// Test hook: makes the post-rename directory sync fail, so the committed
+    /// but not durable path can be exercised deterministically.
+    #[cfg(test)]
+    pub(crate) fn fail_dir_sync_for_test(&self) {
+        self.fail_dir_sync.store(true, Ordering::Relaxed);
     }
 
     #[allow(dead_code)]
@@ -429,22 +478,44 @@ mod tests {
     }
 
     #[test]
+    fn a_committed_write_is_visible_and_reports_only_durability() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path().to_str().unwrap()).unwrap();
+        store.fail_dir_sync_for_test();
+
+        let error = store.set("k", "v").unwrap_err();
+
+        assert!(error.committed(), "expected a committed failure: {error}");
+        // Memory matches the already-replaced file, and so does the disk.
+        assert_eq!(store.get_opt("k").as_deref(), Some("v"));
+        let reopened = Store::open(dir.path().to_str().unwrap()).unwrap();
+        assert_eq!(reopened.get_opt("k").as_deref(), Some("v"));
+    }
+
+    #[test]
     fn a_colliding_temp_name_is_retried_and_not_removed() {
         let dir = tempfile::tempdir().unwrap();
         let store = Store::open(dir.path().to_str().unwrap()).unwrap();
-        // Take the exact name the next attempt would use. The write must skip
-        // it rather than fail or delete a file it did not create.
-        let colliding = dir.path().join(format!(
-            ".{STORE_FILE}.{}.{}.tmp",
-            std::process::id(),
-            next_temp_id()
-        ));
+        // The name is pre-created, so the first attempt must fail with
+        // AlreadyExists and the retry must use a different one. The injected
+        // name source makes that deterministic rather than dependent on the
+        // process-wide counter.
+        let colliding = dir.path().join("collision.tmp");
         std::fs::write(&colliding, "not ours").unwrap();
+        let retry = dir.path().join("retry.tmp");
+        let mut names = [colliding.clone(), retry.clone()].into_iter();
 
-        store.set("k", "v").unwrap();
+        let data = FileFormat {
+            data: [("k".to_string(), "v".to_string())].into(),
+        };
+        store
+            .write_atomic_with(&data, dir.path(), || names.next().unwrap())
+            .unwrap();
 
         assert_eq!(std::fs::read_to_string(&colliding).unwrap(), "not ours");
-        assert_eq!(store.get_opt("k").as_deref(), Some("v"));
+        assert!(!retry.exists(), "the successful temporary file was moved");
+        let stored = std::fs::read_to_string(dir.path().join(STORE_FILE)).unwrap();
+        assert!(stored.contains("k = \"v\""), "{stored}");
     }
 
     #[test]

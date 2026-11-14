@@ -101,7 +101,16 @@ impl Access {
 
     pub fn rotate(&self) -> Result<String, AccessError> {
         let next = random_hex(16);
-        self.store.set(STORE_KEY_ACCESS, &next)?;
+        match self.store.set(STORE_KEY_ACCESS, &next) {
+            Ok(()) => {}
+            // The replacement is already on disk; only its durability could not
+            // be confirmed. Keeping the previous key in memory would reject
+            // every request until the next restart, so adopt the new one.
+            Err(e) if e.committed() => {
+                tracing::warn!("access key stored but not made durable: {e}");
+            }
+            Err(e) => return Err(e.into()),
+        }
         *self.key.lock().unwrap() = Some(next.clone());
         Ok(next)
     }
@@ -303,6 +312,29 @@ mod tests {
         let k1 = a.key().unwrap();
         let k2 = a.rotate().unwrap();
         assert_ne!(k1, k2);
+    }
+
+    #[test]
+    fn rotate_adopts_a_key_that_is_stored_but_not_durable() {
+        let dir = tempfile::tempdir().unwrap();
+        let path_prefix = dir.path().to_str().unwrap().to_string();
+        let store = Arc::new(Store::open(&path_prefix).unwrap());
+        let access = Access::new(store.clone());
+        let previous = access.key().unwrap();
+
+        store.fail_dir_sync_for_test();
+        let rotated = access
+            .rotate()
+            .expect("a committed key must be adopted, not reported as unwritten");
+
+        assert_ne!(rotated, previous);
+        assert_eq!(access.key().unwrap(), rotated);
+        // The new key is the one on disk, so a restart keeps the same key.
+        let reopened = Store::open(&path_prefix).unwrap();
+        assert_eq!(
+            reopened.get_opt("access_key").as_deref(),
+            Some(rotated.as_str())
+        );
     }
 
     #[test]
