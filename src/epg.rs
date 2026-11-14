@@ -256,10 +256,13 @@ pub struct XmlProgramme {
     pub icon: String,
 }
 
-struct XmlChannel {
-    id: String,
-    display: String,
-}
+/// Guide entries fetched at once while the XMLTV document is written. Each
+/// channel's entries are serialized and dropped as soon as its fetch
+/// returns, so peak memory follows this window rather than the catalogue
+/// size.
+const EPG_FETCH_CONCURRENCY: usize = 20;
+
+const XMLTV_HEADER: &str = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\t<!DOCTYPE tv SYSTEM \"http://www.w3.org/2006/05/tv\">";
 
 fn xml_escape(s: &str) -> String {
     s.replace('&', "&amp;")
@@ -301,110 +304,149 @@ async fn fetch_epg_for_channel(client: &reqwest::Client, channel_id: i64) -> Vec
     out
 }
 
-async fn generate_xml_from_sources(
-    client: &reqwest::Client,
-    tv_sources: Vec<(String, String)>,
-    extra_sources: Vec<(String, String)>,
-    extra_programmes: Vec<XmlProgramme>,
-) -> anyhow::Result<String> {
-    let semaphore = Arc::new(tokio::sync::Semaphore::new(20));
-    let mut tasks = Vec::new();
-    for (channel_id, _) in &tv_sources {
-        let Ok(id) = channel_id.parse::<i64>() else {
-            continue;
-        };
-        let client = client.clone();
-        let sem = semaphore.clone();
-        tasks.push(tokio::spawn(async move {
-            let _permit = sem.acquire_owned().await.unwrap();
-            (id, fetch_epg_for_channel(&client, id).await)
-        }));
-    }
+fn gzip_writer() -> std::io::BufWriter<flate2::write::GzEncoder<Vec<u8>>> {
+    std::io::BufWriter::new(flate2::write::GzEncoder::new(
+        Vec::new(),
+        flate2::Compression::default(),
+    ))
+}
 
-    let mut programmes = Vec::new();
-    for task in tasks {
-        if let Ok((id, entries)) = task.await {
-            for e in entries {
-                programmes.push(XmlProgramme {
-                    channel: id.to_string(),
-                    start: format_xmltv_time(e.start_epoch),
-                    stop: format_xmltv_time(e.end_epoch),
-                    title: e.title,
-                    desc: e.description,
-                    category: e.show_category,
-                    icon: format!("{EPG_POSTER_URL}{}", e.poster),
-                });
-            }
-        }
-    }
-    programmes.extend(extra_programmes);
+fn finish_gzip(
+    out: std::io::BufWriter<flate2::write::GzEncoder<Vec<u8>>>,
+) -> anyhow::Result<Vec<u8>> {
+    Ok(out.into_inner().map_err(|e| e.into_error())?.finish()?)
+}
 
-    if programmes.is_empty() {
+fn write_channel<W: Write>(out: &mut W, id: &str, display: &str) -> std::io::Result<()> {
+    write!(
+        out,
+        "<channel id=\"{}\"><display-name>{}</display-name></channel>",
+        xml_escape(id),
+        xml_escape(display)
+    )
+}
+
+fn write_programme<W: Write>(out: &mut W, p: &XmlProgramme) -> std::io::Result<()> {
+    write!(
+        out,
+        "<programme channel=\"{}\" start=\"{}\" stop=\"{}\"><title lang=\"en\">{}</title><desc lang=\"en\">{}</desc><category lang=\"en\">{}</category><icon src=\"{}\"></icon></programme>",
+        p.channel,
+        p.start,
+        p.stop,
+        xml_escape(&p.title),
+        xml_escape(&p.desc),
+        xml_escape(&p.category),
+        xml_escape(&p.icon)
+    )
+}
+
+fn write_fetched_programme<W: Write>(
+    out: &mut W,
+    channel: &str,
+    e: &EpgObject,
+) -> std::io::Result<()> {
+    write!(
+        out,
+        "<programme channel=\"{}\" start=\"{}\" stop=\"{}\"><title lang=\"en\">{}</title><desc lang=\"en\">{}</desc><category lang=\"en\">{}</category><icon src=\"{}{}\"></icon></programme>",
+        channel,
+        format_xmltv_time(e.start_epoch),
+        format_xmltv_time(e.end_epoch),
+        xml_escape(&e.title),
+        xml_escape(&e.description),
+        xml_escape(&e.show_category),
+        EPG_POSTER_URL,
+        xml_escape(&e.poster)
+    )
+}
+
+async fn write_finished_channel<W: Write>(
+    out: &mut W,
+    task: tokio::task::JoinHandle<(i64, Vec<EpgObject>)>,
+) -> anyhow::Result<usize> {
+    let Ok((channel, entries)) = task.await else {
+        return Ok(0);
+    };
+    let channel = channel.to_string();
+    for entry in &entries {
+        write_fetched_programme(out, &channel, entry)?;
+    }
+    Ok(entries.len())
+}
+
+fn finish_guide(
+    out: std::io::BufWriter<flate2::write::GzEncoder<Vec<u8>>>,
+    programmes: usize,
+) -> anyhow::Result<Vec<u8>> {
+    if programmes == 0 {
         anyhow::bail!("no EPG programmes were fetched");
     }
-
-    let extra_channels: Vec<XmlChannel> = extra_sources
-        .into_iter()
-        .map(|(id, display)| XmlChannel { id, display })
-        .collect();
-
-    let mut xml = String::new();
-    xml.push_str(r#"<tv version="" encoding="">"#);
-    for (id, display) in &tv_sources {
-        xml.push_str(&format!(
-            "<channel id=\"{}\"><display-name>{}</display-name></channel>",
-            xml_escape(id),
-            xml_escape(display)
-        ));
-    }
-    for ch in &extra_channels {
-        xml.push_str(&format!(
-            "<channel id=\"{}\"><display-name>{}</display-name></channel>",
-            xml_escape(&ch.id),
-            xml_escape(&ch.display)
-        ));
-    }
-    for p in &programmes {
-        xml.push_str(&format!(
-            "<programme channel=\"{}\" start=\"{}\" stop=\"{}\"><title lang=\"en\">{}</title><desc lang=\"en\">{}</desc><category lang=\"en\">{}</category><icon src=\"{}\"></icon></programme>",
-            p.channel, p.start, p.stop, xml_escape(&p.title), xml_escape(&p.desc), xml_escape(&p.category), xml_escape(&p.icon)
-        ));
-    }
-    xml.push_str("</tv>");
-    Ok(xml)
+    let mut out = out;
+    out.write_all(b"</tv>")?;
+    finish_gzip(out)
 }
 
-/// XMLTV with channel entries but no programmes, used for a product whose
-/// real programme timing is not understood.
-fn generate_channels_only_xml_gz(channels: Vec<(String, String)>) -> anyhow::Result<Vec<u8>> {
-    let mut xml = String::from(r#"<tv version="" encoding="">"#);
-    for (id, display) in &channels {
-        xml.push_str(&format!(
-            "<channel id=\"{}\"><display-name>{}</display-name></channel>",
-            xml_escape(id),
-            xml_escape(display)
-        ));
-    }
-    xml.push_str("</tv>");
-    gzip_xml(&xml)
-}
-
+/// Writes the guide into the gzip stream as channel fetches finish, so the
+/// document, the programme list, and a second XML copy never coexist in
+/// memory. Programme order matches the catalogue order of `tv_sources`.
 async fn generate_xml_gz_from_sources(
     client: &reqwest::Client,
     tv_sources: Vec<(String, String)>,
     extra_sources: Vec<(String, String)>,
     extra_programmes: Vec<XmlProgramme>,
 ) -> anyhow::Result<Vec<u8>> {
-    let xml =
-        generate_xml_from_sources(client, tv_sources, extra_sources, extra_programmes).await?;
-    gzip_xml(&xml)
+    let mut out = gzip_writer();
+    out.write_all(XMLTV_HEADER.as_bytes())?;
+    out.write_all(br#"<tv version="" encoding="">"#)?;
+    for (id, display) in tv_sources.iter().chain(extra_sources.iter()) {
+        write_channel(&mut out, id, display)?;
+    }
+
+    let mut programmes = 0usize;
+    let mut window: std::collections::VecDeque<tokio::task::JoinHandle<(i64, Vec<EpgObject>)>> =
+        std::collections::VecDeque::with_capacity(EPG_FETCH_CONCURRENCY);
+    for (channel_id, _) in &tv_sources {
+        let Ok(id) = channel_id.parse::<i64>() else {
+            continue;
+        };
+        let client = client.clone();
+        window.push_back(tokio::spawn(async move {
+            (id, fetch_epg_for_channel(&client, id).await)
+        }));
+        if window.len() >= EPG_FETCH_CONCURRENCY {
+            let task = window.pop_front().expect("window is non-empty");
+            programmes += write_finished_channel(&mut out, task).await?;
+        }
+    }
+    while let Some(task) = window.pop_front() {
+        programmes += write_finished_channel(&mut out, task).await?;
+    }
+
+    for p in &extra_programmes {
+        write_programme(&mut out, p)?;
+        programmes += 1;
+    }
+
+    finish_guide(out, programmes)
 }
 
+/// XMLTV with channel entries but no programmes, used for a product whose
+/// real programme timing is not understood.
+fn generate_channels_only_xml_gz(channels: Vec<(String, String)>) -> anyhow::Result<Vec<u8>> {
+    let mut out = gzip_writer();
+    out.write_all(XMLTV_HEADER.as_bytes())?;
+    out.write_all(br#"<tv version="" encoding="">"#)?;
+    for (id, display) in &channels {
+        write_channel(&mut out, id, display)?;
+    }
+    out.write_all(b"</tv>")?;
+    finish_gzip(out)
+}
+
+#[cfg(test)]
 fn gzip_xml(xml: &str) -> anyhow::Result<Vec<u8>> {
-    let header = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\t<!DOCTYPE tv SYSTEM \"http://www.w3.org/2006/05/tv\">";
-    let full = format!("{header}{xml}");
     let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
-    gz.write_all(full.as_bytes())?;
+    gz.write_all(XMLTV_HEADER.as_bytes())?;
+    gz.write_all(xml.as_bytes())?;
     Ok(gz.finish()?)
 }
 
@@ -1211,6 +1253,101 @@ mod tests {
     fn formats_xmltv_time() {
         // 2024-01-02T03:04:05Z in ms
         assert_eq!(format_xmltv_time(1704164645000), "20240102030405 +0000");
+    }
+
+    fn decode_guide(bytes: &[u8]) -> String {
+        use std::io::Read;
+        let mut xml = String::new();
+        flate2::read::GzDecoder::new(bytes)
+            .read_to_string(&mut xml)
+            .unwrap();
+        xml
+    }
+
+    #[test]
+    fn streamed_guide_matches_the_previous_document_layout() {
+        let mut out = gzip_writer();
+        out.write_all(XMLTV_HEADER.as_bytes()).unwrap();
+        out.write_all(br#"<tv version="" encoding="">"#).unwrap();
+        write_channel(&mut out, "101", "Tom & Jerry").unwrap();
+        write_programme(
+            &mut out,
+            &XmlProgramme {
+                channel: "101".into(),
+                start: "20240102030405 +0000".into(),
+                stop: "20240102040405 +0000".into(),
+                title: "Tom & Jerry".into(),
+                desc: "A <cat>".into(),
+                category: "Kids".into(),
+                icon: format!("{EPG_POSTER_URL}x.jpg"),
+            },
+        )
+        .unwrap();
+        let bytes = finish_guide(out, 1).unwrap();
+
+        assert_eq!(
+            decode_guide(&bytes),
+            concat!(
+                "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\t<!DOCTYPE tv SYSTEM \"http://www.w3.org/2006/05/tv\">",
+                "<tv version=\"\" encoding=\"\">",
+                "<channel id=\"101\"><display-name>Tom &amp; Jerry</display-name></channel>",
+                "<programme channel=\"101\" start=\"20240102030405 +0000\" stop=\"20240102040405 +0000\">",
+                "<title lang=\"en\">Tom &amp; Jerry</title><desc lang=\"en\">A &lt;cat&gt;</desc>",
+                "<category lang=\"en\">Kids</category>",
+                "<icon src=\"https://jiotv.catchup.cdn.jio.com/dare_images/shows/x.jpg\"></icon></programme>",
+                "</tv>"
+            )
+        );
+    }
+
+    #[test]
+    fn fetched_programme_formats_xmltv_time_and_escapes_the_poster() {
+        let mut xml = Vec::new();
+        write_fetched_programme(
+            &mut xml,
+            "101",
+            &EpgObject {
+                start_epoch: 1704164645000,
+                end_epoch: 1704168245000,
+                show_category: "Kids".into(),
+                description: "D".into(),
+                title: "T".into(),
+                poster: "a&b.jpg".into(),
+            },
+        )
+        .unwrap();
+        let xml = String::from_utf8(xml).unwrap();
+        assert!(xml.starts_with(
+            "<programme channel=\"101\" start=\"20240102030405 +0000\" stop=\"20240102040405 +0000\">"
+        ));
+        assert!(xml.contains(
+            "<icon src=\"https://jiotv.catchup.cdn.jio.com/dare_images/shows/a&amp;b.jpg\"></icon>"
+        ));
+    }
+
+    #[test]
+    fn guide_without_programmes_is_rejected() {
+        let out = gzip_writer();
+        assert!(finish_guide(out, 0).is_err());
+    }
+
+    #[test]
+    fn channels_only_guide_has_channels_and_no_programmes() {
+        let bytes = generate_channels_only_xml_gz(vec![
+            ("pb_1".into(), "Playbox & One".into()),
+            ("tp_2".into(), "Tata Two".into()),
+        ])
+        .unwrap();
+        let xml = decode_guide(&bytes);
+        assert!(xml.starts_with(XMLTV_HEADER));
+        assert!(xml.contains(
+            "<channel id=\"pb_1\"><display-name>Playbox &amp; One</display-name></channel>"
+        ));
+        assert!(
+            xml.contains("<channel id=\"tp_2\"><display-name>Tata Two</display-name></channel>")
+        );
+        assert!(!xml.contains("<programme"));
+        assert!(xml.ends_with("</tv>"));
     }
 
     #[test]
