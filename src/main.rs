@@ -1,5 +1,10 @@
 mod access;
+#[cfg(feature = "beta")]
 mod airtel;
+#[cfg(feature = "beta")]
+mod airtel_state;
+#[cfg(not(feature = "beta"))]
+#[path = "beta_stub_airtel_state.rs"]
 mod airtel_state;
 mod api;
 mod autostart;
@@ -17,7 +22,12 @@ mod fastway_state;
 mod http_client;
 mod keyed_locks;
 mod login;
+#[cfg(feature = "beta")]
 mod playbox;
+#[cfg(feature = "beta")]
+mod playbox_state;
+#[cfg(not(feature = "beta"))]
+#[path = "beta_stub_playbox_state.rs"]
 mod playbox_state;
 mod public_origin;
 mod secureurl;
@@ -25,7 +35,12 @@ mod server;
 mod state;
 mod store;
 mod stream;
+#[cfg(feature = "beta")]
 mod tataplay;
+#[cfg(feature = "beta")]
+mod tataplay_state;
+#[cfg(not(feature = "beta"))]
+#[path = "beta_stub_tataplay_state.rs"]
 mod tataplay_state;
 mod television;
 mod tls;
@@ -35,7 +50,12 @@ mod tunnel_setup;
 mod unlock;
 mod update;
 mod vod;
+#[cfg(feature = "beta")]
 mod vzy;
+#[cfg(feature = "beta")]
+mod vzy_state;
+#[cfg(not(feature = "beta"))]
+#[path = "beta_stub_vzy_state.rs"]
 mod vzy_state;
 
 #[cfg(feature = "full")]
@@ -58,6 +78,8 @@ fn main() -> anyhow::Result<()> {
 
     let mut cfg = config::Config::load(args.config.as_deref())?;
     init_logging(&cfg);
+    #[cfg(not(feature = "beta"))]
+    warn_ignored_beta_config(&cfg);
 
     let path_prefix = resolve_path_prefix(&cfg)?;
     let store = Arc::new(store::Store::open(&path_prefix)?);
@@ -92,11 +114,17 @@ fn main() -> anyhow::Result<()> {
         cli::Command::ExtrasLogout => extras_logout_cli(&store),
         cli::Command::FastwayLogin => runtime.block_on(fastway_login_cli(&store)),
         cli::Command::FastwayLogout => fastway_logout_cli(&store),
+        #[cfg(feature = "beta")]
         cli::Command::AirtelLogin => runtime.block_on(airtel_login_cli(&store)),
+        #[cfg(feature = "beta")]
         cli::Command::AirtelLogout => airtel_logout_cli(&store),
+        #[cfg(feature = "beta")]
         cli::Command::PlayboxLogin => runtime.block_on(playbox_login_cli(&store)),
+        #[cfg(feature = "beta")]
         cli::Command::PlayboxLogout => playbox_logout_cli(&store),
+        #[cfg(feature = "beta")]
         cli::Command::TataplayLogin => runtime.block_on(tataplay_login_cli(&store)),
+        #[cfg(feature = "beta")]
         cli::Command::TataplayLogout => runtime.block_on(tataplay_logout_cli(&store)),
         cli::Command::ProviderUse(id) => provider_use(&store, &id),
         cli::Command::AdminPassword => admin_password(&access, &path_prefix),
@@ -569,6 +597,7 @@ async fn serve(
             }
         );
     }
+    #[cfg(feature = "beta")]
     if state.airtel.enabled() {
         println!(
             "airtel enabled{}",
@@ -579,6 +608,7 @@ async fn serve(
             }
         );
     }
+    #[cfg(feature = "beta")]
     if state.playbox.enabled() {
         println!(
             "playbox enabled{}",
@@ -589,6 +619,7 @@ async fn serve(
             }
         );
     }
+    #[cfg(feature = "beta")]
     if state.tataplay.enabled() {
         println!(
             "tataplay enabled{}",
@@ -599,6 +630,7 @@ async fn serve(
             }
         );
     }
+    #[cfg(feature = "beta")]
     if state.vzy.enabled() {
         println!(
             "vzy enabled{}",
@@ -822,6 +854,32 @@ fn validate_saved_tunnel_listener(address: std::net::SocketAddr) -> anyhow::Resu
     Ok(())
 }
 
+/// Stable builds do not contain the beta providers. A config or environment
+/// entry that enables one is ignored rather than silently left active, so a
+/// config copied from a beta prerelease still starts cleanly.
+#[cfg(not(feature = "beta"))]
+fn warn_ignored_beta_config(cfg: &config::Config) {
+    let mut ignored = Vec::new();
+    if cfg.airtel {
+        ignored.push("airtel");
+    }
+    if cfg.playbox {
+        ignored.push("playbox");
+    }
+    if cfg.tataplay {
+        ignored.push("tataplay");
+    }
+    if cfg.vzy {
+        ignored.push("vzy");
+    }
+    if !ignored.is_empty() {
+        eprintln!(
+            "Warning: this stable build does not include the beta providers; ignoring {}",
+            ignored.join(", ")
+        );
+    }
+}
+
 fn build_app_state(
     cfg: &config::Config,
     path_prefix: &str,
@@ -864,14 +922,30 @@ fn build_app_state(
     extras_state.init(&http, &store);
     let fastway_state = Arc::new(fastway_state::FastwayState::new(cfg.fastway));
     fastway_state.init(&http, &store);
-    let playbox_state = Arc::new(playbox_state::PlayboxState::new(cfg.playbox));
-    playbox_state.init(&http, &store);
-    let vzy_state = Arc::new(vzy_state::VzyState::new(cfg.vzy));
-    vzy_state.init(&http, &store);
-    let airtel_state = Arc::new(airtel_state::AirtelState::new(cfg.airtel));
-    airtel_state.init(&http, &store);
-    let tataplay_state = Arc::new(tataplay_state::TataplayState::new(cfg.tataplay));
-    tataplay_state.init(&http, &store);
+    #[cfg(feature = "beta")]
+    let playbox_state = {
+        let state = Arc::new(playbox_state::PlayboxState::new(cfg.playbox));
+        state.init(&http, &store);
+        state
+    };
+    #[cfg(feature = "beta")]
+    let vzy_state = {
+        let state = Arc::new(vzy_state::VzyState::new(cfg.vzy));
+        state.init(&http, &store);
+        state
+    };
+    #[cfg(feature = "beta")]
+    let airtel_state = {
+        let state = Arc::new(airtel_state::AirtelState::new(cfg.airtel));
+        state.init(&http, &store);
+        state
+    };
+    #[cfg(feature = "beta")]
+    let tataplay_state = {
+        let state = Arc::new(tataplay_state::TataplayState::new(cfg.tataplay));
+        state.init(&http, &store);
+        state
+    };
 
     let state = Arc::new(state::AppState {
         config: cfg.clone(),
@@ -888,10 +962,22 @@ fn build_app_state(
         epg_state: Default::default(),
         extras: extras_state,
         fastway: fastway_state,
+        #[cfg(feature = "beta")]
         playbox: playbox_state,
+        #[cfg(feature = "beta")]
         tataplay: tataplay_state,
+        #[cfg(feature = "beta")]
         vzy: vzy_state,
+        #[cfg(feature = "beta")]
         airtel: airtel_state,
+        #[cfg(not(feature = "beta"))]
+        playbox: Arc::new(playbox_state::PlayboxState::new(false)),
+        #[cfg(not(feature = "beta"))]
+        tataplay: Arc::new(tataplay_state::TataplayState::new(false)),
+        #[cfg(not(feature = "beta"))]
+        vzy: Arc::new(vzy_state::VzyState::new(false)),
+        #[cfg(not(feature = "beta"))]
+        airtel: Arc::new(airtel_state::AirtelState::new(false)),
         vod_state: Default::default(),
         public_ip: Arc::new(unlock::PublicIp::new(http)),
         unlock_limiter: Arc::new(unlock::AttemptLimiter::default()),
@@ -981,7 +1067,8 @@ fn remember_cli_provider(
 fn provider_use(store: &store::Store, id: &str) -> anyhow::Result<()> {
     let product = state::ActiveProduct::from_name(id).ok_or_else(|| {
         anyhow::anyhow!(
-            "unknown provider {id}; use jiotv, jiotv_plus, fastway, playbox, vzy, airtel or tataplay"
+            "unknown provider {id}; use {}",
+            state::PROVIDER_IDS.replace('|', ", ")
         )
     })?;
     remember_cli_provider(store, product)?;
@@ -1126,6 +1213,7 @@ fn fastway_logout_cli(store: &store::Store) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[cfg(feature = "beta")]
 /// `ost airtel login` — Airtel only signs in with an SMS OTP, so the CLI asks
 /// for the number, sends the code, then asks for it.
 async fn airtel_login_cli(store: &store::Store) -> anyhow::Result<()> {
@@ -1150,19 +1238,24 @@ async fn airtel_login_cli(store: &store::Store) -> anyhow::Result<()> {
     match client.verify_otp(store, &msisdn, otp.trim(), || {}).await {
         Ok(creds) => {
             remember_cli_provider(store, state::ActiveProduct::Airtel)?;
-            println!("Airtel login saved for {}. Restart the server to use it.", creds.msisdn);
+            println!(
+                "Airtel login saved for {}. Restart the server to use it.",
+                creds.msisdn
+            );
             Ok(())
         }
         Err(e) => anyhow::bail!("login failed: {e}"),
     }
 }
 
+#[cfg(feature = "beta")]
 fn airtel_logout_cli(store: &store::Store) -> anyhow::Result<()> {
     airtel::delete_credentials(store)?;
     println!("Airtel login deleted.");
     Ok(())
 }
 
+#[cfg(feature = "beta")]
 /// `ost playbox login` — PlayboxTV signs in with an SMS OTP, so the CLI asks
 /// for the number, sends the code, then asks for it.
 async fn playbox_login_cli(store: &store::Store) -> anyhow::Result<()> {
@@ -1196,12 +1289,14 @@ async fn playbox_login_cli(store: &store::Store) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[cfg(feature = "beta")]
 fn playbox_logout_cli(store: &store::Store) -> anyhow::Result<()> {
     playbox::delete_credentials(store)?;
     println!("PlayboxTV login deleted.");
     Ok(())
 }
 
+#[cfg(feature = "beta")]
 /// `ost tataplay login` — Tata Play sends one OTP and then offers the
 /// accounts that number can sign in to, so the CLI prints them and asks which
 /// one to use when there is more than one.
@@ -1260,6 +1355,7 @@ async fn tataplay_login_cli(store: &store::Store) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[cfg(feature = "beta")]
 async fn tataplay_logout_cli(store: &store::Store) -> anyhow::Result<()> {
     tataplay::logout(store).await?;
     println!("Tata Play login deleted.");
@@ -1369,7 +1465,13 @@ fn rotate_key(access: &access::Access) -> anyhow::Result<()> {
 }
 
 fn print_help() {
-    println!(
+    print!("{}", help_text());
+}
+
+/// The `--help` text. Beta provider commands are listed only in builds that
+/// contain them, so the installer's binary probe can never offer a dead entry.
+fn help_text() -> String {
+    let mut text = String::from(
         "ost - OpenStream TV multi-provider streaming server\n\n\
          USAGE:\n  ost [--config PATH] [--skip-update-check] <command>\n\n\
          COMMANDS:\n  \
@@ -1381,21 +1483,27 @@ fn print_help() {
          \x20                  certificate is created in <data dir>/tls/ on first start and reused\n  \
          login otp | login reset\n  \
          tv+ login | tv+ logout   (off by default; needs tv_plus = true / OPENSTREAM_TVPLUS=true)\n  \
-         fastway login | fastway logout (off by default; needs fastway = true / OPENSTREAM_FASTWAY=true)\n  \
-         airtel login | airtel logout (off by default; needs airtel = true / OPENSTREAM_AIRTEL=true)\n  \
+         fastway login | fastway logout (off by default; needs fastway = true / OPENSTREAM_FASTWAY=true)\n",
+    );
+    #[cfg(feature = "beta")]
+    text.push_str(
+        "  airtel login | airtel logout (off by default; needs airtel = true / OPENSTREAM_AIRTEL=true)\n  \
           playbox login | playbox logout (off by default; needs playbox = true / OPENSTREAM_PLAYBOX=true)\n  \
           tataplay login | tataplay logout (off by default; needs tataplay = true / OPENSTREAM_TATAPLAY=true)\n  \
-          vzy has no login: it uses the anonymous free tier (needs vzy = true / OPENSTREAM_VZY=true)\n  \
-         provider use <id>        make one provider active: jiotv, jiotv_plus, fastway,\n  \
-         \x20                      playbox, vzy, airtel or tataplay\n\n  \
+          vzy has no login: it uses the anonymous free tier (needs vzy = true / OPENSTREAM_VZY=true)\n",
+    );
+    text.push_str(&format!(
+        "  provider use <id>        make one provider active: {}\n\n  \
          epg generate | epg delete | epg on | epg off\n  \
          admin password\n  \
          key show | key rotate\n  \
          background start [--args \"...\"] | background stop\n  \
          update [--version vX.Y.Z]      (needs OPENSTREAM_UPDATE_TOKEN for a private repo)\n  \
          autostart [--args \"...\"] | autostart remove   (systemd service; Termux: shell rc)\n  \
-         tunnel setup --domain example.com --subdomain tv [--port 5001]\n"
-    );
+         tunnel setup --domain example.com --subdomain tv [--port 5001]\n",
+        state::PROVIDER_IDS.replace('|', ", ")
+    ));
+    text
 }
 
 #[cfg(test)]
@@ -1408,13 +1516,33 @@ mod tests {
         (dir, store)
     }
 
+    #[cfg(feature = "beta")]
     #[test]
     fn provider_use_saves_the_chosen_provider() {
         let (_dir, store) = temp_store();
         provider_use(&store, "vzy").unwrap();
         assert_eq!(store.get(state::STORE_KEY_ACTIVE_PROVIDER).unwrap(), "vzy");
         provider_use(&store, "tata_play").unwrap();
-        assert_eq!(store.get(state::STORE_KEY_ACTIVE_PROVIDER).unwrap(), "tataplay");
+        assert_eq!(
+            store.get(state::STORE_KEY_ACTIVE_PROVIDER).unwrap(),
+            "tataplay"
+        );
+    }
+
+    #[test]
+    fn stable_build_help_lists_only_stable_providers() {
+        let help = help_text();
+        for stable in ["jiotv", "jiotv_plus", "fastway"] {
+            assert!(help.contains(stable), "missing {stable} in help");
+        }
+        #[cfg(not(feature = "beta"))]
+        for beta in ["airtel login", "playbox login", "tataplay login", "vzy"] {
+            assert!(!help.contains(beta), "stable help mentions {beta}");
+        }
+        #[cfg(feature = "beta")]
+        for beta in ["airtel login", "playbox login", "tataplay login", "vzy"] {
+            assert!(help.contains(beta), "beta help misses {beta}");
+        }
     }
 
     #[test]

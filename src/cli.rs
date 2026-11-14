@@ -8,11 +8,17 @@ pub enum Command {
     ExtrasLogout,
     FastwayLogin,
     FastwayLogout,
+    #[cfg(feature = "beta")]
     AirtelLogin,
+    #[cfg(feature = "beta")]
     AirtelLogout,
+    #[cfg(feature = "beta")]
     PlayboxLogin,
+    #[cfg(feature = "beta")]
     PlayboxLogout,
+    #[cfg(feature = "beta")]
     TataplayLogin,
+    #[cfg(feature = "beta")]
     TataplayLogout,
     ProviderUse(String),
     AdminPassword,
@@ -149,11 +155,13 @@ pub fn parse() -> anyhow::Result<Args> {
                 Some("logout") => Command::FastwayLogout,
                 other => anyhow::bail!("usage: ost fastway login|logout (got {other:?})"),
             },
+            #[cfg(feature = "beta")]
             Some("airtel") => match positionals.get(1).map(String::as_str) {
                 Some("login") => Command::AirtelLogin,
                 Some("logout") => Command::AirtelLogout,
                 other => anyhow::bail!("usage: ost airtel login|logout (got {other:?})"),
             },
+            #[cfg(feature = "beta")]
             Some("playbox") | Some("playboxtv") => {
                 match positionals.get(1).map(String::as_str) {
                     Some("login") => Command::PlayboxLogin,
@@ -161,6 +169,7 @@ pub fn parse() -> anyhow::Result<Args> {
                     other => anyhow::bail!("usage: ost playbox login|logout (got {other:?})"),
                 }
             }
+            #[cfg(feature = "beta")]
             Some("tataplay") | Some("tata-play") => {
                 match positionals.get(1).map(String::as_str) {
                     Some("login") => Command::TataplayLogin,
@@ -174,7 +183,8 @@ pub fn parse() -> anyhow::Result<Args> {
                         Command::ProviderUse(id.to_string())
                     }
                     (Some("use") | Some("activate"), None) => anyhow::bail!(
-                        "usage: ost provider use <jiotv|jiotv_plus|fastway|playbox|vzy|airtel|tataplay>"
+                        "usage: ost provider use <{}>",
+                        crate::state::PROVIDER_IDS
                     ),
                     (other, _) => anyhow::bail!(
                         "usage: ost provider use <provider> (got {other:?})"

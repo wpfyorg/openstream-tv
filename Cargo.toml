@@ -19,6 +19,11 @@ slim = []
 # support (off by default even in the full build; gated at runtime by the
 # `tv_plus` config key too). The feature name is historical: nothing reads it.
 extras = []
+# beta: the beta provider integrations (PlayboxTV, VZY, Airtel Xstream and
+# Tata Play). Stable releases are built without it, so those providers have no
+# routes, login commands or catalogue wiring in the shipped binary. The beta
+# prerelease is built with `--features beta`.
+beta = []
 
 [dependencies]
 axum = { version = "0.7", default-features = false, features = ["http1", "tokio", "query", "json"] }

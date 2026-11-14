@@ -471,6 +471,7 @@ async fn drm_license_impl(
 
     // PlayboxTV's license request carries the playback token in the same
     // multi-DRM headers the app sets (`buildCustomDrmSessionManager`).
+    #[cfg(feature = "beta")]
     if crate::playbox::is_playbox_channel(&channel_id) {
         let mut req = state
             .http
@@ -484,6 +485,7 @@ async fn drm_license_impl(
 
     // Tata Play's license request carries the subscriber token and device
     // identity that authorised the playback session.
+    #[cfg(feature = "beta")]
     if crate::tataplay::is_tataplay_channel(&channel_id) {
         let mut req = state
             .http
@@ -518,6 +520,7 @@ async fn drm_license_impl(
     // Airtel Xstream's Widevine endpoint authenticates with the headers the
     // playback response shipped, and speaks the app's JSON envelope unless
     // `licensePayloadKey` is `default`.
+    #[cfg(feature = "beta")]
     if crate::airtel::is_airtel_channel(&channel_id) {
         let Some(license) = state.airtel.license(&state.store, &channel_id).await else {
             return (
@@ -595,6 +598,7 @@ async fn drm_license_impl(
 /// Sends an Airtel Widevine challenge in whichever envelope the provider
 /// declared (`PlayerDRMCallback.c`/`.b`), and unwraps the base64 answer back
 /// to raw license bytes.
+#[cfg(feature = "beta")]
 async fn send_airtel_license_request(
     req: reqwest::RequestBuilder,
     body: Bytes,
@@ -734,6 +738,7 @@ async fn render_mpd_inner(state: Arc<AppState>, q: RenderMpdQuery) -> Response {
         body = b;
         set_cookies = c;
     }
+    #[cfg(feature = "beta")]
     if matches!(status, 401 | 403 | 404) && crate::playbox::is_playbox_channel(channel_id) {
         state.playbox.invalidate_playback(channel_id).await;
     }
@@ -896,7 +901,10 @@ fn player_user_agent_for(state: &AppState, url: &str) -> &'static str {
 }
 
 async fn proxy_mpd(state: &AppState, channel_id: &str, url: &str) -> (u16, Vec<u8>, Vec<String>) {
+    #[cfg(not(feature = "beta"))]
+    let _ = channel_id;
     let mut req = state.http.get(url);
+    #[cfg(feature = "beta")]
     if crate::playbox::is_playbox_channel(channel_id) {
         let mut has_user_agent = false;
         for (name, value) in state.playbox.media_headers(channel_id).await {
@@ -913,6 +921,10 @@ async fn proxy_mpd(state: &AppState, channel_id: &str, url: &str) -> (u16, Vec<u
             req = req.header(name.as_str(), value.as_str());
         }
     } else {
+        req = req.header(header::USER_AGENT, player_user_agent_for(state, url));
+    }
+    #[cfg(not(feature = "beta"))]
+    {
         req = req.header(header::USER_AGENT, player_user_agent_for(state, url));
     }
     match req.send().await {
@@ -1020,6 +1032,7 @@ pub async fn render_dash_handler(
     let mut body = body;
     let mut ct = ct;
     if matches!(status, 401 | 403) {
+        #[cfg(feature = "beta")]
         if crate::playbox::is_playbox_channel(&channel_id) {
             state.playbox.invalidate_playback(&channel_id).await;
             if crate::stream::fetch_live(&state, &channel_id).await.is_ok() {
@@ -1031,6 +1044,13 @@ pub async fn render_dash_handler(
                 ct = c;
             }
         } else {
+            let (s, b, c) = proxy_dash_segment(&state, &channel_id, &proxy_url, None).await;
+            status = s;
+            body = b;
+            ct = c;
+        }
+        #[cfg(not(feature = "beta"))]
+        {
             let (s, b, c) = proxy_dash_segment(&state, &channel_id, &proxy_url, None).await;
             status = s;
             body = b;
@@ -1052,7 +1072,10 @@ async fn proxy_dash_segment(
     url: &str,
     hdnea: Option<&str>,
 ) -> (u16, Body, Option<String>) {
+    #[cfg(not(feature = "beta"))]
+    let _ = channel_id;
     let mut req = state.http.get(url);
+    #[cfg(feature = "beta")]
     if crate::playbox::is_playbox_channel(channel_id) {
         let mut has_user_agent = false;
         for (name, value) in state.playbox.media_headers(channel_id).await {
@@ -1072,6 +1095,13 @@ async fn proxy_dash_segment(
             req = req.header(header::COOKIE, format!("__hdnea__={t}"));
         }
     } else {
+        req = req.header(header::USER_AGENT, player_user_agent_for(state, url));
+        if let Some(t) = hdnea {
+            req = req.header(header::COOKIE, format!("__hdnea__={t}"));
+        }
+    }
+    #[cfg(not(feature = "beta"))]
+    {
         req = req.header(header::USER_AGENT, player_user_agent_for(state, url));
         if let Some(t) = hdnea {
             req = req.header(header::COOKIE, format!("__hdnea__={t}"));
@@ -1263,6 +1293,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "beta")]
     fn license_test_state(playbox: Arc<crate::playbox_state::PlayboxState>) -> Arc<AppState> {
         let dir = tempfile::tempdir().unwrap();
         let store = Arc::new(crate::store::Store::open(dir.path().to_str().unwrap()).unwrap());
@@ -1294,6 +1325,7 @@ mod tests {
         })
     }
 
+    #[cfg(feature = "beta")]
     #[tokio::test]
     async fn playbox_license_forwards_the_resolved_token_headers() {
         use wiremock::matchers::{header, method, path};
@@ -1351,6 +1383,7 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::OK);
     }
 
+    #[cfg(feature = "beta")]
     #[tokio::test]
     async fn playbox_license_rejects_auth_bound_to_a_different_channel() {
         let playbox = Arc::new(crate::playbox_state::PlayboxState::new(true));
@@ -1379,6 +1412,7 @@ mod tests {
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 
+    #[cfg(feature = "beta")]
     #[tokio::test]
     async fn playbox_mpd_rejection_invalidates_cached_playback() {
         use std::sync::atomic::{AtomicUsize, Ordering};
@@ -1451,6 +1485,7 @@ mod tests {
         assert_eq!(resolve_calls.load(Ordering::SeqCst), 2);
     }
 
+    #[cfg(feature = "beta")]
     #[tokio::test]
     async fn playbox_dash_segment_rejection_reresolves_before_retry() {
         use std::sync::atomic::{AtomicUsize, Ordering};
@@ -1530,6 +1565,7 @@ mod tests {
         assert_eq!(resolve_calls.load(Ordering::SeqCst), 2);
     }
 
+    #[cfg(feature = "beta")]
     #[tokio::test]
     async fn dash_route_rejects_destination_bound_to_a_different_channel() {
         let playbox = Arc::new(crate::playbox_state::PlayboxState::new(true));

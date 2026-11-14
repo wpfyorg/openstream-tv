@@ -37,7 +37,11 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        features: ["", "--no-default-features --features slim"]
+        features:
+          - ""
+          - "--features beta"
+          - "--no-default-features --features slim"
+          - "--no-default-features --features slim,beta"
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable

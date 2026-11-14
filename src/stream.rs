@@ -321,15 +321,19 @@ pub(crate) async fn fetch_live(
     if !state.channel_allowed(channel_id).await {
         anyhow::bail!("channel {channel_id} is not available for the active account");
     }
+    #[cfg(feature = "beta")]
     if crate::playbox::is_playbox_channel(channel_id) {
         return state.playbox.live(channel_id).await;
     }
+    #[cfg(feature = "beta")]
     if crate::tataplay::is_tataplay_channel(channel_id) {
         return state.tataplay.live(channel_id).await;
     }
+    #[cfg(feature = "beta")]
     if crate::vzy::is_vzy_channel(channel_id) {
         return state.vzy.live(channel_id, &state.store).await;
     }
+    #[cfg(feature = "beta")]
     if crate::airtel::is_airtel_channel(channel_id) {
         return state.airtel.live(channel_id, &state.store).await;
     }
@@ -406,6 +410,7 @@ fn shared_media_key(rendition_key: &str, original_token: &str) -> String {
 /// Merge a manifest token into provider headers as the `__hdnea__` cookie.
 /// Airtel returns its own cookie/headers with the playback descriptor, so add
 /// the token to that cookie instead of sending a second `Cookie` header.
+#[cfg_attr(not(feature = "beta"), allow(dead_code))]
 fn merge_hdnea_cookie(mut headers: Vec<(String, String)>, token: &str) -> Vec<(String, String)> {
     let token = token.trim();
     if token.is_empty() {
@@ -437,12 +442,17 @@ async fn provider_media_headers(
     state: &AppState,
     channel_id: &str,
 ) -> Option<Vec<(String, String)>> {
-    if crate::playbox::is_playbox_channel(channel_id) {
-        return Some(state.playbox.media_headers(channel_id).await);
+    #[cfg(feature = "beta")]
+    {
+        if crate::playbox::is_playbox_channel(channel_id) {
+            return Some(state.playbox.media_headers(channel_id).await);
+        }
+        if crate::tataplay::is_tataplay_channel(channel_id) {
+            return Some(state.tataplay.media_headers(channel_id).await);
+        }
     }
-    if crate::tataplay::is_tataplay_channel(channel_id) {
-        return Some(state.tataplay.media_headers(channel_id).await);
-    }
+    #[cfg(not(feature = "beta"))]
+    let _ = (state, channel_id);
     None
 }
 
@@ -459,12 +469,14 @@ pub(crate) async fn fetch_media(
     if let Some(headers) = provider_media_headers(state, channel_id).await {
         return state.tv.render_with_headers(url, "", &headers).await;
     }
+    #[cfg(feature = "beta")]
     if crate::vzy::is_vzy_channel(channel_id) {
         return state
             .tv
             .render_with_headers(url, token, &[("User-Agent".into(), "okhttp/4.12.0".into())])
             .await;
     }
+    #[cfg(feature = "beta")]
     if crate::airtel::is_airtel_channel(channel_id) {
         let headers = state.airtel.media_headers(&state.store, channel_id).await;
         let headers = merge_hdnea_cookie(headers, token);
@@ -782,16 +794,24 @@ async fn live_impl_inner(
             .extras
             .route(id, state.tv.logged_in(), is_custom)
             .is_some();
+        #[cfg(feature = "beta")]
         let via_playbox = crate::playbox::is_playbox_channel(id);
+        #[cfg(not(feature = "beta"))]
+        let via_playbox = false;
+        #[cfg(feature = "beta")]
         let via_vzy = crate::vzy::is_vzy_channel(id);
+        #[cfg(not(feature = "beta"))]
+        let via_vzy = false;
+        #[cfg(feature = "beta")]
         let via_airtel = crate::airtel::is_airtel_channel(id);
+        #[cfg(not(feature = "beta"))]
+        let via_airtel = false;
+        #[cfg(feature = "beta")]
         let via_tataplay = crate::tataplay::is_tataplay_channel(id);
-        let via_provider = via_fastway
-            || via_extras
-            || via_playbox
-            || via_vzy
-            || via_airtel
-            || via_tataplay;
+        #[cfg(not(feature = "beta"))]
+        let via_tataplay = false;
+        let via_provider =
+            via_fastway || via_extras || via_playbox || via_vzy || via_airtel || via_tataplay;
         // Any channel now known to be DASH-only takes the MPD route: the
         // providers answer from their own metadata and the learned facts cover
         // the rest, whichever provider it came from.
@@ -1218,12 +1238,15 @@ async fn render_m3u8_inner(state: Arc<AppState>, q: RenderQuery) -> Response {
             state.render_caches.clear_hdnea(&hdnea_key);
         }
         let recently_dead = status == 404 && state.render_caches.is_dead(&channel_id);
+        #[cfg(feature = "beta")]
         if crate::playbox::is_playbox_channel(&channel_id) {
             state.playbox.invalidate_playback(&channel_id).await;
         }
+        #[cfg(feature = "beta")]
         if crate::tataplay::is_tataplay_channel(&channel_id) {
             state.tataplay.invalidate_playback(&channel_id).await;
         }
+        #[cfg(feature = "beta")]
         if crate::vzy::is_vzy_channel(&channel_id) {
             return (StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_GATEWAY))
                 .into_response();
@@ -1326,9 +1349,11 @@ async fn render_m3u8_inner(state: Arc<AppState>, q: RenderQuery) -> Response {
         }
     }
 
+    #[cfg(feature = "beta")]
     if crate::playbox::is_playbox_channel(&channel_id) && matches!(status, 401 | 403 | 404) {
         state.playbox.invalidate_playback(&channel_id).await;
     }
+    #[cfg(feature = "beta")]
     if crate::tataplay::is_tataplay_channel(&channel_id) && matches!(status, 401 | 403 | 404) {
         state.tataplay.invalidate_playback(&channel_id).await;
     }
@@ -1477,24 +1502,30 @@ pub async fn render_ts_handler(
     let resp = proxy_segment(&state, &channel_id, &decoded, token.as_deref()).await;
     let (mut status, mut body, mut headers) = resp;
 
-    if matches!(status, 401 | 403)
-        && (crate::playbox::is_playbox_channel(&channel_id)
-            || crate::vzy::is_vzy_channel(&channel_id)
-            || crate::tataplay::is_tataplay_channel(&channel_id))
-    {
+    #[cfg(feature = "beta")]
+    let beta_recover = crate::playbox::is_playbox_channel(&channel_id)
+        || crate::vzy::is_vzy_channel(&channel_id)
+        || crate::tataplay::is_tataplay_channel(&channel_id);
+    #[cfg(not(feature = "beta"))]
+    let beta_recover = false;
+    if matches!(status, 401 | 403) && beta_recover {
         // No cookie refresh exists for PlayboxTV or Tata Play: re-resolve once
         // for fresh headers, then retry the same segment URL.
-        if crate::playbox::is_playbox_channel(&channel_id) {
-            state.playbox.invalidate_playback(&channel_id).await;
-        }
-        if crate::tataplay::is_tataplay_channel(&channel_id) {
-            state.tataplay.invalidate_playback(&channel_id).await;
-        }
-        if refresh_channel_token(&state, &channel_id).await.is_ok() {
-            let (s, b, h) = proxy_segment(&state, &channel_id, &decoded, token.as_deref()).await;
-            status = s;
-            body = b;
-            headers = h;
+        #[cfg(feature = "beta")]
+        {
+            if crate::playbox::is_playbox_channel(&channel_id) {
+                state.playbox.invalidate_playback(&channel_id).await;
+            }
+            if crate::tataplay::is_tataplay_channel(&channel_id) {
+                state.tataplay.invalidate_playback(&channel_id).await;
+            }
+            if refresh_channel_token(&state, &channel_id).await.is_ok() {
+                let (s, b, h) =
+                    proxy_segment(&state, &channel_id, &decoded, token.as_deref()).await;
+                status = s;
+                body = b;
+                headers = h;
+            }
         }
     } else if matches!(status, 401 | 403) {
         state.render_caches.clear_hdnea(&hdnea_key);
@@ -1559,15 +1590,18 @@ async fn proxy_segment(
         if !has_user_agent {
             req = req.header(header::USER_AGENT, television::PLAYER_USER_AGENT);
         }
-    } else if crate::vzy::is_vzy_channel(channel_id) {
-        req = req
-            .header(header::USER_AGENT, "okhttp/4.12.0")
-            .header(header::ACCEPT, "*/*");
-    } else if crate::airtel::is_airtel_channel(channel_id) {
-        let headers = state.airtel.media_headers(&state.store, channel_id).await;
-        let headers = merge_hdnea_cookie(headers, hdnea.unwrap_or_default());
-        for (name, value) in headers {
-            req = req.header(name.as_str(), value.as_str());
+    } else if state.beta_channel(channel_id) {
+        #[cfg(feature = "beta")]
+        if crate::vzy::is_vzy_channel(channel_id) {
+            req = req
+                .header(header::USER_AGENT, "okhttp/4.12.0")
+                .header(header::ACCEPT, "*/*");
+        } else if crate::airtel::is_airtel_channel(channel_id) {
+            let headers = state.airtel.media_headers(&state.store, channel_id).await;
+            let headers = merge_hdnea_cookie(headers, hdnea.unwrap_or_default());
+            for (name, value) in headers {
+                req = req.header(name.as_str(), value.as_str());
+            }
         }
     } else {
         let ua = url::Url::parse(url)
@@ -1642,15 +1676,18 @@ pub async fn render_key_handler(
         if !has_user_agent {
             req = req.header(header::USER_AGENT, television::PLAYER_USER_AGENT);
         }
-    } else if crate::vzy::is_vzy_channel(&channel_id) {
-        req = req
-            .header(header::USER_AGENT, "okhttp/4.12.0")
-            .header(header::ACCEPT, "*/*");
-    } else if crate::airtel::is_airtel_channel(&channel_id) {
-        let headers = state.airtel.media_headers(&state.store, &channel_id).await;
-        let headers = merge_hdnea_cookie(headers, hdnea.as_deref().unwrap_or_default());
-        for (name, value) in headers {
-            req = req.header(name.as_str(), value.as_str());
+    } else if state.beta_channel(&channel_id) {
+        #[cfg(feature = "beta")]
+        if crate::vzy::is_vzy_channel(&channel_id) {
+            req = req
+                .header(header::USER_AGENT, "okhttp/4.12.0")
+                .header(header::ACCEPT, "*/*");
+        } else if crate::airtel::is_airtel_channel(&channel_id) {
+            let headers = state.airtel.media_headers(&state.store, &channel_id).await;
+            let headers = merge_hdnea_cookie(headers, hdnea.as_deref().unwrap_or_default());
+            for (name, value) in headers {
+                req = req.header(name.as_str(), value.as_str());
+            }
         }
     } else {
         req = req.header(header::USER_AGENT, television::PLAYER_USER_AGENT);
@@ -2602,6 +2639,7 @@ mod tests {
             "https://a.b/live/child.m3u8"
         );
     }
+    #[cfg(feature = "beta")]
     fn playbox_test_state(server: &wiremock::MockServer) -> std::sync::Arc<AppState> {
         let dir = tempfile::tempdir().unwrap();
         let store =
@@ -2644,6 +2682,7 @@ mod tests {
         })
     }
 
+    #[cfg(feature = "beta")]
     #[tokio::test]
     async fn provider_hls_keys_use_provider_headers_without_jiotv_credentials() {
         use wiremock::matchers::{header, method, path};
@@ -2716,6 +2755,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "beta")]
     #[tokio::test]
     async fn provider_hls_key_rejects_channel_substitution_before_upstream_calls() {
         use wiremock::matchers::{method, path};
@@ -2753,6 +2793,7 @@ mod tests {
         server.verify().await;
     }
 
+    #[cfg(feature = "beta")]
     #[tokio::test]
     async fn initial_hls_manifest_rejects_unbound_auth_before_upstream_calls() {
         use wiremock::matchers::{method, path};
@@ -2791,6 +2832,7 @@ mod tests {
         server.verify().await;
     }
 
+    #[cfg(feature = "beta")]
     #[tokio::test]
     async fn playbox_channels_route_through_shared_live_resolution() {
         use wiremock::matchers::{method, path};
@@ -2832,6 +2874,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "beta")]
     #[tokio::test]
     async fn playbox_manifest_rejection_recovers_with_a_fresh_resolve() {
         use std::sync::atomic::{AtomicUsize, Ordering};
@@ -2918,9 +2961,7 @@ mod tests {
     }
 
     /// Serves one HTTP response from a fresh listener and returns its URL.
-    async fn upstream(
-        handler: impl FnOnce(tokio::net::TcpStream) + Send + 'static,
-    ) -> String {
+    async fn upstream(handler: impl FnOnce(tokio::net::TcpStream) + Send + 'static) -> String {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         tokio::spawn(async move {

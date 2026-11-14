@@ -110,18 +110,22 @@ fn snapshot_fingerprint(
         crate::state::ActiveProduct::Fastway => {
             hash_field(&mut hasher, &state.fastway.account_fingerprint());
         }
+        #[cfg(feature = "beta")]
         crate::state::ActiveProduct::Playbox => {
             hash_field(&mut hasher, &state.playbox.account_fingerprint());
             hash_field(&mut hasher, "playbox-epg:unavailable");
         }
+        #[cfg(feature = "beta")]
         crate::state::ActiveProduct::Vzy => {
             hash_field(&mut hasher, &state.vzy.account_fingerprint());
             hash_field(&mut hasher, "vzy-free-tier");
         }
+        #[cfg(feature = "beta")]
         crate::state::ActiveProduct::Airtel => {
             hash_field(&mut hasher, &state.airtel.account_fingerprint());
             hash_field(&mut hasher, "airtel-live-epg");
         }
+        #[cfg(feature = "beta")]
         crate::state::ActiveProduct::TataPlay => {
             hash_field(&mut hasher, &state.tataplay.account_fingerprint());
             hash_field(&mut hasher, "tataplay-epg:channels-only");
@@ -431,6 +435,7 @@ async fn generate_xml_gz_from_sources(
 
 /// XMLTV with channel entries but no programmes, used for a product whose
 /// real programme timing is not understood.
+#[cfg_attr(not(feature = "beta"), allow(dead_code))]
 fn generate_channels_only_xml_gz(channels: Vec<(String, String)>) -> anyhow::Result<Vec<u8>> {
     let mut out = gzip_writer();
     out.write_all(XMLTV_HEADER.as_bytes())?;
@@ -524,6 +529,7 @@ pub async fn regenerate_for_state(state: &Arc<AppState>) -> anyhow::Result<()> {
         }
         // PlayboxTV's EPG response has no programme stop time, so only the
         // channel list is published; no programme is invented.
+        #[cfg(feature = "beta")]
         crate::state::ActiveProduct::Playbox => {
             let channels = snapshot
                 .channels
@@ -532,6 +538,7 @@ pub async fn regenerate_for_state(state: &Arc<AppState>) -> anyhow::Result<()> {
                 .collect();
             generate_channels_only_xml_gz(channels)?
         }
+        #[cfg(feature = "beta")]
         crate::state::ActiveProduct::Vzy => {
             let (sources, programmes) = state.vzy.epg_source(&state.store).await?;
             if programmes.is_empty() {
@@ -540,6 +547,7 @@ pub async fn regenerate_for_state(state: &Arc<AppState>) -> anyhow::Result<()> {
                 generate_xml_gz_from_sources(&state.http, Vec::new(), sources, programmes).await?
             }
         }
+        #[cfg(feature = "beta")]
         crate::state::ActiveProduct::Airtel => {
             let (sources, programmes) = state.airtel.epg_source(&state.store).await?;
             if programmes.is_empty() {
@@ -551,6 +559,7 @@ pub async fn regenerate_for_state(state: &Arc<AppState>) -> anyhow::Result<()> {
         // Tata Play's guide endpoint needs epoch-millisecond start/end bounds
         // whose runtime encoding is not yet proven, so only the channel list is
         // published; no programme is invented.
+        #[cfg(feature = "beta")]
         crate::state::ActiveProduct::TataPlay => {
             let channels = snapshot
                 .channels
@@ -712,6 +721,7 @@ pub async fn web_epg_handler(
 ) -> Response {
     // A constant answer, checked before the account-scoped catalogue so the
     // gap is reported even when PlayboxTV is not the active product.
+    #[cfg(feature = "beta")]
     if crate::playbox::is_playbox_channel(&channel_id) {
         return (
             StatusCode::NOT_IMPLEMENTED,
@@ -730,9 +740,11 @@ pub async fn web_epg_handler(
     if let Some(content_id) = crate::fastway::content_id(&channel_id) {
         return fastway_web_epg(&state, content_id, &offset).await;
     }
+    #[cfg(feature = "beta")]
     if crate::vzy::is_vzy_channel(&channel_id) {
         return vzy_web_epg(&state, &channel_id, &offset).await;
     }
+    #[cfg(feature = "beta")]
     if crate::airtel::is_airtel_channel(&channel_id) {
         return airtel_web_epg(&state, &channel_id, &offset).await;
     }
@@ -804,6 +816,7 @@ async fn fastway_web_epg(state: &AppState, content_id: &str, offset: &str) -> Re
 
 /// Airtel Xstream guide normalized to the same shape as JioTV/Fastway. The
 /// middleware returns epoch millis already.
+#[cfg(feature = "beta")]
 async fn airtel_web_epg(state: &AppState, channel_id: &str, offset: &str) -> Response {
     if crate::airtel::parse_channel_id(channel_id).is_none() {
         return (StatusCode::BAD_REQUEST, "Invalid channel ID").into_response();
@@ -832,6 +845,7 @@ async fn airtel_web_epg(state: &AppState, channel_id: &str, offset: &str) -> Res
 }
 
 /// VZY browser guide normalized to the same shape as JioTV/Fastway.
+#[cfg(feature = "beta")]
 async fn vzy_web_epg(state: &AppState, channel_id: &str, offset: &str) -> Response {
     let Some(content_id) = crate::vzy::parse_channel_id(channel_id) else {
         return (StatusCode::BAD_REQUEST, "Invalid channel ID").into_response();
@@ -966,6 +980,7 @@ pub async fn poster_handler(
 mod tests {
     use super::*;
 
+    #[cfg(feature = "beta")]
     #[tokio::test]
     async fn playbox_web_epg_reports_the_missing_stop_time() {
         let dir = tempfile::tempdir().unwrap();
@@ -1001,6 +1016,7 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::NOT_IMPLEMENTED);
     }
 
+    #[cfg(feature = "beta")]
     #[tokio::test]
     async fn vzy_web_epg_uses_shared_browser_route_shape() {
         use wiremock::matchers::{header as match_header, method, path, path_regex};

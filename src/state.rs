@@ -15,14 +15,26 @@ use crate::vzy_state::VzyState;
 use std::collections::HashSet;
 use std::sync::Arc;
 
+/// Provider names accepted by `ost provider use`, and reported in the CLI's
+/// usage errors. Stable builds omit the beta providers entirely, so the
+/// installer's binary probe cannot offer them.
+#[cfg(feature = "beta")]
+pub const PROVIDER_IDS: &str = "jiotv|jiotv_plus|fastway|playbox|vzy|airtel|tataplay";
+#[cfg(not(feature = "beta"))]
+pub const PROVIDER_IDS: &str = "jiotv|jiotv_plus|fastway";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActiveProduct {
     Tv,
     Extras,
     Fastway,
+    #[cfg(feature = "beta")]
     Playbox,
+    #[cfg(feature = "beta")]
     Vzy,
+    #[cfg(feature = "beta")]
     Airtel,
+    #[cfg(feature = "beta")]
     TataPlay,
 }
 
@@ -36,9 +48,13 @@ impl ActiveProduct {
             ActiveProduct::Tv => "tv",
             ActiveProduct::Extras => "extras",
             ActiveProduct::Fastway => "fastway",
+            #[cfg(feature = "beta")]
             ActiveProduct::Playbox => "playbox",
+            #[cfg(feature = "beta")]
             ActiveProduct::Vzy => "vzy",
+            #[cfg(feature = "beta")]
             ActiveProduct::Airtel => "airtel",
+            #[cfg(feature = "beta")]
             ActiveProduct::TataPlay => "tataplay",
         }
     }
@@ -50,11 +66,15 @@ impl ActiveProduct {
             "jiotv" | "tv" => Some(ActiveProduct::Tv),
             "jiotv_plus" | "jiotv-plus" | "tv_plus" | "extras" => Some(ActiveProduct::Extras),
             "fastway" => Some(ActiveProduct::Fastway),
+            #[cfg(feature = "beta")]
             "playbox" | "playbox_tv" | "playboxtv" => Some(ActiveProduct::Playbox),
+            #[cfg(feature = "beta")]
             "vzy" => Some(ActiveProduct::Vzy),
+            #[cfg(feature = "beta")]
             "airtel" | "airtel_xstream" | "airtel-xstream" | "xstream" => {
                 Some(ActiveProduct::Airtel)
             }
+            #[cfg(feature = "beta")]
             "tataplay" | "tata_play" | "tata-play" | "tataplay_smart" => {
                 Some(ActiveProduct::TataPlay)
             }
@@ -67,9 +87,13 @@ impl ActiveProduct {
             ActiveProduct::Tv => "jiotv",
             ActiveProduct::Extras => "jiotv_plus",
             ActiveProduct::Fastway => "fastway",
+            #[cfg(feature = "beta")]
             ActiveProduct::Playbox => "playbox",
+            #[cfg(feature = "beta")]
             ActiveProduct::Vzy => "vzy",
+            #[cfg(feature = "beta")]
             ActiveProduct::Airtel => "airtel",
+            #[cfg(feature = "beta")]
             ActiveProduct::TataPlay => "tataplay",
         }
     }
@@ -188,9 +212,13 @@ pub struct AppState {
     pub epg_state: crate::epg::EpgState,
     pub extras: Arc<ExtrasState>,
     pub fastway: Arc<FastwayState>,
+    #[cfg_attr(not(feature = "beta"), allow(dead_code))]
     pub playbox: Arc<PlayboxState>,
+    #[cfg_attr(not(feature = "beta"), allow(dead_code))]
     pub airtel: Arc<AirtelState>,
+    #[cfg_attr(not(feature = "beta"), allow(dead_code))]
     pub tataplay: Arc<TataplayState>,
+    #[cfg_attr(not(feature = "beta"), allow(dead_code))]
     pub vzy: Arc<VzyState>,
     pub vod_state: crate::vod::VodState,
     /// The server's cached public IPv4, used to compute today's extras
@@ -253,10 +281,13 @@ impl AppState {
         self.vod_state.clear();
         // Provider switching must not leak one account's catalogue into the
         // next context: drop provider caches at the same boundary.
-        self.playbox.clear();
-        self.vzy.clear();
-        self.airtel.clear();
-        self.tataplay.clear();
+        #[cfg(feature = "beta")]
+        {
+            self.playbox.clear();
+            self.vzy.clear();
+            self.airtel.clear();
+            self.tataplay.clear();
+        }
         // Learned playback routing belongs to one provider + account; adopting
         // the new context here keeps a switch from carrying facts across.
         self.init_learned_playback();
@@ -278,10 +309,32 @@ impl AppState {
             ActiveProduct::Tv => self.tv.logged_in(),
             ActiveProduct::Extras => self.extras.connected(),
             ActiveProduct::Fastway => self.fastway.connected(),
+            #[cfg(feature = "beta")]
             ActiveProduct::Playbox => self.playbox.connected(),
+            #[cfg(feature = "beta")]
             ActiveProduct::Vzy => self.vzy.connected(),
+            #[cfg(feature = "beta")]
             ActiveProduct::Airtel => self.airtel.connected(),
+            #[cfg(feature = "beta")]
             ActiveProduct::TataPlay => self.tataplay.connected(),
+        }
+    }
+
+    /// Whether the provider is enabled in configuration. Used by the settings
+    /// API before it lets the caller activate a provider.
+    pub fn provider_enabled(&self, product: ActiveProduct) -> bool {
+        match product {
+            ActiveProduct::Tv => true,
+            ActiveProduct::Extras => self.extras.enabled(),
+            ActiveProduct::Fastway => self.fastway.enabled(),
+            #[cfg(feature = "beta")]
+            ActiveProduct::Playbox => self.playbox.enabled(),
+            #[cfg(feature = "beta")]
+            ActiveProduct::Vzy => self.vzy.enabled(),
+            #[cfg(feature = "beta")]
+            ActiveProduct::Airtel => self.airtel.enabled(),
+            #[cfg(feature = "beta")]
+            ActiveProduct::TataPlay => self.tataplay.enabled(),
         }
     }
 
@@ -294,17 +347,26 @@ impl AppState {
             ActiveProduct::Fastway
         } else if self.extras.connected() {
             ActiveProduct::Extras
-        } else if self.playbox.connected() {
-            ActiveProduct::Playbox
-        } else if self.airtel.connected() {
-            ActiveProduct::Airtel
-        } else if self.tataplay.connected() {
-            ActiveProduct::TataPlay
-        } else if self.tv.logged_in() {
-            ActiveProduct::Tv
-        } else if self.vzy.connected() {
-            ActiveProduct::Vzy
         } else {
+            #[cfg(feature = "beta")]
+            if self.playbox.connected() {
+                return ActiveProduct::Playbox;
+            }
+            #[cfg(feature = "beta")]
+            if self.airtel.connected() {
+                return ActiveProduct::Airtel;
+            }
+            #[cfg(feature = "beta")]
+            if self.tataplay.connected() {
+                return ActiveProduct::TataPlay;
+            }
+            if self.tv.logged_in() {
+                return ActiveProduct::Tv;
+            }
+            #[cfg(feature = "beta")]
+            if self.vzy.connected() {
+                return ActiveProduct::Vzy;
+            }
             ActiveProduct::Tv
         }
     }
@@ -344,6 +406,7 @@ impl AppState {
                 self.extras.refresh_catalogue_if_needed(&self.tv).await;
                 Ok(self.extras.catalogue_channels())
             }
+            #[cfg(feature = "beta")]
             ActiveProduct::Playbox => {
                 let loaded = self.playbox.ensure_catalogue().await;
                 let channels = self.playbox.channels();
@@ -352,6 +415,7 @@ impl AppState {
                 }
                 Ok(channels)
             }
+            #[cfg(feature = "beta")]
             ActiveProduct::Vzy => {
                 let loaded = self.vzy.ensure_catalogue(&self.store).await;
                 let channels = self.vzy.channels();
@@ -360,6 +424,7 @@ impl AppState {
                 }
                 Ok(channels)
             }
+            #[cfg(feature = "beta")]
             ActiveProduct::TataPlay => {
                 let loaded = self.tataplay.ensure_catalogue().await;
                 let channels = self.tataplay.channels();
@@ -369,6 +434,7 @@ impl AppState {
                 Ok(channels)
             }
             ActiveProduct::Tv => Ok(self.tv.channels().await?.result),
+            #[cfg(feature = "beta")]
             ActiveProduct::Airtel => {
                 let loaded = self.airtel.ensure_catalogue(&self.store).await;
                 let channels = self.airtel.channels();
@@ -401,18 +467,22 @@ impl AppState {
                 self.extras.refresh_catalogue_if_needed(&self.tv).await;
                 self.extras.contains_catalogue_channel(id)
             }
+            #[cfg(feature = "beta")]
             ActiveProduct::Playbox => {
                 self.playbox.ensure_catalogue().await;
                 self.playbox.contains(id)
             }
+            #[cfg(feature = "beta")]
             ActiveProduct::Vzy => {
                 self.vzy.ensure_catalogue(&self.store).await;
                 self.vzy.contains(id)
             }
+            #[cfg(feature = "beta")]
             ActiveProduct::Airtel => {
                 self.airtel.ensure_catalogue(&self.store).await;
                 self.airtel.contains(id)
             }
+            #[cfg(feature = "beta")]
             ActiveProduct::TataPlay => {
                 self.tataplay.ensure_catalogue().await;
                 self.tataplay.contains(id)
@@ -443,12 +513,15 @@ impl AppState {
         if FastwayState::is_fastway_channel(id) {
             return self.fastway.is_drm(id) || learned;
         }
+        #[cfg(feature = "beta")]
         if crate::playbox::is_playbox_channel(id) {
             return self.playbox.is_drm(id) || learned;
         }
+        #[cfg(feature = "beta")]
         if crate::airtel::is_airtel_channel(id) {
             return self.airtel.is_drm(id) || learned;
         }
+        #[cfg(feature = "beta")]
         if crate::tataplay::is_tataplay_channel(id) {
             // Every Tata Play live channel is Widevine DASH, independent of
             // whether its playback has been resolved yet.
@@ -485,12 +558,15 @@ impl AppState {
             let dash = self.fastway.is_dash(id) || learned;
             return dash && (self.config.drm || !self.fastway.is_drm(id));
         }
+        #[cfg(feature = "beta")]
         if crate::playbox::is_playbox_channel(id) {
             return self.playbox.is_dash(id) || learned;
         }
+        #[cfg(feature = "beta")]
         if crate::airtel::is_airtel_channel(id) {
             return self.airtel.is_dash(id) || learned;
         }
+        #[cfg(feature = "beta")]
         if crate::tataplay::is_tataplay_channel(id) {
             return true;
         }
@@ -520,15 +596,36 @@ impl AppState {
                 .map(|(number, sso, auth)| learned_scope_hash(&["extras", &number, &sso, &auth]))
                 .unwrap_or_default(),
             ActiveProduct::Fastway => self.fastway.account_fingerprint(),
+            #[cfg(feature = "beta")]
             ActiveProduct::Playbox => self.playbox.account_fingerprint(),
+            #[cfg(feature = "beta")]
             ActiveProduct::Vzy => self.vzy.account_fingerprint(),
+            #[cfg(feature = "beta")]
             ActiveProduct::Airtel => self.airtel.account_fingerprint(),
+            #[cfg(feature = "beta")]
             ActiveProduct::TataPlay => self.tataplay.account_fingerprint(),
         };
         if identity.is_empty() {
             return String::new();
         }
         learned_scope_hash(&["openstream-learned-v1", product.store_name(), &identity])
+    }
+
+    /// Whether a beta provider owns this id space. Stable builds have no beta
+    /// providers, so this is always false there.
+    pub fn beta_channel(&self, id: &str) -> bool {
+        #[cfg(feature = "beta")]
+        {
+            crate::playbox::is_playbox_channel(id)
+                || crate::vzy::is_vzy_channel(id)
+                || crate::airtel::is_airtel_channel(id)
+                || crate::tataplay::is_tataplay_channel(id)
+        }
+        #[cfg(not(feature = "beta"))]
+        {
+            let _ = id;
+            false
+        }
     }
 
     /// Loads the facts that belong to this provider and account. Called at
@@ -645,12 +742,13 @@ impl AppState {
     /// The user agent a provider's CDN expects for manifests and segments.
     pub fn player_user_agent_for(&self, host: &str) -> &'static str {
         if self.fastway.is_cdn_host(host) {
-            crate::fastway::PLAYER_USER_AGENT
-        } else if crate::airtel::looks_like_airtel_cdn(host) {
-            crate::airtel::PLAYER_USER_AGENT
-        } else {
-            self.extras.player_user_agent_for(host)
+            return crate::fastway::PLAYER_USER_AGENT;
         }
+        #[cfg(feature = "beta")]
+        if crate::airtel::looks_like_airtel_cdn(host) {
+            return crate::airtel::PLAYER_USER_AGENT;
+        }
+        self.extras.player_user_agent_for(host)
     }
 
     /// Whether a channel from the already-filtered effective catalogue can
@@ -662,12 +760,35 @@ impl AppState {
         match self.active_product() {
             ActiveProduct::Fastway => self.fastway.connected(),
             ActiveProduct::Extras => self.extras.connected(),
+            #[cfg(feature = "beta")]
             ActiveProduct::Playbox => self.playbox.connected(),
+            #[cfg(feature = "beta")]
             ActiveProduct::Vzy => self.vzy.connected(),
+            #[cfg(feature = "beta")]
             ActiveProduct::Airtel => self.airtel.connected(),
+            #[cfg(feature = "beta")]
             ActiveProduct::TataPlay => self.tataplay.connected(),
             ActiveProduct::Tv => self.tv.logged_in(),
         }
+    }
+
+    /// Whether the playlist can advertise `id` as playable. Beta providers
+    /// only become ready after their catalogue/playback preparation; stable
+    /// builds fall back to `is_playable`.
+    pub fn provider_playlist_ready(&self, id: &str) -> bool {
+        #[cfg(feature = "beta")]
+        {
+            if crate::playbox::is_playbox_channel(id) {
+                return self.playbox.playlist_ready(id);
+            }
+            if crate::airtel::is_airtel_channel(id) {
+                return self.airtel.playlist_ready(id);
+            }
+            if crate::tataplay::is_tataplay_channel(id) {
+                return self.tataplay.playlist_ready(id);
+            }
+        }
+        self.is_playable(id)
     }
 }
 
@@ -739,6 +860,7 @@ mod tests {
         })
     }
 
+    #[cfg(feature = "beta")]
     fn playbox_state_with_mock(server: &wiremock::MockServer) -> Arc<PlayboxState> {
         let state = Arc::new(PlayboxState::new(true));
         let mut client =
@@ -760,6 +882,7 @@ mod tests {
         store
     }
 
+    #[cfg(feature = "beta")]
     #[tokio::test]
     async fn playbox_becomes_the_active_catalogue_only_when_connected() {
         use wiremock::matchers::{method, path};
@@ -797,6 +920,7 @@ mod tests {
         assert!(!s.channel_allowed("pb_other").await);
     }
 
+    #[cfg(feature = "beta")]
     #[tokio::test]
     async fn cold_playbox_catalogue_failure_is_reported() {
         use wiremock::matchers::{method, path};
@@ -824,6 +948,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "beta")]
     #[tokio::test]
     async fn jiotv_plus_keeps_precedence_over_playbox() {
         let store = empty_store();
@@ -849,6 +974,7 @@ mod tests {
         assert_eq!(s.active_product(), ActiveProduct::Extras);
     }
 
+    #[cfg(feature = "beta")]
     #[tokio::test]
     async fn logged_out_jiotv_preference_falls_back_to_the_automatic_priority() {
         let server = wiremock::MockServer::start().await;
@@ -879,15 +1005,20 @@ mod tests {
 
     #[test]
     fn provider_store_names_round_trip() {
-        for product in [
+        #[allow(unused_mut)]
+        let mut products = vec![
             ActiveProduct::Tv,
             ActiveProduct::Extras,
             ActiveProduct::Fastway,
+        ];
+        #[cfg(feature = "beta")]
+        products.extend([
             ActiveProduct::Playbox,
             ActiveProduct::Vzy,
             ActiveProduct::Airtel,
             ActiveProduct::TataPlay,
-        ] {
+        ]);
+        for product in products {
             assert_eq!(
                 ActiveProduct::from_name(product.store_name()),
                 Some(product)
@@ -895,6 +1026,33 @@ mod tests {
         }
     }
 
+    #[test]
+    fn build_variant_decides_which_providers_exist() {
+        assert_eq!(ActiveProduct::from_name("jiotv"), Some(ActiveProduct::Tv));
+        assert_eq!(
+            ActiveProduct::from_name("fastway"),
+            Some(ActiveProduct::Fastway)
+        );
+        #[cfg(not(feature = "beta"))]
+        {
+            assert_eq!(PROVIDER_IDS, "jiotv|jiotv_plus|fastway");
+            for beta in ["playbox", "vzy", "airtel", "tataplay"] {
+                assert_eq!(ActiveProduct::from_name(beta), None, "{beta}");
+            }
+        }
+        #[cfg(feature = "beta")]
+        {
+            assert_eq!(
+                PROVIDER_IDS,
+                "jiotv|jiotv_plus|fastway|playbox|vzy|airtel|tataplay"
+            );
+            for beta in ["playbox", "vzy", "airtel", "tataplay"] {
+                assert!(ActiveProduct::from_name(beta).is_some(), "{beta}");
+            }
+        }
+    }
+
+    #[cfg(feature = "beta")]
     #[tokio::test]
     async fn tataplay_channels_are_dash_and_playable_without_resolving_playback() {
         use wiremock::matchers::{method, path};

@@ -61,7 +61,7 @@ fn content_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
 }
 
 fn api_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
-    Router::new()
+    let router = Router::new()
         .route("/api/auth/state", get(crate::api::auth_state))
         .route("/api/auth/setup", post(crate::api::auth_setup))
         .route("/api/auth/login", post(crate::api::auth_login))
@@ -96,6 +96,20 @@ fn api_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         )
         .route("/api/extras/logout", post(crate::api::extras_logout))
         .route("/api/extras/unlock", post(crate::api::extras_unlock))
+        .route("/api/ott/search", get(crate::vod::api_ott_search))
+        .route("/api/ott/screen/:id", get(crate::vod::api_ott_screen))
+        .route("/api/ott/show/:id", get(crate::vod::api_ott_episodes))
+        .route("/api/ott/play/:id", get(crate::vod::api_ott_play))
+        .route("/api/live/play/:id", get(crate::api::live_play))
+        .route("/api/ott/license/:id", post(crate::vod::ott_license));
+    beta_api_routes(router).with_state(state)
+}
+
+/// Beta provider routes. Stable builds compile this to the router unchanged,
+/// so the four beta providers have no HTTP surface at all.
+#[cfg(feature = "beta")]
+fn beta_api_routes(router: Router<Arc<AppState>>) -> Router<Arc<AppState>> {
+    router
         .route("/api/playbox/status", get(crate::api::playbox_status))
         .route(
             "/api/playbox/login/sendOTP",
@@ -153,13 +167,11 @@ fn api_routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         )
         .route("/api/tataplay/channels", get(crate::api::tataplay_channels))
         .route("/api/tataplay/play/:id", get(crate::api::tataplay_play))
-        .route("/api/ott/search", get(crate::vod::api_ott_search))
-        .route("/api/ott/screen/:id", get(crate::vod::api_ott_screen))
-        .route("/api/ott/show/:id", get(crate::vod::api_ott_episodes))
-        .route("/api/ott/play/:id", get(crate::vod::api_ott_play))
-        .route("/api/live/play/:id", get(crate::api::live_play))
-        .route("/api/ott/license/:id", post(crate::vod::ott_license))
-        .with_state(state)
+}
+
+#[cfg(not(feature = "beta"))]
+fn beta_api_routes(router: Router<Arc<AppState>>) -> Router<Arc<AppState>> {
+    router
 }
 
 /// On-demand playback: manifests/segments come straight from the
@@ -418,15 +430,18 @@ async fn channels_or_playlist(
         return axum::Json(channels).into_response();
     }
 
+    #[cfg(feature = "beta")]
     if matches!(state.active_product(), crate::state::ActiveProduct::Playbox) {
         state.playbox.prepare_playlist_metadata().await;
     }
+    #[cfg(feature = "beta")]
     if matches!(state.active_product(), crate::state::ActiveProduct::Airtel) {
         state
             .airtel
             .prepare_playlist_metadata(state.store.clone())
             .await;
     }
+    #[cfg(feature = "beta")]
     if matches!(
         state.active_product(),
         crate::state::ActiveProduct::TataPlay
@@ -449,17 +464,7 @@ async fn channels_or_playlist(
         &opts,
         |id| state.is_drm_channel(id),
         |id| state.is_dash_channel(id),
-        |id| {
-            if crate::playbox::is_playbox_channel(id) {
-                state.playbox.playlist_ready(id)
-            } else if crate::airtel::is_airtel_channel(id) {
-                state.airtel.playlist_ready(id)
-            } else if crate::tataplay::is_tataplay_channel(id) {
-                state.tataplay.playlist_ready(id)
-            } else {
-                state.is_playable(id)
-            }
-        },
+        |id| state.provider_playlist_ready(id),
     );
 
     Response::builder()

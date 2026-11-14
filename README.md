@@ -37,6 +37,9 @@ Run it on a laptop, a Raspberry Pi, a NAS or an OpenWrt router, open `http://loc
 > [!NOTE]
 > Beta providers are complete integrations whose remaining runtime contracts are still being validated. Their channels play when the provider account is entitled; a premium channel the account does not own is reported as such instead of failing silently.
 
+> [!IMPORTANT]
+> Stable releases are built without the beta providers: the binary has no beta routes, settings cards or `login` commands, and the installer only offers JioTV, JioTV+ and Fastway. The `v1.6.0-beta.2` prerelease is built with all seven providers. Install a prerelease explicitly if you want to test the beta providers; `releases/latest` always points at the stable build.
+
 ---
 
 ## 🖥️ Supported Platforms
