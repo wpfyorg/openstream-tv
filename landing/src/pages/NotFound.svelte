@@ -3,7 +3,7 @@
 
   import Logo from '../components/Logo.svelte'
   import { brand, links } from '../content.js'
-  import { buttonClass } from '../lib/ui.js'
+  import { buttonClass, homeUrl } from '../lib/ui.js'
 
   let { path = '/' } = $props()
 
@@ -16,7 +16,7 @@
 
 <div class="flex min-h-dvh flex-col bg-surface">
   <header class="px-5 py-6 sm:px-9">
-    <a href="/" aria-label="{brand.name} home" class="inline-flex min-h-10 items-center rounded-sm">
+    <a href={homeUrl} aria-label="{brand.name} home" class="inline-flex min-h-10 items-center rounded-sm">
       <Logo size={16} />
     </a>
   </header>
@@ -53,7 +53,7 @@
         or the link is wrong.
       </p>
       <div class="mt-7 flex flex-wrap justify-center gap-3">
-        <a href="/" class={buttonClass('outline')}>
+        <a href={homeUrl} class={buttonClass('outline')}>
           <ArrowLeft size={16} aria-hidden="true" />
           Back home
         </a>

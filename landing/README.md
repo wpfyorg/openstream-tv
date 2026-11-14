@@ -43,9 +43,17 @@ Plus Jakarta Sans, small radii, and a reveal-on-scroll transition (`.reveal`,
 driven by an IntersectionObserver action) that honours
 `prefers-reduced-motion`.
 
-## Deploy with Freebuff Sites
+## Deploy
 
-`deploy.json` points at the build output. After `bun run build`, deploy this
-directory with the `sites_deploy` tool. The Worker serves `/api/health` and
-returns 404 JSON for other `/api/*` paths; every other path falls through to
-the single-page app.
+GitHub Pages serves this page at https://wpfyorg.github.io/openstream-tv/ and the
+help centre under `/docs`. The `Documentation` workflow builds it with
+`LANDING_BASE=/openstream-tv/` (so `/assets/...` resolves under the project
+subpath) and copies `dist/client` over the docs build. `homeUrl` in
+`src/lib/ui.js` wraps Vite's base for the page's own links.
+
+Freebuff Sites is still an option: `deploy.json` points at the Worker build, so
+the Worker serves `/api/health` — an endpoint GitHub Pages cannot provide.
+
+After `bun run build`, deploy this directory with the `sites_deploy` tool. The
+Worker serves `/api/health` and returns 404 JSON for other `/api/*` paths; every
+other path falls through to the single-page app.
