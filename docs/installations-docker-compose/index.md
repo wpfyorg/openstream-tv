@@ -5,13 +5,18 @@ category: Installation
 keywords: [Docker Compose, compose.yaml, Docker, volume, container, update, logs]
 ---
 
-# Install OpenStream TV with Docker Compose
+# 🧾 Install with Docker Compose
 
-Docker Compose keeps the container ports and data volume in one reusable file. Install Docker Engine or Docker Desktop with the **Docker Compose** plugin first. Check that `docker compose version` works. The released image supports Linux `amd64`, `arm64`, ARMv7 and 386; Docker selects the correct supported image architecture.
+Compose keeps the container ports and data volume in one reusable file, so updates and restarts are one command each. The released image supports Linux `amd64`, `arm64`, ARMv7 and 386; Docker selects the matching architecture.
 
-## 1. Create the Compose file
+> [!NOTE]
+> Install Docker Engine or Docker Desktop with the **Compose** plugin first, and check that `docker compose version` works.
 
-Make a new directory such as `openstream-compose` and save this content as **compose.yaml**:
+---
+
+## 📝 Step 1: Create the Compose File
+
+Make a new directory such as `openstream-compose` and save this as `compose.yaml`:
 
 ```yaml
 services:
@@ -28,11 +33,18 @@ volumes:
   openstream-data:
 ```
 
-The `latest` image includes the web UI. Use the `slim` tag only when you want IPTV access without the browser interface. The named volume stores credentials, configuration and local TLS files. Keep it private.
+| Setting | Meaning |
+| :--- | :--- |
+| `latest` image | Includes the web interface. Use the `slim` tag only for IPTV access without the browser UI. |
+| `5001` | Plain HTTP for compatible IPTV clients. |
+| `5443` | HTTPS for the browser interface. |
+| `openstream-data` | Named volume holding credentials, configuration and local TLS files. Keep it private. |
 
-## 2. Start and check the service
+---
 
-From the directory containing **compose.yaml**, run:
+## ▶️ Step 2: Start and Check the Service
+
+From the directory containing `compose.yaml`:
 
 ```sh
 docker compose config
@@ -41,22 +53,26 @@ docker compose ps
 docker compose logs --tail 50 openstream
 ```
 
-**Expected result:** `docker compose ps` shows a running `openstream` service. On the host, open **https://localhost:5443/**; from a trusted network device, use `https://<docker-host-ip>:5443/`. A browser warning about the generated self-signed certificate is expected. Port 5001 serves plain HTTP for compatible IPTV clients.
+**Expected result:** `docker compose ps` shows a running `openstream` service. Open `https://localhost:5443/` on the host, or `https://<docker-host-ip>:5443/` from a trusted network device. A warning about the generated self-signed certificate is expected.
 
-## 3. Set the admin password and connect JioTV
+---
 
-The first-run server can provide a private web setup URL in its logs. Do not share that link: it contains an access key. You can instead set the password interactively from your Compose directory:
+## 🔑 Step 3: Set the Admin Password and Connect a Provider
+
+The first-run server can print a private web setup URL in its logs — do not share that link, it contains an access key. Or set the password interactively from your Compose directory:
 
 ```sh
 docker compose exec openstream /usr/local/bin/ost admin password
 docker compose restart openstream
 ```
 
-Then open the web page, sign in with the admin password and connect your provider account in **Settings** using its OTP form. See [first launch](../getting-started-first-launch/index.md) and [account connection](../account-connect-jiotv/index.md).
+Then open the page, sign in with the admin password and connect your provider in **Settings** using its OTP form. See [first launch](../getting-started-first-launch/index.md) and [connect JioTV](../account-connect-jiotv/index.md).
 
-## 4. Update and inspect the container
+---
 
-Stop playback before updating, then run:
+## 🔄 Step 4: Update
+
+Stop playback first, then:
 
 ```sh
 docker compose pull
@@ -65,8 +81,19 @@ docker compose ps
 docker compose logs --tail 50 openstream
 ```
 
-**Expected result:** Compose recreates the service when the image has changed and keeps the same `openstream-data` volume. Reopen Settings to confirm the account is still connected. See [Docker maintenance](../maintenance-docker/index.md) to back up the volume before major updates.
+**Expected result:** Compose recreates the service when the image changed and keeps the same `openstream-data` volume. Reopen Settings to confirm the account is still connected. Back up the volume before major updates — see [Docker maintenance](../maintenance-docker/index.md).
 
-## 5. Stop or uninstall
+---
 
-Run `docker compose stop` for a temporary stop, `docker compose start` to resume, or `docker compose down` to remove the container and its network while keeping the saved volume. **Do not use `docker compose down -v`** unless you deliberately want to delete the saved provider accounts, password and settings. See [Docker troubleshooting](../troubleshooting-server-and-maintenance/index.md) for port conflicts and missing data.
+## ⏹️ Step 5: Stop or Remove
+
+| Command | Effect |
+| :--- | :--- |
+| `docker compose stop` | Temporary stop |
+| `docker compose start` | Resume |
+| `docker compose down` | Remove the container and network, keeping the saved volume |
+
+> [!WARNING]
+> Do **not** use `docker compose down -v` unless you deliberately want to delete the saved provider accounts, password and settings.
+
+Port conflicts and missing data are covered in [Docker troubleshooting](../troubleshooting-server-and-maintenance/index.md).

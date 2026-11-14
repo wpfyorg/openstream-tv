@@ -5,16 +5,38 @@ category: Account Setup
 keywords: [admin session, sign out, browser, password, session expiry]
 ---
 
-# Admin Sessions and Sign Out
+# 🔐 Admin Sessions and Sign Out
 
-The web interface uses an admin session in your browser. Signing out of the web interface does not disconnect the JioTV or JioTV+ channels provider account.
+The web interface keeps an admin session in your browser. Signing out of the web interface does **not** disconnect the JioTV, JioTV+ or Fastway provider account.
 
-- Select **Sign out** in the top bar to end the current browser session.
-- Sign in again with the admin password when you return.
-- Admin sessions expire after 30 days.
-- Changing the admin password signs out other browsers. The browser that changed it remains signed in.
-- If the server is configured to disable logout, provider logout controls are hidden in Settings.
+---
 
-**Expected result:** after signing out, the sign-in page appears. Your provider account status remains as it was until you explicitly disconnect that account in Settings.
+## 🚪 Sign Out
 
-For account connection steps, see [Connect Your JioTV Account](../account-connect-jiotv/index.md) and [Connect JioTV+](../account-extras/index.md). For password change steps, see [Settings](../using-settings/index.md).
+| Where you are | How to sign out |
+| :--- | :--- |
+| Desktop or tablet | **Sign out** at the bottom of the sidebar |
+| Phone | **Settings** → **This browser** → **Sign out** (the sidebar is hidden on small screens) |
+
+Sign in again with the admin password when you return.
+
+**Expected result:** the sign-in page appears. Provider account status stays exactly as it was until you disconnect that account in Settings.
+
+---
+
+## ⏳ Session Rules
+
+| Rule | Detail |
+| :--- | :--- |
+| Expiry | Admin sessions expire after 30 days |
+| Password change | Signs out other browsers; the browser that changed the password stays signed in |
+| Provider logout disabled | With `disable_logout` set, Settings hides provider disconnect controls; the web sign-out still works |
+| Provider accounts | Unaffected by web sign-out; disconnect them separately |
+
+---
+
+## 🔗 Related
+
+- Account connection: [Connect your JioTV account](../account-connect-jiotv/index.md), [Connect JioTV+](../account-extras/index.md)
+- Changing the admin password: [Settings](../using-settings/index.md)
+- Sessions and access keys: [network configuration](../configuration-network-security/index.md)

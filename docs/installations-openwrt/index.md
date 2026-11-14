@@ -5,39 +5,68 @@ category: Installation
 keywords: [OpenWrt, router, apk, opkg, procd, package]
 ---
 
-# Install on OpenWrt
+# 📶 Install on OpenWrt
 
-SSH to the router as `root`. The installer detects `apk` or `opkg`, chooses a supported package ABI, verifies the downloaded package checksum, and installs the package from the latest GitHub release by default. Set `OPENSTREAM_VERSION` to a release such as `1.5.0` to pin it. Supported package architectures are x86_64, aarch64 Cortex-A53 and ARM Cortex-A7 NEON. Other router architectures are not published.
+SSH to the router as `root`. The installer detects `apk` or `opkg`, chooses a supported package ABI, verifies the downloaded checksum and installs the package from the latest GitHub release.
+
+| Supported package architecture | |
+| :--- | :--- |
+| `x86_64` | 64-bit Intel/AMD routers and VMs |
+| `aarch64` Cortex-A53 | Many ARMv8 routers |
+| `ARM` Cortex-A7 NEON | Older 32-bit ARM routers |
+
+Other router architectures are not published. Set `OPENSTREAM_VERSION` to a release such as `1.5.0` to pin one.
 
 ```sh
 wget -qO- https://raw.githubusercontent.com/wpfyorg/openstream-tv/main/scripts/install.sh | sh
 ```
 
-By default, the installer enables the service and starts it. Open the browser interface at `https://<router-ip>:5443/` and accept the self-signed certificate warning. IPTV players use `http://<router-ip>:5001/`. The normal package is `full`; for headless installations, set `OPENSTREAM_VARIANT=slim` before running the script. The slim package has no web interface and requires terminal provider sign-in.
+By default the installer enables and starts the service.
 
-## Guided setup
+| Where to open it | URL |
+| :--- | :--- |
+| Browser interface | `https://<router-ip>:5443/` (accept the self-signed warning) |
+| IPTV players | `http://<router-ip>:5001/` |
 
-Over an SSH terminal the installer also asks how to set the router up: build (`full` or `slim`), account (JioTV, JioTV+, Fastway, PlayboxTV, VZY, Airtel Xstream or Tata Play, each beta option only when that package supports it), the address other devices will use, whether to expose it through Cloudflare, whether to turn on the programme guide, and the account sign-in. It stops the service before the terminal login and aborts if the service cannot be stopped, so a running process cannot overwrite the new login.
+The normal package is `full`. For headless installations set `OPENSTREAM_VARIANT=slim` before running the script; the slim package has no web interface and needs terminal provider sign-in.
 
-The provider, tunnel and guide choices are written to UCI, so those settings survive a reboot and a package upgrade. The address shown during setup is an installer summary choice, not a UCI setting; configure `option host` manually if the service must bind to a particular address.
+---
+
+## 🧭 Guided Setup
+
+Over SSH the installer also asks how to set the router up: build, account (JioTV, JioTV+, Fastway, PlayboxTV, VZY, Airtel Xstream or Tata Play, each beta option only when the package supports it), the address other devices will use, whether to expose it through Cloudflare, whether to turn on the programme guide, and the account sign-in.
+
+> [!IMPORTANT]
+> The installer stops the service before the terminal login and aborts if it cannot be stopped, so a running process cannot overwrite the new login.
+
+Provider, tunnel and guide choices are written to UCI, so they survive a reboot and a package upgrade. The address shown during setup is a summary choice, not a UCI setting — configure `option host` manually if the service must bind to a particular address.
+
+---
+
+## ⚙️ UCI Options
 
 | Option | Values | Purpose |
-| --- | --- | --- |
-| `option tv_plus` | `0`, `1` | Enable the optional JioTV+ account (needs a JioFiber or AirFiber login). The previous option name `extras` is still read. |
+| :--- | :--- | :--- |
+| `option tv_plus` | `0`, `1` | Enable the optional JioTV+ account (needs a JioFiber or AirFiber login). The earlier name `extras` is still read. |
 | `option fastway` | `0`, `1` | Enable the optional Fastway Live TV provider. |
-| `option playbox` | `0`, `1` | **Beta.** Enable the PlayboxTV live TV provider. |
-| `option vzy` | `0`, `1` | **Beta.** Enable the VZY free-tier live TV provider; no account is needed. |
-| `option airtel` | `0`, `1` | **Beta.** Enable the Airtel Xstream live TV provider. |
-| `option tataplay` | `0`, `1` | **Beta.** Enable the Tata Play live TV provider. |
+| `option playbox` | `0`, `1` | **Beta.** Enable PlayboxTV. |
+| `option vzy` | `0`, `1` | **Beta.** Enable the VZY free tier; no account needed. |
+| `option airtel` | `0`, `1` | **Beta.** Enable Airtel Xstream. |
+| `option tataplay` | `0`, `1` | **Beta.** Enable Tata Play. |
 | `option tunnel` | `0`, `1` | Start the optional Cloudflare tunnel with the service. |
-| `option tunnel_token` | token | Named-tunnel token, passed to the service as an environment variable rather than a command-line argument. |
-| `option epg` | `0`, `1` | Generate the XMLTV programme guide. Defaults to `0`. |
+| `option tunnel_token` | token | Named-tunnel token, passed as an environment variable rather than an argument. |
+| `option epg` | `0`, `1` | Generate the XMLTV guide. Defaults to `0`. |
 
-`option tunnel_token` is stored in `/etc/config/openstream`, which is readable by root only. `option tunnel 1` without a token starts a temporary `trycloudflare.com` address that changes every start; check `logread -e cloudflared` for the current one. Read the exposure warning below before enabling either.
+> [!NOTE]
+> `option tunnel_token` is stored in `/etc/config/openstream`, readable by root only. `option tunnel 1` without a token starts a temporary `trycloudflare.com` address that changes every start; find the current one with `logread -e cloudflared`.
 
-Piping the installer is still supported: prompts read `/dev/tty`, and with no terminal the package installs exactly as before. Use `OPENSTREAM_ONBOARD=never` to skip the questions, or set `OPENSTREAM_PROVIDER`, `OPENSTREAM_PUBLIC_HOST`, `OPENSTREAM_TUNNEL`, `OPENSTREAM_TUNNEL_TOKEN` and `OPENSTREAM_EPG` to answer them up front.
+Piping the installer is supported: prompts read `/dev/tty`, and with no terminal the package installs exactly as before. Use `OPENSTREAM_ONBOARD=never` to skip the questions, or set `OPENSTREAM_PROVIDER`, `OPENSTREAM_PUBLIC_HOST`, `OPENSTREAM_TUNNEL`, `OPENSTREAM_TUNNEL_TOKEN` and `OPENSTREAM_EPG` to answer them up front.
 
-The service uses procd and starts at boot. Manage it with:
+---
+
+## 🔁 Manage the Service
+
+The service uses procd and starts at boot.
 
 ```sh
 /etc/init.d/openstream status
@@ -45,16 +74,29 @@ The service uses procd and starts at boot. Manage it with:
 logread -e openstream
 ```
 
-Settings are in `/etc/config/openstream`; application state, including credentials and TLS material, is under `/etc/openstream`. After changing UCI settings, run `uci commit openstream` and `/etc/init.d/openstream restart`.
+Settings live in `/etc/config/openstream`; application state, including credentials and TLS material, is under `/etc/openstream`. After changing UCI settings run:
 
-## Exposure warning
+```sh
+uci commit openstream
+/etc/init.d/openstream restart
+```
 
-A Cloudflare tunnel publishes the router's OpenStream TV server on a public hostname. The access key in the playlist path and the admin password are then the only protection, and the DRM license proxy becomes reachable from the internet too. Use a long admin password, prefer the temporary URL when you only need short-lived access, and remove the tunnel when you are done. Without a tunnel, keep the service on your trusted LAN.
+---
 
-To update, run the installer command again so the package manager updates the package. Do not use `ost update` for a package-managed installation. To uninstall, use `apk del openstream` or `opkg remove openstream`; use `openstream-slim` if that was the installed package. Package removal preserves configuration and application data. See [OpenWrt maintenance](../maintenance-openwrt/index.md) for package-specific backup and removal details.
+## ⚠️ Exposure Warning
 
-## Verify and troubleshoot
+> [!CAUTION]
+> A Cloudflare tunnel publishes the router's server on a public hostname. The access key in the playlist path and the admin password are then the only protection, and the DRM license proxy becomes reachable from the internet too. Use a long admin password, prefer the temporary URL for short-lived access, and remove the tunnel when you are done. Without a tunnel, keep the service on your trusted LAN.
 
-Run `/etc/init.d/openstream status` and `logread -e openstream` over SSH. Load the HTTPS page from a trusted LAN device; the slim package intentionally has no web interface. If installation reports an unsupported architecture, check `uname -m` and `opkg print-architecture` (or `apk --print-arch` where supported) against the package ABI. Do not force an incompatible package. See [OpenWrt problems](../troubleshooting-installation-startup/index.md).
+---
 
-Update by rerunning the supported package installer, then restart/check the service. Remove with the matching package manager, using `openstream-slim` for the slim package. Preserve or back up `/etc/openstream` and `/etc/config/openstream` as described in [OpenWrt maintenance](../maintenance-openwrt/index.md).
+## 🔧 Update, Remove and Troubleshoot
+
+| Task | Command |
+| :--- | :--- |
+| Update | Re-run the installer so the package manager updates the package. Do not use `ost update` on a package-managed install. |
+| Remove | `apk del openstream` or `opkg remove openstream` (use `openstream-slim` if that was installed) |
+| Check the service | `/etc/init.d/openstream status`, `logread -e openstream` |
+| Unsupported architecture | Compare `uname -m` and `opkg print-architecture` (or `apk --print-arch`) with the package ABI. Do not force an incompatible package. |
+
+Package removal preserves configuration and application data. See [OpenWrt maintenance](../maintenance-openwrt/index.md) for backup and removal details, and [OpenWrt problems](../troubleshooting-installation-startup/index.md) for startup failures.

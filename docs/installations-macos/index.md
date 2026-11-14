@@ -5,40 +5,54 @@ category: Installation
 keywords: [macOS, Mac, Apple silicon, Intel, install, terminal]
 ---
 
-# Install on macOS
+# 🍎 Install on macOS
 
-The installer supports Intel (`x86_64`) and Apple silicon (`arm64`) Macs. It downloads the latest matching GitHub release by default and checks its SHA-256 checksum. Set `OPENSTREAM_VERSION` to a release such as `1.5.0` when you need to pin the installed version.
+The installer supports Intel (`x86_64`) and Apple silicon (`arm64`) Macs. It downloads the latest matching GitHub release and checks its SHA-256 checksum. Pin a version with `OPENSTREAM_VERSION` when you need a specific release.
 
-## Install
+---
 
-Open Terminal and run:
+## 📥 Step 1: Install
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/wpfyorg/openstream-tv/main/scripts/install.sh | sh
 ```
 
-Without elevated privileges, the binary goes in `$HOME/.local/bin`. Add that directory to your shell's `PATH` if needed. For example, with zsh:
+Without elevated privileges the binary lands in `$HOME/.local/bin`. Add it to your shell `PATH` if needed — for zsh:
 
 ```sh
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
 source ~/.zshrc
 ```
 
-## Guided setup
+---
 
-In a terminal, the installer also asks how the server should be set up: build (`full` or `slim`), account (JioTV, JioTV+, Fastway, PlayboxTV, VZY, Airtel Xstream or Tata Play, each beta option only when that release supports it), the LAN address other devices will use, whether to expose it through Cloudflare, whether to turn on the programme guide, and the account sign-in. Arrow keys select, Enter confirms, and Ctrl-C cancels without leaving the terminal in a broken state.
+## 🧭 Step 2: Guided Setup
 
-The same settings can be supplied up front to skip the questions:
+In a terminal the installer also asks how the server should be set up: build (`full` or `slim`), account (JioTV, JioTV+, Fastway, PlayboxTV, VZY, Airtel Xstream or Tata Play, with beta options only when the release supports them), the LAN address other devices will use, whether to expose it through Cloudflare, whether to turn on the programme guide, and the account sign-in.
+
+Arrow keys select, Enter confirms, and Ctrl-C cancels without leaving the terminal in a broken state.
+
+Skip the questions up front:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/wpfyorg/openstream-tv/main/scripts/install.sh | OPENSTREAM_VARIANT=slim OPENSTREAM_PROVIDER=jiotv OPENSTREAM_TUNNEL=none sh
 ```
 
-`OPENSTREAM_ONBOARD=never` turns the flow off. Piping the script into `sh` is fine because prompts read `/dev/tty`, not the pipe; with no terminal the installer behaves exactly as it does without this option. Set `OPENSTREAM_EPG=true` to turn the programme guide on without the guide question; the default answer is off.
+| Setting | Effect |
+| :--- | :--- |
+| `OPENSTREAM_ONBOARD=never` | Turns the guided flow off entirely. |
+| `OPENSTREAM_EPG=true` | Turns the programme guide on without the guide question (default answer is off). |
 
-## First run
+> [!NOTE]
+> Piping into `sh` is fine because prompts read `/dev/tty`, not the pipe. With no terminal the installer behaves exactly as it does without this option.
 
-The guided setup connects the account for you. If it printed a retry command that sources `installer.env`, use that exact command so the selected provider settings are loaded. If you skipped guided setup entirely, set the matching provider flags in the same shell before signing in and keep that shell open for `serve`:
+---
+
+## 🔑 Step 3: First Run
+
+The guided setup connects the account for you. If it printed a retry command that sources `installer.env`, use that exact command so the selected provider settings are loaded.
+
+If you skipped guided setup, set the matching provider flags in the same shell and keep it open for `serve`:
 
 ```sh
 # JioTV: mobile-number OTP
@@ -61,12 +75,19 @@ ost admin password
 ost serve --host 127.0.0.1 --tls
 ```
 
-Open `https://localhost:5443/` and accept the self-signed certificate warning. To access the server from other devices on your home network, bind to all interfaces with `--host 0.0.0.0` and use your Mac's LAN address. Keep access limited to a trusted network. The `slim` build has no browser interface.
+Open `https://localhost:5443/` and accept the self-signed certificate warning. For other devices on your home network, bind with `--host 0.0.0.0` and use your Mac's LAN address — and keep access to a trusted network. The `slim` build has no browser interface.
 
-For boot-time service setup, see [Background service](../maintenance-background-service/index.md). For updates, see [How to Update OpenStream TV](../maintenance-update/index.md); for removal, see [Uninstall OpenStream TV Safely](../maintenance-update-uninstall/index.md).
+For boot-time service setup see [Background service](../maintenance-background-service/index.md); for updates [How to Update OpenStream TV](../maintenance-update/index.md); for removal [Uninstall OpenStream TV Safely](../maintenance-update-uninstall/index.md).
 
-## Verify and troubleshoot
+---
 
-Run `command -v ost` and `ost --help` in Terminal. Confirm the browser opens the address selected when starting `serve`. If `ost` is missing, confirm your install location is in `PATH`; restart Terminal after updating the shell profile. If a port is occupied, follow [startup fixes](../troubleshooting-installation-startup/index.md).
+## 🔧 Verify and Troubleshoot
 
-Update with `ost update`, restart OpenStream TV, and check the interface. For removal, stop OpenStream TV and delete the binary from your install directory. Keep your data directory unless you want to erase your saved account state; see [uninstall](../maintenance-update-uninstall/index.md).
+| Check | Command or action |
+| :--- | :--- |
+| Binary installed | `command -v ost` and `ost --help` in Terminal |
+| Page opens | Browse the address chosen when starting `serve` |
+| `ost` missing | Confirm your install directory is in `PATH`, then restart Terminal |
+| Port occupied | See [startup fixes](../troubleshooting-installation-startup/index.md) |
+
+Update with `ost update` and restart. To remove it, stop the server and delete the binary from your install directory; keep the data directory unless you want to erase saved account state. See [uninstall](../maintenance-update-uninstall/index.md).

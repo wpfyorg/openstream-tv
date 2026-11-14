@@ -5,43 +5,57 @@ category: Installation
 keywords: [Linux, install, curl, binary, systemd, Ubuntu, Debian]
 ---
 
-# Install on Linux
+# 🐧 Install on Linux
 
-The installer selects a release for x86_64, 64-bit ARM, ARMv7, or 32-bit x86 Linux. It verifies the downloaded binary using `SHA256SUMS` before installing it. ARMv6 and MIPS are not release targets.
+The installer picks a release for x86_64, 64-bit ARM, ARMv7 or 32-bit x86 Linux and verifies it against `SHA256SUMS` before installing. ARMv6 and MIPS are not release targets.
 
-## Install
+---
 
-On a machine with `curl` or `wget`, run:
+## 📥 Step 1: Install the Binary
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/wpfyorg/openstream-tv/main/scripts/install.sh | sh
 ```
 
-The default variant is `full`. To choose a variant or version, download the script first, then run it with the environment setting:
+The default variant is `full`. To choose a variant or pin a version, download the script first and pass the settings:
 
 ```sh
 curl -fsSLO https://raw.githubusercontent.com/wpfyorg/openstream-tv/main/scripts/install.sh
 OPENSTREAM_VARIANT=slim OPENSTREAM_VERSION=1.5.0 sh install.sh
 ```
 
-The installer uses `/usr/local/bin` when run as root and writable; otherwise it uses `$HOME/.local/bin`. Set `OPENSTREAM_INSTALL_DIR` to choose another directory. If the command is not found afterward, add the install directory to `PATH` and open a new terminal.
+| Where it lands | When |
+| :--- | :--- |
+| `/usr/local/bin` | Running as root with a writable directory |
+| `$HOME/.local/bin` | Every other case |
+| `OPENSTREAM_INSTALL_DIR` | Set it to choose another directory |
 
-## Guided setup
+If `ost` is not found afterwards, add the install directory to `PATH` and open a new terminal.
 
-Run the installer from a terminal and it walks through setup instead of only dropping a binary in place:
+---
 
-1. **Build** — `full` (browser interface plus IPTV) or `slim` (IPTV only). Use the arrow keys and press Enter.
-2. **Account** — one of JioTV, JioTV+, Fastway, PlayboxTV (beta), VZY (beta), Airtel Xstream (beta) or Tata Play (beta). The installer describes JioTV, PlayboxTV, Airtel Xstream and Tata Play as mobile-number OTP flows, JioTV+ as needing an eligible JioFiber/AirFiber login, Fastway as needing credentials accepted by its provider, and VZY as needing no account. ACT eligibility, where offered, depends on the provider. Only providers supported by the downloaded release are listed.
-3. **Address** — the LAN address other devices will use, pre-filled with the detected one. Press Enter to accept it.
-4. **Remote access** — LAN only, a temporary Cloudflare URL, or a permanent Cloudflare tunnel with a token.
-5. **Programme guide** — whether to turn on the XMLTV guide. It is off by default; answering Yes runs `ost epg on` and prints the guide URL in the summary.
-6. **Credentials** — the sign-in for the account you chose, then an admin password for the `full` build.
+## 🧭 Step 2: Guided Setup
 
-Piping the script into `sh` still works: every prompt reads `/dev/tty`, never the `curl` pipe. When there is no terminal — Docker, CI, cron, redirected output — the flow is skipped and the installer behaves exactly as it did before.
+In a terminal the installer walks through setup instead of only dropping a binary in place:
 
-Sign-in is retried up to three times. If it still fails, the binary stays installed, no service is installed or started, and the installer exits non-zero with the command to finish sign-in later. Passwords and one-time codes are never written to disk by the installer; the tunnel token is stored in the service configuration when a service is installed.
+| Prompt | What it asks |
+| :--- | :--- |
+| **Build** | `full` (browser interface plus IPTV) or `slim` (IPTV only). Arrow keys and Enter. |
+| **Account** | JioTV, JioTV+, Fastway, PlayboxTV (beta), VZY (beta), Airtel Xstream (beta) or Tata Play (beta). The installer describes JioTV, PlayboxTV, Airtel Xstream and Tata Play as mobile-number OTP flows, JioTV+ as needing an eligible JioFiber/AirFiber login, Fastway as needing credentials its provider accepts, and VZY as needing no account. |
+| **Address** | The LAN address other devices will use, pre-filled with the detected one. Enter accepts it. |
+| **Remote access** | LAN only, a temporary Cloudflare URL, or a permanent Cloudflare tunnel with a token. |
+| **Programme guide** | Whether to turn the XMLTV guide on. It is off by default; Yes runs `ost epg on` and prints the guide URL in the summary. |
+| **Credentials** | The sign-in for the chosen account, then an admin password for the `full` build. |
 
-## Start and sign in
+> [!NOTE]
+> Piping the script into `sh` is supported: every prompt reads `/dev/tty`, never the `curl` pipe. With no terminal (Docker, CI, cron, redirected output) the flow is skipped and the installer behaves as a plain install.
+
+> [!IMPORTANT]
+> Sign-in is retried up to three times. If it still fails, the binary stays installed, no service is installed or started, and the installer exits non-zero with the command to finish sign-in later. Passwords and one-time codes are never written to disk; the tunnel token is stored in the service configuration when a service is installed.
+
+---
+
+## 🔑 Step 3: Sign In and Start
 
 If you skipped the guided setup, sign in with the command for your provider:
 
@@ -63,28 +77,45 @@ ost admin password
 ost serve --host 0.0.0.0 --tls
 ```
 
-For JioTV, enter the one-time password when prompted. Fastway instead asks for its provider username and password. The admin password protects the web interface. On the same machine, open `https://localhost:5443/` and accept the self-signed certificate warning. From another trusted LAN device, use `https://<server-ip>:5443/`. IPTV applications use the HTTP playlist on port `5001`. The `slim` build has no browser interface.
+Enter the OTP when prompted. Fastway asks for its username and password. The admin password protects the web interface.
 
-To start at boot on a systemd Linux machine, see [Background service](../maintenance-background-service/index.md). To update or remove OpenStream TV, see [Update and uninstall](../maintenance-update-uninstall/index.md).
+| Where to open it | URL |
+| :--- | :--- |
+| On the server | `https://localhost:5443/` (accept the self-signed warning) |
+| From a trusted LAN device | `https://<server-ip>:5443/` |
+| IPTV clients | The HTTP playlist on port `5001` |
 
-## Installer options
+The `slim` build has no browser interface.
 
-`OPENSTREAM_VARIANT` accepts `full` or `slim`; `OPENSTREAM_VERSION` accepts `latest` or a release version; `OPENSTREAM_REPO` selects the GitHub owner/repository; and `OPENSTREAM_INSTALL_DIR` sets the binary directory. `OPENSTREAM_INSTALL_TLS=0` changes the installer’s printed next-step instructions only. It does not change a running server's TLS setting.
+For boot-time startup see [Background service](../maintenance-background-service/index.md); for updates and removal see [Update and uninstall](../maintenance-update-uninstall/index.md).
 
-The guided setup can be scripted with environment variables, which also skip the matching question:
+---
 
-| Setting | Values | Effect |
-| --- | --- | --- |
-| `OPENSTREAM_ONBOARD` | `auto`, `always`, `never` | `auto` asks when a terminal is available; `never` keeps the plain install; `always` cannot invent a terminal, so it still degrades to the plain install when there is none. |
-| `OPENSTREAM_PROVIDER` | `jiotv`, `tv+`, `fastway`, `playbox`, `vzy`, `airtel`, `tataplay` | Account to configure; `playbox`, `vzy`, `airtel` and `tataplay` are beta (the previous value `extras` is still accepted for `tv+`). Ignored when the downloaded release does not support it. |
+## ⚙️ Installer Options
+
+| Variable | Values | Effect |
+| :--- | :--- | :--- |
+| `OPENSTREAM_VARIANT` | `full`, `slim` | Which build to install. |
+| `OPENSTREAM_VERSION` | `latest` or a release version | Which release to install. |
+| `OPENSTREAM_REPO` | `owner/repository` | Where releases come from. |
+| `OPENSTREAM_INSTALL_DIR` | directory | Where the binary goes. |
+| `OPENSTREAM_INSTALL_TLS` | `0` | Changes only the printed next-step instructions, never a running server's TLS setting. |
+| `OPENSTREAM_ONBOARD` | `auto`, `always`, `never` | `auto` asks when a terminal exists; `never` keeps the plain install; `always` still degrades to the plain install without a terminal. |
+| `OPENSTREAM_PROVIDER` | `jiotv`, `tv+`, `fastway`, `playbox`, `vzy`, `airtel`, `tataplay` | Account to configure; the beta four are only offered when the release supports them. The earlier value `extras` is still accepted for `tv+`. |
 | `OPENSTREAM_PUBLIC_HOST` | address | LAN address shown in the summary instead of the detected one. |
-| `OPENSTREAM_TUNNEL` | `none`, `temp`, `named` | LAN only, a temporary Cloudflare URL, or a named tunnel. |
+| `OPENSTREAM_TUNNEL` | `none`, `temp`, `named` | LAN only, temporary Cloudflare URL, or named tunnel. |
 | `OPENSTREAM_TUNNEL_TOKEN` | token | Token for the named tunnel. Never pass it as a command-line argument. |
-| `OPENSTREAM_EPG` | `true`, `false` | Turns the programme guide on or off and skips the guide question. Leave it unset to be asked. |
+| `OPENSTREAM_EPG` | `true`, `false` | Turns the guide on or off and skips the guide question. Leave unset to be asked. |
 
+---
 
-## Verify and troubleshoot
+## 🔧 Verify and Troubleshoot
 
-Run `command -v ost` and `ost --help` to confirm the command is installed. Open the server address in a browser while the process is running. If the shell says the command is missing, check `$HOME/.local/bin` or your chosen install directory and `PATH`. If startup reports the port is busy, select an unused port with `ost serve --port 5002`; see [startup fixes](../troubleshooting-installation-startup/index.md).
+| Check | Command or action |
+| :--- | :--- |
+| Binary installed | `command -v ost` then `ost --help` |
+| Page opens | Load the server address while the process runs |
+| `ost` missing | Check `$HOME/.local/bin` or your chosen directory, then `PATH` |
+| Port busy | `ost serve --port 5002`, or see [startup fixes](../troubleshooting-installation-startup/index.md) |
 
-To update, use `ost update` and restart your service. To uninstall, stop the process or service, then remove the installed executable; see [safe removal](../maintenance-update-uninstall/index.md). Preserve the data directory if you may reinstall.
+Update with `ost update` and restart your service. To uninstall, stop the process or service and remove the executable; keep the data directory if you may reinstall. See [safe removal](../maintenance-update-uninstall/index.md).
