@@ -1,0 +1,67 @@
+import { base } from '$app/paths';
+import { docsConfig } from './config.js';
+import { getDocsByDirectory, getAllDocs } from './content.js';
+import type { NavItem } from './types.js';
+
+export function generateNavigation(locale?: string): NavItem[] {
+	const nav: NavItem[] = [];
+
+	for (const section of docsConfig.sidebar) {
+		if (section.autogenerate) {
+			const docs = getDocsByDirectory(section.autogenerate.directory, locale);
+			const items: NavItem[] = docs.map((doc) => ({
+				title: doc.meta.sidebar?.label ?? doc.meta.title,
+				href: doc.href,
+				order: doc.meta.order
+			}));
+
+			items.sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
+
+			nav.push({
+				title: section.label,
+				icon: section.icon,
+				items
+			});
+		} else if (section.items) {
+			nav.push({
+				title: section.label,
+				icon: section.icon,
+				items: section.items.map((item) => ({
+					title: item.label,
+					// Sidebar entries are authored as /docs/<slug>; the deployed
+					// base path is added here so active-state checks match.
+					href: item.href.startsWith('http') ? item.href : `${base}${item.href.replace(/\/$/, '')}/`
+				}))
+			});
+		}
+	}
+
+	return nav;
+}
+
+export function getNavigation(locale?: string): NavItem[] {
+	return generateNavigation(locale);
+}
+
+export function getPrevNext(
+	currentSlug: string,
+	locale?: string
+): { prev?: NavItem; next?: NavItem } {
+	  const allDocs = getAllDocs(locale);
+  // A `[...slug]` rest parameter carries the trailing slash the pages are
+  // served with, while document keys never do.
+  const clean = currentSlug.replace(/^\/+|\/+$/g, '');
+  const index = allDocs.findIndex((doc) => doc.slug === clean);
+	if (index === -1) return {};
+
+	return {
+		prev:
+			index > 0
+				? { title: allDocs[index - 1].meta.title, href: allDocs[index - 1].href }
+				: undefined,
+		next:
+			index < allDocs.length - 1
+				? { title: allDocs[index + 1].meta.title, href: allDocs[index + 1].href }
+				: undefined
+	};
+}

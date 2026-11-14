@@ -62,3 +62,11 @@ extra.md
 
 # Local sideload builds
 /openstream-tv-*.apk
+
+# Documentation site (content and screenshots are generated from docs/)
+docs-site/node_modules/
+docs-site/build/
+docs-site/.svelte-kit/
+docs-site/package-lock.json
+docs-site/src/content/docs/
+docs-site/static/images/
