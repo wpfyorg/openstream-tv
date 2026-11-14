@@ -479,11 +479,11 @@ impl AppState {
         // routable either way.
         let learned = self.learned_dash(id) && (self.config.drm || !self.learned_drm(id));
         if FastwayState::is_fastway_channel(id) {
-            // A protected Fastway row is DASH but cannot play without the DRM
-            // pathway, so it is not offered as a DASH route while DRM is off.
-            let provider_dash =
-                self.fastway.is_dash(id) && (self.config.drm || !self.fastway.is_drm(id));
-            return provider_dash || learned;
+            // The provider's protection check applies to the combined result:
+            // a protected row cannot play without the DRM pathway, so a clear
+            // learned observation must not offer it as a DASH route.
+            let dash = self.fastway.is_dash(id) || learned;
+            return dash && (self.config.drm || !self.fastway.is_drm(id));
         }
         if crate::playbox::is_playbox_channel(id) {
             return self.playbox.is_dash(id) || learned;
@@ -537,8 +537,10 @@ impl AppState {
     pub fn init_learned_playback(&self) {
         let product = self.active_product().store_name().to_string();
         let scope = self.learned_playback_scope();
-        let restored = load_learned_playback(&self.store, &product, &scope);
+        // Hold the write lock across the read: an observation that lands
+        // meanwhile must not be overwritten by this snapshot from disk.
         let mut learned = self.drm_channels.write().unwrap();
+        let restored = load_learned_playback(&self.store, &product, &scope);
         if learned.product == product
             && learned.account == scope
             && learned.dash == restored.dash
@@ -1118,7 +1120,6 @@ mod tests {
     fn concurrent_observations_all_survive_a_restart() {
         let dir = tempfile::tempdir().unwrap();
         let store = Arc::new(Store::open(dir.path().to_str().unwrap()).unwrap());
-        std::mem::forget(dir);
         let state = logged_in_state(store.clone(), "user-a");
 
         std::thread::scope(|scope| {
@@ -1165,6 +1166,14 @@ mod tests {
         assert!(
             !s.is_dash_channel("fw_1"),
             "protected Fastway rows need the DRM pathway"
+        );
+
+        // A clear learned observation must not override protected provider
+        // metadata while DRM is disabled.
+        s.learn_playback("fw_1", false);
+        assert!(
+            !s.is_dash_channel("fw_1"),
+            "a clear observation overrode a protected Fastway row"
         );
 
         // A clear Fastway row stays routable with DRM disabled.
