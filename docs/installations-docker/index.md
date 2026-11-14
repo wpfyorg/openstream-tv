@@ -61,7 +61,7 @@ From a terminal, `ost login otp` is the JioTV mobile-number login only; it does 
 ```sh
 docker stop openstream
 docker run --rm -it -v openstream-data:/app/.openstream-tv \
-  ghcr.io/wpfyorg/openstream-tv:latest /usr/local/bin/ost login otp
+  ghcr.io/wpfyorg/openstream-tv:latest login otp
 docker start openstream
 ```
 
