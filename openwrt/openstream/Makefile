@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=openstream
-PKG_VERSION?=1.6.0-beta.2
+PKG_VERSION?=1.6.0
 PKG_RELEASE:=1
 PKGARCH:=$(ARCH_PACKAGES)
 
