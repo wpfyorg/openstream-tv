@@ -407,12 +407,12 @@ impl LiveUrlOutput {
         }
     }
 
-    /// Kept for parity with the Go method; `AppState::is_drm_channel` (the
-    /// static DRM-ID list plus extras's learned map) is what actually decides
-    /// this in the current routing.
-    #[allow(dead_code)]
+    /// Whether this response is DASH protected by a license: any MPD URL form
+    /// (auto/high/medium/low, or the bare `result`) plus a license URL.
+    /// Aligned with `has_dash` so a response carrying only `high` or `result`
+    /// is not mistaken for clear DASH.
     pub fn has_drm_stream(&self) -> bool {
-        !self.mpd.resolved_bitrates().auto.is_empty() && !self.resolved_license_url().is_empty()
+        has_dash(self) && !self.resolved_license_url().is_empty()
     }
 }
 
@@ -1575,5 +1575,51 @@ mod tests {
         };
         let m3u = generate_m3u_playlist(&channels, &opts, |_| false, |_| false, |_| false);
         assert_eq!(m3u.trim(), "#EXTM3U x-tvg-url=\"http://h/epg.xml.gz\"");
+    }
+
+    #[test]
+    fn drm_stream_detection_covers_every_mpd_url_form() {
+        let response = |mpd: Mpd| LiveUrlOutput {
+            mpd,
+            ..Default::default()
+        };
+
+        // `auto` (mpd.bitrates.auto), `high`, and the bare `result` must all
+        // count as DASH when a license URL is present.
+        for mpd in [
+            Mpd {
+                bitrates: Bitrates {
+                    auto: "https://cdn/a.mpd".into(),
+                    ..Default::default()
+                },
+                key: "https://cdn/lic".into(),
+                ..Default::default()
+            },
+            Mpd {
+                bitrates: Bitrates {
+                    high: "https://cdn/h.mpd".into(),
+                    ..Default::default()
+                },
+                key: "https://cdn/lic".into(),
+                ..Default::default()
+            },
+            Mpd {
+                result: "https://cdn/r.mpd".into(),
+                key: "https://cdn/lic".into(),
+                ..Default::default()
+            },
+        ] {
+            assert!(response(mpd).has_drm_stream());
+        }
+
+        // DASH without a license is clear, not protected.
+        assert!(!response(Mpd {
+            bitrates: Bitrates {
+                auto: "https://cdn/a.mpd".into(),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .has_drm_stream());
     }
 }
