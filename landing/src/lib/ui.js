@@ -5,7 +5,18 @@
 
 // Vite's base, so the page's own links still work when GitHub Pages serves it
 // from a repository subpath such as /openstream-tv/.
-export const homeUrl = import.meta.env.BASE_URL
+const base = import.meta.env.BASE_URL.replace(/\/$/, '')
+
+export const homeUrl = `${base}/`
+
+// The router compares paths against '/', so the deployment base is stripped
+// first; without this every page under /openstream-tv/ looked like a 404.
+export function routePath(pathname) {
+  if (base && (pathname === base || pathname.startsWith(`${base}/`))) {
+    return pathname.slice(base.length) || '/'
+  }
+  return pathname || '/'
+}
 
 export function cn(...parts) {
   return parts.filter(Boolean).join(' ')

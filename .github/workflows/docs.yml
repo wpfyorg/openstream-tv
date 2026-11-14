@@ -66,6 +66,9 @@ jobs:
       - name: Assemble the site
         run: |
           cp -R landing/dist/client/. docs-site/build/
+          # GitHub Pages has no SPA fallback; the landing page's own 404 keeps
+          # unknown paths inside the page instead of GitHub's generic page.
+          cp docs-site/build/index.html docs-site/build/404.html
           test -f docs-site/build/index.html
           test -f docs-site/build/docs/index.html
       - uses: actions/upload-pages-artifact@v4
