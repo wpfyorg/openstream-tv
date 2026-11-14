@@ -181,7 +181,13 @@ start_flow() {
 }
 send() { printf '%s' "$1" >&6; }
 enter() { printf '\r' >&6; }
-finish_flow() { exec 6>&-; wait "$flow_pid"; }
+finish_flow() {
+  exec 6>&-
+  wait "$flow_pid"
+  ansi_esc=$(printf '\033')
+  sed "s/${ansi_esc}\\[[0-9;]*m//g" "$flow_out" >"$flow_out.normalized"
+  mv "$flow_out.normalized" "$flow_out"
+}
 
 # ---- default path: full build, JioTV account ------------------------------
 OPENSTREAM_TEST_STUB_LOG="$tmp/stub-calls.log"

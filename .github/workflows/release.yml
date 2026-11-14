@@ -244,3 +244,15 @@ jobs:
     permissions:
       contents: read
       packages: write
+
+  # GITHUB_TOKEN-created releases do not emit a downstream release event. Call
+  # the notification workflow directly after publishing instead.
+  notify:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: publish
+    uses: ./.github/workflows/discord-release-notification.yml
+    with:
+      tag: ${{ github.ref_name }}
+    secrets:
+      DISCORD_RELEASE_WEBHOOK: ${{ secrets.DISCORD_RELEASE_WEBHOOK }}
+      DISCORD_BETA_WEBHOOK: ${{ secrets.DISCORD_BETA_WEBHOOK }}

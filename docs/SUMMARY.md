@@ -93,3 +93,4 @@ Browse in order, or choose the task you need. The categories and article metadat
   - [Docker Updates, Backups and Logs](maintenance-docker/index.md)
   - [Maintain OpenStream TV on OpenWrt](maintenance-openwrt/index.md)
   - [Uninstall OpenStream TV Safely](maintenance-update-uninstall/index.md)
+  - [Discord Release Notifications](discord-release-notifications/index.md)
