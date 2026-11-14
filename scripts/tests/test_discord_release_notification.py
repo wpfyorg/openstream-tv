@@ -55,6 +55,33 @@ class DiscordReleaseNotificationTests(unittest.TestCase):
         self.assertIn("Beta release", embed["title"])
         self.assertEqual(embed["footer"]["text"], "OpenStream TV · Prerelease for testing")
 
+    def test_test_notification_is_clearly_labeled_and_bounded(self):
+        release = {**BASE, "name": "🙂" * 300, "body": "@everyone release notes"}
+        payload = make_payload(release, test_notification=True)
+        embed = payload["embeds"][0]
+        self.assertEqual(payload["content"], "Configuration test only — no new release was published")
+        self.assertIn("TEST", embed["title"])
+        self.assertLessEqual(utf16_units(embed["title"]), MAX_TITLE)
+        self.assertLessEqual(utf16_units(embed["description"]), MAX_DESCRIPTION)
+        self.assertEqual(embed["url"], BASE["html_url"])
+        self.assertIn("@everyone release notes", embed["description"])
+        self.assertEqual(payload["allowed_mentions"], {"parse": []})
+
+    def test_test_notification_dry_run_never_posts(self):
+        with patch("scripts.discord_release_notification.urlopen") as urlopen:
+            result = notify(BASE, SECRETS, dry_run=True, test_notification=True)
+        self.assertIn("no request sent", result)
+        urlopen.assert_not_called()
+
+    def test_test_notification_flag_posts_labeled_payload(self):
+        response = MagicMock()
+        response.__enter__.return_value.status = 204
+        with patch("scripts.discord_release_notification.urlopen", return_value=response) as urlopen:
+            notify(BASE, SECRETS, test_notification=True)
+        payload = json.loads(urlopen.call_args.args[0].data)
+        self.assertEqual(payload["content"], "Configuration test only — no new release was published")
+        self.assertIn("TEST", payload["embeds"][0]["title"])
+
     def test_draft_is_skipped(self):
         self.assertEqual(notify({**BASE, "draft": True}, SECRETS), "Skipped draft release.")
 

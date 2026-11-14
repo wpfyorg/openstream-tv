@@ -7,11 +7,37 @@ on:
         description: Published release tag
         required: true
         type: string
+      dry_run:
+        description: Validate the notification without posting
+        required: false
+        type: boolean
+        default: false
+      test_notification:
+        description: Label the post as a configuration test
+        required: false
+        type: boolean
+        default: false
     secrets:
       DISCORD_RELEASE_WEBHOOK:
         required: false
       DISCORD_BETA_WEBHOOK:
         required: false
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Published release tag to use
+        required: true
+        type: string
+      dry_run:
+        description: Validate without posting (default)
+        required: true
+        type: boolean
+        default: true
+      test_notification:
+        description: Label any post as a configuration test (default)
+        required: true
+        type: boolean
+        default: true
   release:
     types: [published]
 
@@ -30,7 +56,12 @@ jobs:
           RELEASE_TAG: ${{ inputs.tag || github.event.release.tag_name }}
           DISCORD_RELEASE_WEBHOOK: ${{ secrets.DISCORD_RELEASE_WEBHOOK }}
           DISCORD_BETA_WEBHOOK: ${{ secrets.DISCORD_BETA_WEBHOOK }}
+          DRY_RUN: ${{ inputs.dry_run || false }}
+          TEST_NOTIFICATION: ${{ inputs.test_notification || false }}
         run: |
+          args=()
+          if [[ "$DRY_RUN" == "true" ]]; then args+=(--dry-run); fi
+          if [[ "$TEST_NOTIFICATION" == "true" ]]; then args+=(--test-notification); fi
           encoded_tag=$(python3 -c 'import os; from urllib.parse import quote; print(quote(os.environ["RELEASE_TAG"], safe=""))')
           gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${encoded_tag}" \
-            | python3 scripts/discord_release_notification.py
+            | python3 scripts/discord_release_notification.py "${args[@]}"

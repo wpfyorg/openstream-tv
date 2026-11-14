@@ -70,7 +70,7 @@ def valid_webhook_url(value: str) -> bool:
         return False
 
 
-def make_payload(release: dict[str, Any]) -> dict[str, Any]:
+def make_payload(release: dict[str, Any], test_notification: bool = False) -> dict[str, Any]:
     name = str(release.get("name") or release.get("tag_name") or "OpenStream TV release")
     body = str(release.get("body") or "").strip() or "Release notes are available on GitHub."
     prerelease = release.get("prerelease") is True
@@ -93,10 +93,13 @@ def make_payload(release: dict[str, Any]) -> dict[str, Any]:
     read_more = f"\n\n[Read full release notes on GitHub]({release_url})"
     if utf16_units(description) > MAX_DESCRIPTION:
         description = truncate_utf16(description, MAX_DESCRIPTION - utf16_units(read_more)) + read_more
-    return {
+    payload = {
         "embeds": [
             {
-                "title": truncate_utf16(f"OpenStream TV · {release_type} · {name}", MAX_TITLE),
+                "title": truncate_utf16(
+                    f"{'TEST · ' if test_notification else ''}OpenStream TV · {release_type} · {name}",
+                    MAX_TITLE,
+                ),
                 "url": release_url,
                 "description": description,
                 "footer": {"text": footer},
@@ -104,14 +107,22 @@ def make_payload(release: dict[str, Any]) -> dict[str, Any]:
         ],
         "allowed_mentions": {"parse": []},
     }
+    if test_notification:
+        payload["content"] = "Configuration test only — no new release was published"
+    return payload
 
 
-def notify(release: dict[str, Any], environ: dict[str, str], dry_run: bool = False) -> str:
+def notify(
+    release: dict[str, Any],
+    environ: dict[str, str],
+    dry_run: bool = False,
+    test_notification: bool = False,
+) -> str:
     route = selected_webhook(release, environ)
     if route is None:
         return "Skipped draft release."
     key, webhook = route
-    payload = make_payload(release)
+    payload = make_payload(release, test_notification=test_notification)
     if not webhook:
         if dry_run:
             return f"Dry run: selected {key}; webhook secret is not configured; no request sent."
@@ -146,12 +157,13 @@ def notify(release: dict[str, Any], environ: dict[str, str], dry_run: bool = Fal
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dry-run", action="store_true", help="validate and select a route without sending")
+    parser.add_argument("--test-notification", action="store_true", help="label the notification as a configuration test")
     args = parser.parse_args()
     try:
         release = json.load(sys.stdin)
         if not isinstance(release, dict):
             raise ValueError("release data must be a JSON object")
-        print(notify(release, os.environ, args.dry_run))
+        print(notify(release, os.environ, args.dry_run, args.test_notification))
         return 0
     except (json.JSONDecodeError, ValueError, RuntimeError) as error:
         print(f"Discord notification error: {error}", file=sys.stderr)

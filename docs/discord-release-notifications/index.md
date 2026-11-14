@@ -28,3 +28,9 @@ python3 scripts/discord_release_notification.py --dry-run <<'JSON'
 JSON
 python3 -m unittest scripts.tests.test_discord_release_notification
 ```
+
+## Test the webhook from GitHub Actions
+
+After the workflow is available on the default branch, open **Actions > Discord release notification > Run workflow** and enter an already published release tag. The workflow fetches that release's real notes and link; its `prerelease` flag selects the stable or beta webhook.
+
+Both inputs default to the safe setting: `dry_run` is enabled, so no post is sent, and `test_notification` is enabled, so any delivered message is labeled **TEST** with “Configuration test only — no new release was published.” To check actual delivery, leave `test_notification` enabled and turn `dry_run` off. The matching repository webhook secret must exist. This sends a clearly labeled test post to the release's selected channel; it does not publish a release.
