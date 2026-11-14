@@ -51,6 +51,22 @@ pub enum StoreError {
     Encode(#[from] toml::ser::Error),
 }
 
+/// Distinguishes a write that never replaced the file from one whose rename
+/// already happened but could not be made durable. The caller needs the
+/// difference to keep its in-memory snapshot aligned with the disk.
+enum WriteFailure {
+    BeforeReplace(StoreError),
+    AfterReplace(StoreError),
+}
+
+impl WriteFailure {
+    fn into_error(self) -> StoreError {
+        match self {
+            WriteFailure::BeforeReplace(e) | WriteFailure::AfterReplace(e) => e,
+        }
+    }
+}
+
 impl Store {
     pub fn open(path_prefix: &str) -> Result<Store, StoreError> {
         std::fs::create_dir_all(path_prefix)?;
@@ -64,7 +80,9 @@ impl Store {
             let _lock = store.lock()?;
             let (current, needs_create) = store.read_from_disk()?;
             if needs_create {
-                store.write_atomic(&current)?;
+                store
+                    .write_atomic(&current)
+                    .map_err(WriteFailure::into_error)?;
             }
             *guard = current;
         }
@@ -101,7 +119,8 @@ impl Store {
     /// Re-reads the file under the lock, applies `apply`, and writes the result
     /// back only when something changed. The in-memory snapshot is published
     /// after a successful write, so a failed write leaves memory and disk on
-    /// the same (previous) state.
+    /// the same (previous) state — except when the replacement already happened
+    /// and only its durability could not be confirmed.
     fn mutate<T>(&self, apply: impl FnOnce(&mut FileFormat) -> T) -> Result<T, StoreError> {
         let mut guard = self.inner.lock().unwrap();
         let _lock = self.lock()?;
@@ -109,7 +128,18 @@ impl Store {
         let previous = current.data.clone();
         let result = apply(&mut current);
         if needs_create || current.data != previous {
-            self.write_atomic(&current)?;
+            match self.write_atomic(&current) {
+                Ok(()) => {}
+                // Nothing was replaced: the previous snapshot is still on disk,
+                // so leave memory alone.
+                Err(WriteFailure::BeforeReplace(e)) => return Err(e),
+                // The file on disk is already the new one; publish it so memory
+                // matches, then report that durability is unconfirmed.
+                Err(WriteFailure::AfterReplace(e)) => {
+                    *guard = current;
+                    return Err(e);
+                }
+            }
         }
         *guard = current;
         Ok(result)
@@ -117,27 +147,41 @@ impl Store {
 
     /// Writes the whole document through a same-directory temporary file and a
     /// rename, then synchronises the directory where the platform supports it.
-    fn write_atomic(&self, data: &FileFormat) -> Result<(), StoreError> {
-        let text = toml::to_string(data)?;
+    ///
+    /// A colliding temporary name (taken by a concurrent writer) is retried
+    /// with a fresh name; only a temporary file this attempt created is ever
+    /// removed.
+    fn write_atomic(&self, data: &FileFormat) -> Result<(), WriteFailure> {
+        let text = toml::to_string(data).map_err(|e| WriteFailure::BeforeReplace(e.into()))?;
         let dir = self.path.parent().unwrap_or_else(|| Path::new("."));
-        let tmp = dir.join(format!(
-            ".{STORE_FILE}.{}.{}.tmp",
-            std::process::id(),
-            next_temp_id()
-        ));
-        let result = self.write_temp_and_replace(dir, &tmp, text.as_bytes());
-        if result.is_err() {
-            let _ = std::fs::remove_file(&tmp);
+        for _ in 0..8 {
+            let tmp = dir.join(format!(
+                ".{STORE_FILE}.{}.{}.tmp",
+                std::process::id(),
+                next_temp_id()
+            ));
+            let mut file = match self.create_temp(&tmp) {
+                Ok(file) => file,
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(e) => return Err(WriteFailure::BeforeReplace(e.into())),
+            };
+            let result = self.write_temp_and_replace(dir, &tmp, &mut file, text.as_bytes());
+            if result.is_err() {
+                // `create_temp` succeeded, so this file is ours to remove.
+                let _ = std::fs::remove_file(&tmp);
+            }
+            return result;
         }
-        result.map_err(StoreError::from)
+        Err(WriteFailure::BeforeReplace(
+            std::io::Error::new(
+                std::io::ErrorKind::AlreadyExists,
+                "could not create a unique temporary store file",
+            )
+            .into(),
+        ))
     }
 
-    fn write_temp_and_replace(
-        &self,
-        dir: &Path,
-        tmp: &Path,
-        bytes: &[u8],
-    ) -> std::io::Result<()> {
+    fn create_temp(&self, tmp: &Path) -> std::io::Result<File> {
         let mut options = OpenOptions::new();
         options.write(true).create_new(true);
         // The document carries credentials, so keep the temporary file private
@@ -147,19 +191,41 @@ impl Store {
             use std::os::unix::fs::OpenOptionsExt;
             options.mode(0o600);
         }
-        let mut file = options.open(tmp)?;
-        file.write_all(bytes)?;
+        options.open(tmp)
+    }
+
+    fn write_temp_and_replace(
+        &self,
+        dir: &Path,
+        tmp: &Path,
+        file: &mut File,
+        bytes: &[u8],
+    ) -> Result<(), WriteFailure> {
+        file.write_all(bytes)
+            .map_err(|e| WriteFailure::BeforeReplace(e.into()))?;
         // Preserve an existing store's permissions; a brand-new one stays 0600.
         if let Ok(meta) = std::fs::metadata(&self.path) {
-            std::fs::set_permissions(tmp, meta.permissions())?;
+            std::fs::set_permissions(tmp, meta.permissions())
+                .map_err(|e| WriteFailure::BeforeReplace(e.into()))?;
         }
-        file.sync_all()?;
-        drop(file);
-        std::fs::rename(tmp, &self.path)?;
-        // Make the rename itself durable where a directory handle can be
-        // synchronised (not on Windows).
-        if let Ok(dir_handle) = File::open(dir) {
-            let _ = dir_handle.sync_all();
+        file.sync_all()
+            .map_err(|e| WriteFailure::BeforeReplace(e.into()))?;
+        std::fs::rename(tmp, &self.path).map_err(|e| WriteFailure::BeforeReplace(e.into()))?;
+        // Making the rename itself durable needs a directory handle, which
+        // Windows cannot open this way. On Unix a failure here means the new
+        // content is in place but may not survive a power cut, so it is
+        // reported (and the caller publishes the new state).
+        #[cfg(unix)]
+        {
+            let dir_handle =
+                File::open(dir).map_err(|e| WriteFailure::AfterReplace(e.into()))?;
+            dir_handle
+                .sync_all()
+                .map_err(|e| WriteFailure::AfterReplace(e.into()))?;
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = dir;
         }
         Ok(())
     }
@@ -196,6 +262,17 @@ impl Store {
     pub fn set(&self, key: &str, value: &str) -> Result<(), StoreError> {
         self.mutate(|current| {
             current.data.insert(key.to_string(), value.to_string());
+        })
+    }
+
+    /// Sets several keys in one atomic write. Nothing is written when every
+    /// value is already current, so a group that describes one state — an
+    /// account marker plus the observations it scopes — cannot be half-applied.
+    pub fn set_many(&self, pairs: &[(&str, &str)]) -> Result<(), StoreError> {
+        self.mutate(|current| {
+            for (key, value) in pairs {
+                current.data.insert((*key).to_string(), (*value).to_string());
+            }
         })
     }
 
@@ -330,6 +407,44 @@ mod tests {
         let text = std::fs::read_to_string(dir.path().join(STORE_FILE)).unwrap();
         assert!(text.contains("a = \"1\""), "{text}");
         assert!(text.contains("b = \"2\""), "{text}");
+    }
+
+    #[test]
+    fn set_many_writes_one_document_and_skips_unchanged_groups() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(STORE_FILE);
+        let store = Store::open(dir.path().to_str().unwrap()).unwrap();
+
+        store.set_many(&[("a", "1"), ("b", "2")]).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("a = \"1\""), "{text}");
+        assert!(text.contains("b = \"2\""), "{text}");
+
+        // An identical group must not rewrite the file: an external marker in
+        // the comment survives only when the store is left alone.
+        let original = "# kept\n[data]\na = \"1\"\nb = \"2\"\n";
+        std::fs::write(&path, original).unwrap();
+        store.set_many(&[("a", "1"), ("b", "2")]).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+    }
+
+    #[test]
+    fn a_colliding_temp_name_is_retried_and_not_removed() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(dir.path().to_str().unwrap()).unwrap();
+        // Take the exact name the next attempt would use. The write must skip
+        // it rather than fail or delete a file it did not create.
+        let colliding = dir.path().join(format!(
+            ".{STORE_FILE}.{}.{}.tmp",
+            std::process::id(),
+            next_temp_id()
+        ));
+        std::fs::write(&colliding, "not ours").unwrap();
+
+        store.set("k", "v").unwrap();
+
+        assert_eq!(std::fs::read_to_string(&colliding).unwrap(), "not ours");
+        assert_eq!(store.get_opt("k").as_deref(), Some("v"));
     }
 
     #[test]
