@@ -552,11 +552,10 @@ impl AppState {
         learned.account = scope.clone();
         learned.dash = restored.dash;
         learned.drm = restored.drm;
-        drop(learned);
         // Without an identity there is nothing to persist; the stored facts of
         // a logged-out session are left for the next login of the same account.
         if !scope.is_empty() {
-            self.persist_learned_playback();
+            self.store_learned(&learned);
         }
     }
 
@@ -585,59 +584,55 @@ impl AppState {
         if !is_learnable_channel_id(id) {
             return;
         }
-        {
-            let mut learned = self.drm_channels.write().unwrap();
-            let mut changed = learned.dash.insert(id.to_string());
-            if needs_license {
-                changed |= learned.drm.insert(id.to_string());
-            } else {
-                changed |= learned.drm.remove(id);
-            }
-            if !changed {
-                return;
-            }
-            tracing::info!(
-                channel = id,
-                needs_license,
-                provider = %self.active_product().store_name(),
-                "learned a channel's playback route"
-            );
+        let mut learned = self.drm_channels.write().unwrap();
+        let mut changed = learned.dash.insert(id.to_string());
+        if needs_license {
+            changed |= learned.drm.insert(id.to_string());
+        } else {
+            changed |= learned.drm.remove(id);
         }
-        self.persist_learned_playback();
+        if !changed {
+            return;
+        }
+        tracing::info!(
+            channel = id,
+            needs_license,
+            provider = %self.active_product().store_name(),
+            "learned a channel's playback route"
+        );
+        // Persist while the write lock is held: a concurrent observation cannot
+        // then write an older snapshot after this one, and both lists always
+        // come from a single snapshot.
+        self.store_learned(&learned);
     }
 
     /// Forgets a channel that has an HLS rendition again.
     fn forget_learned_playback(&self, id: &str) {
-        {
-            let mut learned = self.drm_channels.write().unwrap();
-            let removed_dash = learned.dash.remove(id);
-            let removed_drm = learned.drm.remove(id);
-            if !removed_dash && !removed_drm {
-                return;
-            }
-            tracing::info!(channel = id, "channel has HLS again");
+        let mut learned = self.drm_channels.write().unwrap();
+        let removed_dash = learned.dash.remove(id);
+        let removed_drm = learned.drm.remove(id);
+        if !removed_dash && !removed_drm {
+            return;
         }
-        self.persist_learned_playback();
+        tracing::info!(channel = id, "channel has HLS again");
+        self.store_learned(&learned);
     }
 
-    /// Commits the account marker and both observation sets in one store
-    /// mutation, so a restart can never read one account's facts under
-    /// another's marker.
-    fn persist_learned_playback(&self) {
-        let learned = self.drm_channels.read().unwrap();
+    /// Writes the account marker and both observation sets in one store
+    /// mutation. The caller holds the write lock that produced the snapshot, so
+    /// store order matches mutation order and a restart can never read one
+    /// account's facts under another's marker.
+    fn store_learned(&self, learned: &LearnedPlayback) {
         if learned.account.is_empty() || learned.product.is_empty() {
             return;
         }
-        let product = learned.product.clone();
-        let account = learned.account.clone();
+        let marker_key = learned_store_key(STORE_KEY_LEARNED_FOR, &learned.product);
+        let dash_key = learned_store_key(STORE_KEY_LEARNED_DASH, &learned.product);
+        let drm_key = learned_store_key(STORE_KEY_LEARNED_DRM, &learned.product);
         let dash_csv = learned_ids_csv(&learned.dash);
         let drm_csv = learned_ids_csv(&learned.drm);
-        drop(learned);
-        let marker_key = learned_store_key(STORE_KEY_LEARNED_FOR, &product);
-        let dash_key = learned_store_key(STORE_KEY_LEARNED_DASH, &product);
-        let drm_key = learned_store_key(STORE_KEY_LEARNED_DRM, &product);
         if let Err(e) = self.store.set_many(&[
-            (marker_key.as_str(), account.as_str()),
+            (marker_key.as_str(), learned.account.as_str()),
             (dash_key.as_str(), dash_csv.as_str()),
             (drm_key.as_str(), drm_csv.as_str()),
         ]) {
@@ -1117,6 +1112,34 @@ mod tests {
         restarted.init_learned_playback();
         assert!(restarted.is_dash_channel("9701"));
         assert!(restarted.is_drm_channel("9701"));
+    }
+
+    #[test]
+    fn concurrent_observations_all_survive_a_restart() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(Store::open(dir.path().to_str().unwrap()).unwrap());
+        std::mem::forget(dir);
+        let state = logged_in_state(store.clone(), "user-a");
+
+        std::thread::scope(|scope| {
+            for worker in 0..8 {
+                let state = state.clone();
+                scope.spawn(move || {
+                    for step in 0..3 {
+                        let id = format!("970{worker}{step}");
+                        state.observe_playback(&id, &live("", "https://cdn/a.mpd", ""));
+                    }
+                });
+            }
+        });
+
+        let reloaded = logged_in_state(store, "user-a");
+        for worker in 0..8 {
+            for step in 0..3 {
+                let id = format!("970{worker}{step}");
+                assert!(reloaded.is_dash_channel(&id), "{id} was lost on disk");
+            }
+        }
     }
 
     #[test]
