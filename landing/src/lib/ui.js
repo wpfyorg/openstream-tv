@@ -3,6 +3,10 @@
   system the page was designed with, so sections stay markup-first.
 */
 
+// Vite's base, so the page's own links still work when GitHub Pages serves it
+// from a repository subpath such as /openstream-tv/.
+export const homeUrl = import.meta.env.BASE_URL
+
 export function cn(...parts) {
   return parts.filter(Boolean).join(' ')
 }

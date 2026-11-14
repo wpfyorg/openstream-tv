@@ -106,6 +106,7 @@ export const sidebarSections: { label: string; items: { label: string; href: str
       { label: 'Docker Updates, Backups and Logs', href: '/docs/maintenance-docker' },
       { label: 'Maintain OpenStream TV on OpenWrt', href: '/docs/maintenance-openwrt' },
       { label: 'Uninstall OpenStream TV Safely', href: '/docs/maintenance-update-uninstall' },
+      { label: 'Discord Release Notifications', href: '/docs/discord-release-notifications' },
     ],
   },
 ];

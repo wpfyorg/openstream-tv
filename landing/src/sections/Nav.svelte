@@ -1,7 +1,7 @@
 <script>
   import Logo from '../components/Logo.svelte'
   import { nav } from '../content.js'
-  import { buttonClass } from '../lib/ui.js'
+  import { buttonClass, homeUrl } from '../lib/ui.js'
 
   let scrolled = $state(false)
 </script>
@@ -20,7 +20,7 @@
     Skip to content
   </a>
   <div class="mx-auto flex h-[72px] max-w-[1440px] items-center gap-6 px-4 sm:px-9">
-    <a href="/" aria-label="OpenStream TV home" class="inline-flex min-h-10 items-center rounded-sm">
+    <a href={homeUrl} aria-label="OpenStream TV home" class="inline-flex min-h-10 items-center rounded-sm">
       <Logo size={16} />
     </a>
     <nav aria-label="Sections" class="ml-6 hidden items-center gap-6 lg:flex">
