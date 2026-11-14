@@ -34,6 +34,7 @@ export const hero = {
   sub: 'OpenStream TV is a lightweight Rust server for live TV, catch-up and EPG, with a web player and an IPTV playlist for the clients you already own. Install it once and watch from anywhere on your network.',
   cta: { label: 'Install OpenStream TV', href: '#install' },
   secondary: { label: 'Read the documentation', href: docs },
+  discord: { label: 'Join the Discord', href: links.discord },
   mockTitle: 'OpenStream TV — Live',
 }
 

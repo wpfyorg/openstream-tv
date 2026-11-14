@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import { ArrowRight, BookOpen } from 'lucide-svelte'
 
+  import DiscordIcon from '../components/DiscordIcon.svelte'
   import { hero } from '../content.js'
   import { buttonClass } from '../lib/ui.js'
   import HeroMock from './HeroMock.svelte'
@@ -46,6 +47,15 @@
       <a href={hero.secondary.href} class={buttonClass('outline', 'lg', 'h-[45px] w-[248px] rounded-[2px] text-[17px]')}>
         <BookOpen size={18} aria-hidden="true" />
         {hero.secondary.label}
+      </a>
+      <a
+        href={hero.discord.href}
+        target="_blank"
+        rel="noreferrer"
+        class="inline-flex h-[45px] items-center gap-2 px-3 text-[17px] font-semibold text-muted transition-colors hover:text-fg"
+      >
+        <DiscordIcon size={20} class="text-[#5865F2]" />
+        {hero.discord.label}
       </a>
     </div>
   </div>
