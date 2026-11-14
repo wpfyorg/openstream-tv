@@ -53,6 +53,8 @@ OpenStream TV is one Rust binary that serves live TV, catch-up, a seven-day guid
 
 ---
 
-For support and development discussion, join the [OpenStream TV Discord](https://discord.gg/Xn3bUsBCZU).
+## 💬 Join the Discord
+
+Setup questions, provider quirks and development chat all happen in the [OpenStream TV Discord](https://discord.gg/Xn3bUsBCZU). Join in and ask; it is where the people who run the server day to day hang out.
 
 [Browse all articles](../SUMMARY.md) · [Documentation home](../README.md)
