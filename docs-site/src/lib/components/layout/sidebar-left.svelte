@@ -78,15 +78,22 @@
 				{:else}
 					<Sidebar.MenuButton size="lg">
 						{#snippet child({ props })}
-							<a href="{base}/docs/" {...props}>
-								<div
-									class="bg-sidebar-primary text-sidebar-primary-foreground flex aspect-square size-8 items-center justify-center rounded-lg"
-								>
-									<GalleryVerticalEndIcon class="size-4" />
-								</div>
-								<div class="flex flex-col gap-0.5 leading-none">
-									<span class="font-medium">{docsConfig.site.title}</span>
-								</div>
+							<a href="{base}/docs/" aria-label={docsConfig.site.title} {...props}>
+								<!-- The brand lockup, with the inverse artwork for dark mode. -->
+								<img
+									src="{base}/brand/openstream-lockup.svg"
+									alt=""
+									width="159"
+									height="24"
+									class="h-6 w-auto dark:hidden"
+								/>
+								<img
+									src="{base}/brand/openstream-lockup-inverse.svg"
+									alt=""
+									width="159"
+									height="24"
+									class="hidden h-6 w-auto dark:block"
+								/>
 							</a>
 						{/snippet}
 					</Sidebar.MenuButton>
