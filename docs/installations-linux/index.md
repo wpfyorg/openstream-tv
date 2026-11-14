@@ -51,7 +51,7 @@ In a terminal the installer walks through setup instead of only dropping a binar
 > Piping the script into `sh` is supported: every prompt reads `/dev/tty`, never the `curl` pipe. With no terminal (Docker, CI, cron, redirected output) the flow is skipped and the installer behaves as a plain install.
 
 > [!IMPORTANT]
-> Sign-in is retried up to three times. If it still fails, the binary stays installed, no service is installed or started, and the installer exits non-zero with the command to finish sign-in later. Passwords and one-time codes are never written to disk; the tunnel token is stored in the service configuration when a service is installed.
+> Sign-in is retried up to three times. If it still fails, the binary stays installed, no service is installed or started, and the installer exits non-zero with the command to finish sign-in later. One-time codes are never written to disk. The installer does not save a password itself, but the provider login it runs is kept in the data directory: JioTV stores tokens and Fastway stores its username and password so an expired token can be renewed. The tunnel token is stored in the service configuration when a service is installed.
 
 ---
 
