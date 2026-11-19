@@ -123,3 +123,119 @@ named by `licensePayloadKey`.
   account and OTP.
 - Channel logos come from the `imgs` map; unusual image shapes fall back to the
   generated placeholder.
+
+## 9. Live-service findings (2026-11-18)
+
+Probed end to end with a signed-in, DTH-linked account (`dth=true`,
+`isDth=true`, `mwTvPack=45003,25002`, `ut=broadband`), from both Airtel
+(AS45609) and Jio (AS55836) egress.
+
+| Call | Result |
+|---|---|
+| `POST api.airtel.tv/v2/user/profile/generateOtp`, colon-joined `x-atv-did` | HTTP 412 `ATV001` |
+| same, pipe-joined `x-atv-did` | HTTP 200 `{"success":true,"message":"SMS sent"}` |
+| `POST api.airtel.tv/v8/user/login` with that OTP | HTTP 200, `uid`/`token`/`authToken` issued |
+| `GET epg.airtel.tv/app/v3/content/channels` | HTTP 200, 1 channel for this account |
+| `GET livetv.airtel.tv/v1/livechannel` | HTTP 200, 783 linear channels (`LIVETV_LIVETVCHANNEL_*`, `lcn`, `title`, `images`, `free`, `streamUrlsAvailable`) |
+| `GET livetv.airtel.tv/v1/epg?channelId=…` | HTTP 200, programme titles |
+| `GET epg.airtel.tv/app/v2/content/channel/epg?channelId=…` | same guide, no auth needed |
+| `GET play.airtel.tv/v4/user/content/playback` | HTTP 404, empty body, every id/appId/header set, both egress networks |
+| `GET play.airtel.tv/v4/user/playback`, `/v5/user/playback` | HTTP 403 `ATV013` unauthenticated; `ATV400` with the account session |
+
+The OTT catalogue (`app/v3/content/channels`) is account-filtered and carries
+the OTT live set only; DTH channels live in the linear catalogue on
+`livetv.airtel.tv`, which returns the master list. `channelNo` arrives as a
+JSON string there and in the OTT list.
+
+Open: the current playback route. `v4/user/content/playback`, the 1.124.6
+contract, is retired on the live service (bare 404), and the surviving
+`user/playback` routes reject every parameter set the shipped APK builds
+(`ATV400`). Resolving it needs a capture of a current client's play request or
+a newer APK than 1.124.6.
+
+## 10. STB client and the IPTV playback contract (2026-11-20)
+
+Evidence from the Airtel Xstream STB firmware for `UIW4078ATL` (Amlogic,
+Android TV 14, build `14.46.046-251113`, signed A/B OTA). The image carries the
+operator agent `product/priv-app/ICX` (`com.airtel.tv`, OTA/provisioning,
+`wss://icxdc.airtelxstreamota.com:6500/api/v2/device`,
+`content://com.airtel.tv.provider/customer`) and the client itself in
+`system/priv-app/TvLauncher` — the only APK that references `play.airtel.tv`,
+`x-atv-stkn`, `generateOtp` and `LIVETVCHANNEL`.
+
+Environment block embedded in `TvLauncher` (production):
+
+| Key | Value |
+|---|---|
+| `playbackhost` | `https://play.airtel.tv` |
+| `iptvLinearPlayApiUrl` | `https://iptv-playback.airtel.tv/` |
+| `linearHeartBeatApiUrl` | `http://iptvhb.airtel.com/` |
+| `livetv` | `https://livetv.airtel.tv` |
+| `livesmshost` | `https://sms-xstream.airtel.tv` |
+| `masterIQApiUrl` / `playIQApiUrl` | `https://user.iqvideo.in` / `https://play.iqvideo.in/` |
+
+Routes built by `data/repo/PlayerRepository`:
+
+| Purpose | Request |
+|---|---|
+| VOD playback | `play.airtel.tv` + `v5/user/playback` |
+| Linear (IPTV) playback | `iptv-playback.airtel.tv` + `playback/v2/info` |
+| Linear heartbeat | `iptvhb.airtel.com` + `v1/network/validation` |
+| Box identity | `v1/box/detail?chipId=&bsn=` with `x-box-auth-key`, `x-box-auth-value` |
+| Device registration | `v2/user/profile/deviceData`, `v1/device/activate` |
+
+`PlayerMiddlewareApi.linearStreamingCallback` (GET) sends `x-org-id`,
+`x-app-id`, `x-os-id`, `x-version-id`, `x-atv-did`, `x-atv-chip-id`,
+`x-atv-bsn`, `x-atv-dth-subscriber-id`, `x-group-name` with query `contentId`,
+`sh`, `resolution`, `cdnId`.
+
+Probed with a valid phone session: `GET /playback/v2/info` → `401 ATV013
+"Request not authenticated"`, with and without empty box headers. The gate is
+box identity, not a server secret: `BoxAuthDetails` derives it entirely on the
+device.
+
+```
+scramble = matrix-shuffle(chipId + bsn + macId + time, rows = floor(sqrt(n)))
+key      = AES-urlsafe("chipId|bsn|macId|time", "u9mH9s5T7S8sdfkJ3lK1lA==")
+value    = "v=v1;s=" + base64url(HMAC-SHA256(scramble, key = str(time)))
+```
+
+The AES key is hardcoded in the APK, so both headers are reproducible off-box.
+`getIptvChipId()` reads `readPropFromVmx("uniqueIdentifier")`, `getIptvBsnId()`
+reads the matching vendor property, `macId` comes from the network interface.
+What cannot be invented is which box is linked to the account, and
+`v1/box/detail` resolves `chipId`/`bsn`/`macId` to the DTH `subscriberId` that
+`playback/v2/info` requires as `x-atv-dth-subscriber-id`. A second gate is
+likely: `linearHeartBeatApiUrl` is `iptvhb.airtel.com/v1/network/validation`,
+i.e. the box's network is validated too.
+
+Consequence: linear/DTH playback is reachable only with the identity of an STB
+that is actually linked to the account — readable on that box over ADB, not
+derivable from OTT credentials. Without the box, the OTT catalogue
+(`app/v3/content/channels`) remains the only playable surface, and the
+783-channel linear catalogue on `livetv.airtel.tv` stays display-only.
+
+
+
+
+## 11. Working linear playback (2026-11-20)
+
+The `v3` route plus three transport details make live channels play without
+the STB, but only for partners the play API itself serves.
+
+| Change | Evidence |
+|---|---|
+| `x-atv-did` must be pipe-joined | colon-joined → `412 ATV202`/`ATV001`; pipe-joined → `200` |
+| `livetv.airtel.tv` 404s any request advertising gzip | `accept-encoding: gzip` → `404` (121 B); `identity` → `200` (797,843 B) |
+| playback is `v3/user/content/playback` | `v4/user/content/playback` → bare `404` |
+| `x-atv-cp` must be the channel's partner | no cp → `ATV030 Content Partner is invalid`; `MWTV` → `200` |
+| Airtel's own live pack is STB-only | `LIVETV` → `ATV001` on the v3 route, `iptv: true` in the catalogue |
+
+`PLAYABLE_LINEAR_CPS` therefore starts as `["MWTV"]`: those five channels
+resolve to a direct HLS URL with `isDrm: false` and play through the normal
+proxy. Everything else in the 783-channel linear catalogue answers `ATV030`
+(partner not served by the play API) or `ATV001` (Airtel live pack), and the
+`iptv-playback.airtel.tv` host remains box-gated.
+
+End-to-end check: `/live/airtel_MWTV_LIVETVCHANNEL_10000000063500000.m3u8`
+returns the HLS master, the variant playlist and a 3.4 MB segment.

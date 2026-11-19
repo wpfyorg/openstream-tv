@@ -10,7 +10,6 @@
 //!
 //! Every middleware call carries `appId=MOBILITY` and an `x-atv-utkn` header:
 //! `uid + ":" + base64(HMAC-SHA1(uid's token, METHOD + path + "?" + query + body))`.
-//! Logged-in calls also append the account's content properties (`cp`, `cl`,
 //! `ln`, ...) as query parameters on the catalogue, EPG, content and package
 //! hosts. Anonymous calls are signed with the app's own fallback identity and
 //! can read `appConfig` but get an empty channel list: the catalogue, EPG and
@@ -26,6 +25,12 @@ use std::sync::RwLock;
 use std::time::Duration;
 
 pub const ID_PREFIX: &str = "airtel_";
+
+/// Linear-catalogue partners whose channels `v3/user/content/playback` serves
+/// to an OTT session. `LIVETV` (Airtel's own live pack) is not one of them: it
+/// is `iptv: true` and only plays through `iptv-playback.airtel.tv`, which
+/// requires the STB's chip id, box serial and box-auth headers.
+pub const PLAYABLE_LINEAR_CPS: &[&str] = &["MWTV"];
 pub const PACKAGE: &str = "tv.accedo.airtel.wynk";
 pub const VERSION_NAME: &str = "1.124.6";
 pub const VERSION_CODE: u32 = 13_164;
@@ -44,6 +49,8 @@ pub const PLAYER_USER_AGENT: &str =
 pub(crate) const BASE_API: &str = "https://api.airtel.tv";
 pub(crate) const BASE_EPG: &str = "https://epg.airtel.tv";
 pub(crate) const BASE_PLAY: &str = "https://play.airtel.tv";
+/// `middleWareLiveTVEndPoint`: linear/DTH catalogue, guide and the IPTV play host.
+pub(crate) const BASE_LIVE: &str = "https://livetv.airtel.tv";
 
 /// `NetworkConstants.UserConstants.FALLBACK_UID`: the anonymous identity the
 /// interceptor signs with before login.
@@ -102,11 +109,14 @@ impl Device {
         Ok(d)
     }
 
-    /// `RetrofitClient.getDeviceIdentifierHeader`:
-    /// `deviceID:deviceType:platform:osVersionInt:appVersionCode:appVersionName:deviceName:deviceModel`.
+    /// `RetrofitClient.getDeviceIdentifierHeader`, joined with
+    /// `ConstantUtil.EXPERIMENTS_DELIMITTER` (`"|"`, not `":"`). The delimiter
+    /// is load-bearing: the middleware answers `412 ATV001` to
+    /// `v2/user/profile/generateOtp` for a colon-joined header and `200` for the
+    /// pipe-joined one, and the play API rejects a colon-joined `x-atv-did`.
     pub fn identifier(&self) -> String {
         format!(
-            "{}:{}:Android:34:{}:{}:{}:{}",
+            "{}|{}|Android|34|{}|{}|{}|{}",
             self.udid,
             device_type_for(&self.model),
             VERSION_CODE,
@@ -177,26 +187,6 @@ impl Credentials {
         Ok(())
     }
 
-    /// Content properties plus the derived `cl`/`ln` when the account did not
-    /// spell them out.
-    fn properties(&self) -> Vec<(String, String)> {
-        let mut out: Vec<(String, String)> = self
-            .content_properties
-            .iter()
-            .filter(|(k, v)| !k.is_empty() && !v.is_empty())
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect();
-        out.sort_by(|a, b| a.0.cmp(&b.0));
-        let has = |out: &Vec<(String, String)>, key: &str| out.iter().any(|(k, _)| k == key);
-        if !self.circle.is_empty() && !has(&out, "cl") {
-            out.push(("cl".to_string(), self.circle.clone()));
-        }
-        if !has(&out, "ln") {
-            out.push(("ln".to_string(), self.language_or_default()));
-        }
-        out
-    }
-
     pub fn language_or_default(&self) -> String {
         if self.language.is_empty() {
             "hi".to_string()
@@ -240,13 +230,35 @@ pub struct AirtelChannel {
     pub id: String,
     #[serde(default)]
     pub title: String,
-    #[serde(default, rename = "channelNo")]
+    #[serde(default, rename = "channelNo", deserialize_with = "de_channel_no")]
     pub channel_no: Option<i64>,
     #[serde(default)]
     pub hd: bool,
-    /// `ImagesApiModel`: uppercase keys such as `LOGO`, `LOGO_HD`, `SQUARE`.
+    /// Content partner the play API expects in `x-atv-cp` (`LIVETV`, `MWTV`).
     #[serde(default)]
+    pub cp: String,
+    /// `ImagesApiModel`: uppercase keys such as `LOGO`, `LOGO_HD`, `SQUARE`.
+    /// The linear catalogue spells the field `images`.
+    #[serde(default, alias = "images")]
     pub imgs: HashMap<String, String>,
+}
+
+fn de_channel_no<'de, D>(deserializer: D) -> Result<Option<i64>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Raw {
+        Number(i64),
+        Text(String),
+    }
+
+    Ok(match Option::<Raw>::deserialize(deserializer)? {
+        None => None,
+        Some(Raw::Number(number)) => Some(number),
+        Some(Raw::Text(text)) => text.trim().parse::<i64>().ok(),
+    })
 }
 
 impl AirtelChannel {
@@ -378,43 +390,15 @@ pub fn license_response_body(license: &License, bytes: Vec<u8>) -> Vec<u8> {
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
-struct PlaybackResponse {
+struct StreamingResponse {
+    #[serde(default, rename = "eligibleForPlayback")]
+    eligible_for_playback: Option<bool>,
+    #[serde(default, rename = "playId")]
+    play_id: String,
+    #[serde(default, rename = "isDrm")]
+    is_drm: bool,
     #[serde(default)]
-    errorcode: String,
-    #[serde(default)]
-    errortitle: String,
-    #[serde(default)]
-    playback: Option<PlaybackBody>,
-    #[serde(default)]
-    drm: Option<DrmBody>,
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-struct PlaybackBody {
-    #[serde(default, rename = "playUrl")]
-    play_url: String,
-    #[serde(default)]
-    headers: HashMap<String, String>,
-    #[serde(default, rename = "timeShift")]
-    time_shift: Option<TimeShift>,
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-struct TimeShift {
-    #[serde(default)]
-    url: String,
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-struct DrmBody {
-    #[serde(default, rename = "licenceUrl", alias = "licenseUrl")]
-    licence_url: String,
-    #[serde(default)]
-    headers: HashMap<String, String>,
-    #[serde(default)]
-    body: HashMap<String, serde_json::Value>,
-    #[serde(default, rename = "licensePayloadKey", alias = "licencePayloadKey")]
-    license_payload_key: String,
+    message: String,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -515,7 +499,6 @@ struct RequestSpec<'a> {
     path: &'a str,
     query: Vec<(String, String)>,
     body: Option<String>,
-    properties: bool,
     headers: Vec<(String, String)>,
 }
 
@@ -527,7 +510,6 @@ impl<'a> RequestSpec<'a> {
             path,
             query: Vec::new(),
             body: None,
-            properties: false,
             headers: Vec::new(),
         }
     }
@@ -539,18 +521,12 @@ impl<'a> RequestSpec<'a> {
             path,
             query: Vec::new(),
             body: Some(body),
-            properties: false,
             headers: Vec::new(),
         }
     }
 
     fn query(mut self, key: &str, value: impl Into<String>) -> RequestSpec<'a> {
         self.query.push((key.to_string(), value.into()));
-        self
-    }
-
-    fn with_properties(mut self) -> RequestSpec<'a> {
-        self.properties = true;
         self
     }
 
@@ -566,6 +542,8 @@ pub struct Client {
     pub api_base: String,
     pub epg_base: String,
     pub play_base: String,
+    /// `middleWareLiveTVEndPoint`: the linear/DTH catalogue and its guide.
+    pub live_base: String,
     pub creds: RwLock<Option<Credentials>>,
 }
 
@@ -577,6 +555,7 @@ impl Client {
             api_base: BASE_API.to_string(),
             epg_base: BASE_EPG.to_string(),
             play_base: BASE_PLAY.to_string(),
+            live_base: BASE_LIVE.to_string(),
             creds: RwLock::new(None),
         }
     }
@@ -596,6 +575,7 @@ impl Client {
         self.api_base = api.to_string();
         self.epg_base = epg.to_string();
         self.play_base = play.to_string();
+        self.live_base = api.to_string();
     }
 
     pub fn credentials(&self) -> Option<Credentials> {
@@ -640,15 +620,6 @@ impl Client {
         let mut pairs: Vec<(String, String)> = Vec::with_capacity(spec.query.len() + 8);
         pairs.push(("appId".to_string(), APP_ID.to_string()));
         pairs.extend(spec.query);
-        if spec.properties {
-            if let Some(creds) = creds {
-                for (key, value) in creds.properties() {
-                    if key != "appId" {
-                        pairs.push((key, value));
-                    }
-                }
-            }
-        }
         let encoded: Vec<String> = pairs
             .iter()
             .map(|(k, v)| format!("{}={}", urlencoding::encode(k), urlencoding::encode(v)))
@@ -664,7 +635,9 @@ impl Client {
         let mut req = self
             .http
             .request(spec.method, &url)
+            .version(reqwest::Version::HTTP_11)
             .header("Content-Type", "application/json")
+            .header(reqwest::header::ACCEPT_ENCODING, "identity")
             .header("x-atv-utkn", utkn)
             .header("x-atv-did", self.device.identifier())
             .header("x-atv-traceid", trace_id())
@@ -706,29 +679,65 @@ impl Client {
         Ok((status, bytes))
     }
 
-    fn channels_request(&self) -> reqwest::RequestBuilder {
-        self.request(RequestSpec::get(&self.epg_base, "/app/v3/content/channels").with_properties())
+    /// `GET livetv.airtel.tv/v1/livechannel`: the linear catalogue (783
+    /// channels), which is where DTH channels live. The OTT catalogue on the
+    /// EPG host carries the OTT live set only.
+    /// The linear host answers the public catalogue without account signing;
+    /// a signed request for the same URL comes back as `404 Channels not found`
+    /// because that edge expects the box identity for signed traffic.
+    fn linear_channels_request(&self) -> reqwest::RequestBuilder {
+        self.http
+            .get(format!("{}/v1/livechannel", self.live_base))
+            .query(&[
+                ("appId", APP_ID.to_string()),
+                ("bn", VERSION_CODE.to_string()),
+                ("os", "ANDROID".to_string()),
+                ("dt", "phone".to_string()),
+                ("page", "0".to_string()),
+                ("size", "5000".to_string()),
+            ])
+            .version(reqwest::Version::HTTP_11)
+            .header(reqwest::header::ACCEPT_ENCODING, "identity")
+            .header(reqwest::header::USER_AGENT, USER_AGENT)
+            .header("x-atv-did", self.device.identifier())
     }
 
-    fn epg_request(&self, start_millis: i64, end_millis: i64) -> reqwest::RequestBuilder {
+    /// `app/v2/content/channel/epg`: one channel's guide. The account-wide
+    /// `app/v3/content/epg` covers the OTT catalogue only, so linear channels
+    /// need this per-channel call.
+    fn channel_epg_request(
+        &self,
+        content_id: &str,
+        start_millis: i64,
+        end_millis: i64,
+    ) -> reqwest::RequestBuilder {
         self.request(
-            RequestSpec::get(&self.epg_base, "/app/v3/content/epg")
+            RequestSpec::get(&self.epg_base, "/app/v2/content/channel/epg")
+                .query("channelId", content_id)
                 .query("startTime", start_millis.to_string())
-                .query("endTime", end_millis.to_string())
-                .with_properties(),
+                .query("endTime", end_millis.to_string()),
         )
     }
 
-    /// `v4/user/content/playback` needs the account's `cp` and `stkn`
-    /// headers; both are re-read on every call so a token refresh is picked up.
-    fn playback_request(&self, content_id: &str) -> reqwest::RequestBuilder {
+    /// `v3/user/content/playback` on the play host, with the account headers the
+    /// app's interceptor adds (`x-atv-cp` from the channel's partner,
+    /// `x-atv-customer`/`circle`/`segment` from the account's content
+    /// properties). `v4/user/content/playback`, which this provider used
+    /// before, is retired on the live service and answers a bare 404.
+    fn playback_request(&self, content_id: &str, cp: &str) -> reqwest::RequestBuilder {
         let creds = self.credentials().unwrap_or_default();
-        let mut spec = RequestSpec::get(&self.play_base, "/v4/user/content/playback")
-            .query("contentId", content_id)
-            .query("psl", "")
-            .query("usl", creds.language_or_default());
-        if !creds.cp().is_empty() {
-            spec = spec.header("x-atv-cp", creds.cp());
+        let mut spec = RequestSpec::get(&self.play_base, "/v3/user/content/playback")
+            .query("dt", "phone")
+            .query("os", "ANDROID")
+            .query("bn", VERSION_CODE.to_string())
+            .query("contentId", content_id);
+        let cp = if cp.is_empty() {
+            creds.cp()
+        } else {
+            cp.to_string()
+        };
+        if !cp.is_empty() {
+            spec = spec.header("x-atv-cp", cp);
         }
         if !creds.auth_token.is_empty() {
             spec = spec.header("x-atv-stkn", creds.auth_token);
@@ -896,16 +905,16 @@ impl Client {
         self.refresh(store).await.is_ok()
     }
 
-    /// `app/v3/content/channels` on the EPG host. Returns the account's
-    /// entitled channel list.
+    /// The playable slice of the linear catalogue. A channel plays over
+    /// `v3/user/content/playback` only when its partner is one the play API
+    /// serves to an OTT session; Airtel's own live pack needs the STB host.
     pub async fn channels(
         &self,
-        store: &crate::store::Store,
+        _store: &crate::store::Store,
     ) -> anyhow::Result<Vec<AirtelChannel>> {
-        let (mut status, mut bytes) = self.send(self.channels_request(), "channels").await?;
-        if self.refresh_after_unauthorized(status, store).await {
-            (status, bytes) = self.send(self.channels_request(), "channels").await?;
-        }
+        let (status, bytes) = self
+            .send(self.linear_channels_request(), "livechannel")
+            .await?;
         let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap_or_default();
         if !(200..300).contains(&status) {
             anyhow::bail!(
@@ -914,68 +923,77 @@ impl Client {
             );
         }
         #[derive(Deserialize, Default)]
-        struct ChannelList {
+        struct Catalogue {
             #[serde(default)]
-            channels: Vec<AirtelChannel>,
+            data: Vec<AirtelChannel>,
         }
-        let parsed: ChannelList = serde_json::from_value(value.clone()).unwrap_or_default();
-        if parsed.channels.is_empty()
-            && value.get("success").and_then(|v| v.as_bool()) == Some(false)
-        {
-            anyhow::bail!(
-                "airtel: channel list failed: {}",
-                upstream_error(status, &value)
-            );
-        }
+        let parsed: Catalogue = serde_json::from_value(value).unwrap_or_default();
         Ok(parsed
-            .channels
+            .data
             .into_iter()
-            .filter(|c| !c.id.is_empty() && !c.title.is_empty())
+            .filter(|channel| {
+                !channel.id.is_empty()
+                    && !channel.title.is_empty()
+                    && PLAYABLE_LINEAR_CPS.contains(&channel.cp.as_str())
+            })
             .collect())
     }
 
-    /// `app/v3/content/epg` for the whole entitled catalogue in one call.
-    pub async fn epg(
+    /// One linear channel's guide, for the catalogue built from
+    /// `livetv.airtel.tv`.
+    pub async fn channel_epg(
         &self,
         store: &crate::store::Store,
+        content_id: &str,
         start_millis: i64,
         end_millis: i64,
-    ) -> anyhow::Result<HashMap<String, Vec<AirtelProgram>>> {
+    ) -> anyhow::Result<Vec<AirtelProgram>> {
         let (mut status, mut bytes) = self
-            .send(self.epg_request(start_millis, end_millis), "epg")
+            .send(
+                self.channel_epg_request(content_id, start_millis, end_millis),
+                "epg",
+            )
             .await?;
         if self.refresh_after_unauthorized(status, store).await {
             (status, bytes) = self
-                .send(self.epg_request(start_millis, end_millis), "epg")
+                .send(
+                    self.channel_epg_request(content_id, start_millis, end_millis),
+                    "epg",
+                )
                 .await?;
         }
         let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap_or_default();
-        #[derive(Deserialize, Default)]
-        struct EpgResponse {
-            #[serde(default, rename = "programGuide")]
-            program_guide: HashMap<String, Vec<AirtelProgram>>,
-        }
         if !(200..300).contains(&status) {
-            anyhow::bail!("airtel: EPG failed: {}", upstream_error(status, &value));
+            anyhow::bail!(
+                "airtel: channel guide failed: {}",
+                upstream_error(status, &value)
+            );
         }
-        let parsed: EpgResponse = serde_json::from_value(value).unwrap_or_default();
-        Ok(parsed.program_guide)
+        let mut guide: HashMap<String, Vec<AirtelProgram>> = serde_json::from_value(
+            value
+                .get("programGuide")
+                .cloned()
+                .unwrap_or(serde_json::Value::Null),
+        )
+        .unwrap_or_default();
+        Ok(guide.remove(content_id).unwrap_or_default())
     }
 
-    /// `v4/user/content/playback` on the play host: one call resolves the
-    /// media URL, its CDN headers and, for protected channels, the Widevine
-    /// license descriptor the player needs.
+    /// `v3/user/content/playback` is the route the current clients use; it
+    /// answers a flat payload (`eligibleForPlayback`, `playId`, `isDrm`)
+    /// instead of the old `playback`/`drm` blocks.
     pub async fn playback(
         &self,
         store: &crate::store::Store,
         content_id: &str,
+        cp: &str,
     ) -> anyhow::Result<Playback> {
         let (mut status, mut bytes) = self
-            .send(self.playback_request(content_id), "playback")
+            .send(self.playback_request(content_id, cp), "playback")
             .await?;
         if self.refresh_after_unauthorized(status, store).await {
             (status, bytes) = self
-                .send(self.playback_request(content_id), "playback")
+                .send(self.playback_request(content_id, cp), "playback")
                 .await?;
         }
         let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap_or_default();
@@ -985,47 +1003,29 @@ impl Client {
                 upstream_error(status, &value)
             );
         }
-        let parsed: PlaybackResponse = serde_json::from_value(value.clone()).unwrap_or_default();
-        let body = parsed.playback.ok_or_else(|| {
-            let detail = if parsed.errortitle.is_empty() {
-                "playback response has no playback block".to_string()
-            } else if parsed.errorcode.is_empty() {
-                parsed.errortitle.clone()
+        let parsed: StreamingResponse = serde_json::from_value(value).unwrap_or_default();
+        if parsed.eligible_for_playback == Some(false) {
+            let why = if parsed.message.is_empty() {
+                "this account is not eligible for the channel".to_string()
             } else {
-                format!("{} {}", parsed.errorcode, parsed.errortitle)
+                parsed.message.clone()
             };
-            anyhow::anyhow!("airtel: {detail}")
-        })?;
-        let mut url = body.play_url;
-        if url.is_empty() {
-            if let Some(shift) = body.time_shift {
-                url = shift.url;
-            }
+            anyhow::bail!("airtel: {why}");
         }
-        if url.is_empty() {
+        if !parsed.play_id.starts_with("http") {
             anyhow::bail!("airtel: playback response has no play URL");
         }
-        let mut headers: Vec<(String, String)> = body.headers.into_iter().collect();
-        headers.sort();
-        let license = parsed.drm.and_then(|drm| {
-            if drm.licence_url.is_empty() {
-                return None;
-            }
-            let mut drm_headers: Vec<(String, String)> = drm.headers.into_iter().collect();
-            drm_headers.sort();
-            Some(License {
-                url: drm.licence_url,
-                headers: drm_headers,
-                body: drm.body.into_iter().collect(),
-                payload_key: drm.license_payload_key,
-            })
-        });
-        let is_dash = looks_like_dash(&url);
+        if parsed.is_drm {
+            anyhow::bail!(
+                "airtel: this channel is DRM-protected and the license is only issued to the STB client"
+            );
+        }
+        let is_dash = looks_like_dash(&parsed.play_id);
         Ok(Playback {
-            url,
+            url: parsed.play_id,
             is_dash,
-            headers,
-            license,
+            headers: Vec::new(),
+            license: None,
         })
     }
 }
@@ -1205,7 +1205,9 @@ mod sha1 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wiremock::matchers::{body_string_contains, header_exists, method, path, query_param};
+    use wiremock::matchers::{
+        body_string_contains, header, header_exists, method, path, query_param,
+    };
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     fn client(server: &MockServer) -> Client {
@@ -1285,6 +1287,25 @@ mod tests {
     }
 
     #[test]
+    fn channel_numbers_parse_as_strings_and_numbers() {
+        let text: AirtelChannel = serde_json::from_str(
+            r#"{"id":"MWTV_LIVETVCHANNEL_1","title":"Republic","channelNo":"101","images":{"LOGO":"https://cdn/1.png"}}"#,
+        )
+        .expect("string channelNo");
+        assert_eq!(text.channel_no, Some(101));
+        assert_eq!(text.logo(), "https://cdn/1.png");
+
+        let number: AirtelChannel =
+            serde_json::from_str(r#"{"id":"1","title":"News","channelNo":154}"#)
+                .expect("numeric channelNo");
+        assert_eq!(number.channel_no, Some(154));
+
+        let missing: AirtelChannel =
+            serde_json::from_str(r#"{"id":"1","title":"News"}"#).expect("absent channelNo");
+        assert_eq!(missing.channel_no, None);
+    }
+
+    #[test]
     fn channel_ids_round_trip() {
         assert!(is_airtel_channel("airtel_1001"));
         assert!(!is_airtel_channel("vzy_1001"));
@@ -1312,7 +1333,7 @@ mod tests {
         };
         assert_eq!(
             device.identifier(),
-            "0123456789abcdef:Phone:Android:34:13164:1.124.6:openstream:Airtel Xstream"
+            "0123456789abcdef|Phone|Android|34|13164|1.124.6|openstream|Airtel Xstream"
         );
         assert_eq!(device.login_device_type(), "Airtel Xstream");
     }
@@ -1363,16 +1384,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn channel_list_requires_a_logged_in_account() {
+    async fn channel_list_keeps_only_playable_partners() {
         let server = MockServer::start().await;
         Mock::given(method("GET"))
-            .and(path("/app/v3/content/channels"))
+            .and(path("/v1/livechannel"))
             .and(query_param("appId", "MOBILITY"))
-            .and(query_param("cp", "airtel"))
-            .and(header_exists("x-atv-utkn"))
             .and(header_exists("x-atv-did"))
             .respond_with(ResponseTemplate::new(200).set_body_raw(
-                r#"{"channels":[{"id":"1001","title":"Star Plus","lang":"hi","hd":true,"imgs":{"LOGO":"https://cdn/1001.png"}}]}"#,
+                r#"{"success":true,"data":[
+                    {"id":"MWTV_LIVETVCHANNEL_1","title":"Republic Tv","cp":"MWTV","images":{"LOGO":"https://cdn/1.png"}},
+                    {"id":"LIVETV_LIVETVCHANNEL_STAR_PLUS","title":"Star Plus","cp":"LIVETV"}
+                ]}"#,
                 "application/json",
             ))
             .mount(&server)
@@ -1381,25 +1403,26 @@ mod tests {
         *client.creds.write().unwrap() = Some(Credentials {
             uid: "uid".into(),
             token: "token".into(),
-            content_properties: HashMap::from([("cp".to_string(), "airtel".to_string())]),
             ..Default::default()
         });
         let dir = tempfile::tempdir().unwrap();
         let store = crate::store::Store::open(dir.path().to_str().unwrap()).unwrap();
         let channels = client.channels(&store).await.unwrap();
-        assert_eq!(channels.len(), 1);
-        assert_eq!(channels[0].title, "Star Plus");
-        assert_eq!(channels[0].logo(), "https://cdn/1001.png");
+        assert_eq!(channels.len(), 1, "LIVETV is a STB-only partner");
+        assert_eq!(channels[0].title, "Republic Tv");
+        assert_eq!(channels[0].logo(), "https://cdn/1.png");
+        assert_eq!(channels[0].cp, "MWTV");
     }
 
     #[tokio::test]
-    async fn playback_maps_playback_and_drm_blocks() {
+    async fn playback_uses_the_v3_route_and_the_channel_partner() {
         let server = MockServer::start().await;
         Mock::given(method("GET"))
-            .and(path("/v4/user/content/playback"))
+            .and(path("/v3/user/content/playback"))
             .and(query_param("contentId", "1001"))
+            .and(header("x-atv-cp", "MWTV"))
             .respond_with(ResponseTemplate::new(200).set_body_raw(
-                r#"{"success":true,"playback":{"playUrl":"https://cdn/1001/manifest.mpd","headers":{"Authorization":"Bearer x"},"playbackToken":"t"},"drm":{"licenceUrl":"https://play.airtel.tv/widevine","headers":{"x-atv-cp":"airtel"},"body":{"license":"EXO_PAYLOAD"},"licensePayloadKey":"license"}}"#,
+                r#"{"eligibleForPlayback":true,"playId":"https://cdn/1001/hls.m3u8","playbackType":"URL","isDrm":false,"message":"success","cp":"MWTV"}"#,
                 "application/json",
             ))
             .mount(&server)
@@ -1409,24 +1432,38 @@ mod tests {
             uid: "uid".into(),
             token: "token".into(),
             language: "hi".into(),
+            content_properties: HashMap::from([("cp".to_string(), "AIRTEL".to_string())]),
             ..Default::default()
         });
         let dir = tempfile::tempdir().unwrap();
         let store = crate::store::Store::open(dir.path().to_str().unwrap()).unwrap();
-        let playback = client.playback(&store, "1001").await.unwrap();
-        assert_eq!(playback.url, "https://cdn/1001/manifest.mpd");
-        assert!(playback.is_dash);
-        assert_eq!(
-            playback.headers,
-            vec![("Authorization".to_string(), "Bearer x".to_string())]
-        );
-        let license = playback.license.unwrap();
-        assert_eq!(license.url, "https://play.airtel.tv/widevine");
-        assert_eq!(license.payload_key, "license");
-        assert_eq!(
-            license.headers,
-            vec![("x-atv-cp".to_string(), "airtel".to_string())]
-        );
+        let playback = client.playback(&store, "1001", "MWTV").await.unwrap();
+        assert_eq!(playback.url, "https://cdn/1001/hls.m3u8");
+        assert!(!playback.is_dash);
+        assert!(playback.license.is_none());
+    }
+
+    #[tokio::test]
+    async fn playback_refuses_a_drm_channel_without_a_license() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/v3/user/content/playback"))
+            .respond_with(ResponseTemplate::new(200).set_body_raw(
+                r#"{"eligibleForPlayback":true,"playId":"https://cdn/1/manifest.mpd","isDrm":true,"message":"success"}"#,
+                "application/json",
+            ))
+            .mount(&server)
+            .await;
+        let client = client(&server);
+        *client.creds.write().unwrap() = Some(Credentials {
+            uid: "uid".into(),
+            token: "token".into(),
+            ..Default::default()
+        });
+        let dir = tempfile::tempdir().unwrap();
+        let store = crate::store::Store::open(dir.path().to_str().unwrap()).unwrap();
+        let error = client.playback(&store, "1", "MWTV").await.unwrap_err();
+        assert!(error.to_string().contains("DRM"));
     }
 
     #[tokio::test]
@@ -1590,13 +1627,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn epg_parses_the_program_guide_map() {
+    async fn channel_epg_parses_the_program_guide_map() {
         let server = MockServer::start().await;
         Mock::given(method("GET"))
-            .and(path("/app/v3/content/epg"))
-            .and(query_param("startTime", "1700000000000"))
+            .and(path("/app/v2/content/channel/epg"))
+            .and(query_param("channelId", "1001"))
             .respond_with(ResponseTemplate::new(200).set_body_raw(
-                r#"{"programGuide":{"1001":[{"channelId":"1001","contentId":"p1","title":"Show","subtitle":"Episode 1","startTime":1700000000000,"endTime":1700003600000}]}}"#,
+                r#"{"programGuide":{"1001":[{"channelId":"1001","title":"Show","subtitle":"Episode 1","startTime":1700000000000,"endTime":1700003600000}]}}"#,
                 "application/json",
             ))
             .mount(&server)
@@ -1609,11 +1646,10 @@ mod tests {
         });
         let dir = tempfile::tempdir().unwrap();
         let store = crate::store::Store::open(dir.path().to_str().unwrap()).unwrap();
-        let guide = client
-            .epg(&store, 1_700_000_000_000, 1_700_003_600_000)
+        let programs = client
+            .channel_epg(&store, "1001", 1_700_000_000_000, 1_700_003_600_000)
             .await
             .unwrap();
-        let programs = guide.get("1001").unwrap();
         assert_eq!(programs.len(), 1);
         assert_eq!(programs[0].title, "Show");
         assert_eq!(programs[0].start_millis(), 1_700_000_000_000);
