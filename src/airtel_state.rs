@@ -188,7 +188,15 @@ impl AirtelState {
                 })
                 .is_some()
             }
-            _ => {
+            Err(error) => {
+                tracing::warn!("airtel: channel catalogue failed: {error}");
+                let _ = self.commit_if_current(generation, || {
+                    *self.catalogue_failed_at.write().unwrap() = Some(Instant::now());
+                });
+                false
+            }
+            Ok(_) => {
+                tracing::warn!("airtel: the account's channel catalogue is empty");
                 let _ = self.commit_if_current(generation, || {
                     *self.catalogue_failed_at.write().unwrap() = Some(Instant::now());
                 });
@@ -255,6 +263,17 @@ impl AirtelState {
         Ok(out)
     }
 
+    /// The partner the play API expects in `x-atv-cp` for this content id.
+    fn channel_cp(&self, content_id: &str) -> String {
+        self.catalogue
+            .read()
+            .unwrap()
+            .iter()
+            .find(|channel| channel.id == content_id)
+            .map(|channel| channel.cp.clone())
+            .unwrap_or_default()
+    }
+
     /// The cached playback descriptor, resolving it on first use.
     pub async fn playback_entry(
         &self,
@@ -280,7 +299,8 @@ impl AirtelState {
             }
         }
         let generation = self.generation();
-        let playback = client.playback(store, content_id).await?;
+        let cp = self.channel_cp(content_id);
+        let playback = client.playback(store, content_id, &cp).await?;
         let now = Instant::now();
         let cached = playback.clone();
         self.commit_if_current(generation, || {
@@ -328,8 +348,10 @@ impl AirtelState {
             };
             let client = client.clone();
             let store = store.clone();
+            let cp = self.channel_cp(&content_id);
             tasks.spawn(async move {
-                let playback = client.playback(&store, &content_id).await;
+                let cp = cp.clone();
+                let playback = client.playback(&store, &content_id, &cp).await;
                 (content_id, playback)
             });
         }
@@ -349,8 +371,9 @@ impl AirtelState {
             if let Some(content_id) = pending.next() {
                 let client = client.clone();
                 let store = store.clone();
+                let cp = self.channel_cp(&content_id);
                 tasks.spawn(async move {
-                    let playback = client.playback(&store, &content_id).await;
+                    let playback = client.playback(&store, &content_id, &cp).await;
                     (content_id, playback)
                 });
             }
@@ -448,14 +471,22 @@ impl AirtelState {
             .as_millis() as i64;
         let start = now.saturating_sub(EPG_PAST.as_millis() as i64);
         let end = now.saturating_add(EPG_WINDOW.as_millis() as i64);
-        let guide = client.epg(store, start, end).await?;
         let mut sources = Vec::new();
         let mut programmes = Vec::new();
+        let mut fetched = 0usize;
         for channel in &channels {
             let id = channel_id(&channel.id);
             sources.push((id.clone(), channel.title.clone()));
-            if let Some(programs) = guide.get(&channel.id) {
-                for program in programs {
+            let programs = match client.channel_epg(store, &channel.id, start, end).await {
+                Ok(programs) => programs,
+                Err(error) => {
+                    tracing::warn!("airtel: guide unavailable for {}: {error}", channel.id);
+                    continue;
+                }
+            };
+            fetched += 1;
+            {
+                for program in &programs {
                     programmes.push(crate::epg::XmlProgramme {
                         channel: id.clone(),
                         start: crate::epg::format_xmltv_time(program.start_millis()),
@@ -467,6 +498,9 @@ impl AirtelState {
                     });
                 }
             }
+        }
+        if fetched == 0 && !channels.is_empty() {
+            anyhow::bail!("airtel: no channel guide could be loaded");
         }
         Ok((sources, programmes))
     }
@@ -492,8 +526,7 @@ impl AirtelState {
         let start = (local - local.rem_euclid(day) - crate::epg::IST_OFFSET_MS)
             .saturating_add(offset_days.max(0).saturating_mul(day));
         let end = start.saturating_add(day);
-        let guide = client.epg(store, start, end).await?;
-        Ok(guide.get(content_id).cloned().unwrap_or_default())
+        client.channel_epg(store, content_id, start, end).await
     }
 
     pub fn account_fingerprint(&self) -> String {
@@ -542,18 +575,18 @@ mod tests {
     async fn live_fills_the_hls_half_for_a_clear_channel() {
         let server = MockServer::start().await;
         Mock::given(method("GET"))
-            .and(path("/app/v3/content/channels"))
+            .and(path("/v1/livechannel"))
             .respond_with(ResponseTemplate::new(200).set_body_raw(
-                r#"{"channels":[{"id":"1001","title":"Star Plus","hd":true}]}"#,
+                r#"{"success":true,"data":[{"id":"1001","title":"Star Plus","cp":"MWTV","images":{}}]}"#,
                 "application/json",
             ))
             .mount(&server)
             .await;
         Mock::given(method("GET"))
-            .and(path("/v4/user/content/playback"))
+            .and(path("/v3/user/content/playback"))
             .and(query_param("contentId", "1001"))
             .respond_with(ResponseTemplate::new(200).set_body_raw(
-                r#"{"success":true,"playback":{"playUrl":"https://cdn/1001/index.m3u8"}}"#,
+                r#"{"eligibleForPlayback":true,"playId":"https://cdn/1001/index.m3u8","isDrm":false,"message":"success"}"#,
                 "application/json",
             ))
             .mount(&server)
@@ -571,20 +604,20 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn live_fills_the_dash_half_and_license_for_a_protected_channel() {
+    async fn live_refuses_a_drm_channel_the_app_would_license_on_device() {
         let server = MockServer::start().await;
         Mock::given(method("GET"))
-            .and(path("/app/v3/content/channels"))
+            .and(path("/v1/livechannel"))
             .respond_with(ResponseTemplate::new(200).set_body_raw(
-                r#"{"channels":[{"id":"2002","title":"Star Movies","hd":true}]}"#,
+                r#"{"success":true,"data":[{"id":"2002","title":"Star Movies","cp":"MWTV","images":{}}]}"#,
                 "application/json",
             ))
             .mount(&server)
             .await;
         Mock::given(method("GET"))
-            .and(path("/v4/user/content/playback"))
+            .and(path("/v3/user/content/playback"))
             .respond_with(ResponseTemplate::new(200).set_body_raw(
-                r#"{"success":true,"playback":{"playUrl":"https://cdn/2002/manifest.mpd","headers":{"x-cdn":"a"}},"drm":{"licenceUrl":"https://play.airtel.tv/drm","headers":{"x-atv-cp":"airtel"},"body":{},"licensePayloadKey":"default"}}"#,
+                r#"{"eligibleForPlayback":true,"playId":"https://cdn/2002/manifest.mpd","isDrm":true,"message":"success"}"#,
                 "application/json",
             ))
             .mount(&server)
@@ -593,20 +626,8 @@ mod tests {
         state.set_client_for_test(client_for(&server));
         let dir = tempfile::tempdir().unwrap();
         let store = crate::store::Store::open(dir.path().to_str().unwrap()).unwrap();
-        let out = state.live("airtel_2002", &store).await.unwrap();
-        assert_eq!(out.mpd.auto, "https://cdn/2002/manifest.mpd");
-        assert!(out.bitrates.auto.is_empty());
-        assert!(out.is_drm);
-        assert_eq!(out.key_url, "https://play.airtel.tv/drm");
-        assert!(state.is_drm("airtel_2002"));
-        assert!(state.is_dash("airtel_2002"));
-        let headers = state.media_headers(&store, "airtel_2002").await;
-        assert!(headers.iter().any(|(k, v)| k == "x-cdn" && v == "a"));
-        assert!(headers
-            .iter()
-            .any(|(k, _)| k.eq_ignore_ascii_case("user-agent")));
-        let license = state.license(&store, "airtel_2002").await.unwrap();
-        assert_eq!(license.url, "https://play.airtel.tv/drm");
+        let error = state.live("airtel_2002", &store).await.unwrap_err();
+        assert!(error.to_string().contains("DRM"), "{error}");
     }
 
     #[tokio::test]
@@ -661,18 +682,18 @@ mod tests {
     async fn prepare_playlist_metadata_classifies_playback_before_export() {
         let server = MockServer::start().await;
         Mock::given(method("GET"))
-            .and(path("/app/v3/content/channels"))
+            .and(path("/v1/livechannel"))
             .respond_with(ResponseTemplate::new(200).set_body_raw(
-                r#"{"channels":[{"id":"2002","title":"Star Movies","hd":true}]}"#,
+                r#"{"success":true,"data":[{"id":"2002","title":"Star Movies","cp":"MWTV","images":{}}]}"#,
                 "application/json",
             ))
             .mount(&server)
             .await;
         Mock::given(method("GET"))
-            .and(path("/v4/user/content/playback"))
+            .and(path("/v3/user/content/playback"))
             .and(query_param("contentId", "2002"))
             .respond_with(ResponseTemplate::new(200).set_body_raw(
-                r#"{"success":true,"playback":{"playUrl":"https://cdn/2002/manifest.mpd"},"drm":{"licenceUrl":"https://play.airtel.tv/drm"}}"#,
+                r#"{"eligibleForPlayback":true,"playId":"https://cdn/2002/manifest.mpd","isDrm":false,"message":"success"}"#,
                 "application/json",
             ))
             .mount(&server)
@@ -687,7 +708,7 @@ mod tests {
         assert!(!state.is_dash("airtel_2002"));
         assert!(!state.playlist_ready("airtel_2002"));
         state.prepare_playlist_metadata(store.clone()).await;
-        assert!(state.is_drm("airtel_2002"));
+        assert!(!state.is_drm("airtel_2002"));
         assert!(state.is_dash("airtel_2002"));
         assert!(state.playlist_ready("airtel_2002"));
     }
@@ -743,10 +764,72 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn epg_source_errors_when_every_channel_guide_fails() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/v1/livechannel"))
+            .respond_with(ResponseTemplate::new(200).set_body_raw(
+                r#"{"success":true,"data":[{"id":"1001","title":"Star Plus","cp":"MWTV","images":{}}]}"#,
+                "application/json",
+            ))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/app/v2/content/channel/epg"))
+            .respond_with(ResponseTemplate::new(500))
+            .mount(&server)
+            .await;
+        let state = AirtelState::new(true);
+        state.set_client_for_test(client_for(&server));
+        let dir = tempfile::tempdir().unwrap();
+        let store = crate::store::Store::open(dir.path().to_str().unwrap()).unwrap();
+        assert!(state.epg_source(&store).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn epg_source_keeps_partial_guides() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/v1/livechannel"))
+            .respond_with(ResponseTemplate::new(200).set_body_raw(
+                r#"{"success":true,"data":[
+                    {"id":"1001","title":"One","cp":"MWTV","images":{}},
+                    {"id":"2002","title":"Two","cp":"MWTV","images":{}}
+                ]}"#,
+                "application/json",
+            ))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/app/v2/content/channel/epg"))
+            .and(query_param("channelId", "1001"))
+            .respond_with(ResponseTemplate::new(200).set_body_raw(
+                r#"{"programGuide":{"1001":[{"title":"Show","startTime":1700000000000,"endTime":1700003600000}]}}"#,
+                "application/json",
+            ))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/app/v2/content/channel/epg"))
+            .and(query_param("channelId", "2002"))
+            .respond_with(ResponseTemplate::new(500))
+            .mount(&server)
+            .await;
+        let state = AirtelState::new(true);
+        state.set_client_for_test(client_for(&server));
+        let dir = tempfile::tempdir().unwrap();
+        let store = crate::store::Store::open(dir.path().to_str().unwrap()).unwrap();
+        let (_sources, programmes) = state.epg_source(&store).await.unwrap();
+        assert_eq!(programmes.len(), 1);
+        assert_eq!(programmes[0].title, "Show");
+    }
+
+    #[tokio::test]
     async fn web_epg_saturates_an_extreme_day_offset() {
         let server = MockServer::start().await;
         Mock::given(method("GET"))
-            .and(path("/app/v3/content/epg"))
+            .and(path("/app/v2/content/channel/epg"))
+            .and(query_param("channelId", "1001"))
             .respond_with(
                 ResponseTemplate::new(200)
                     .set_body_raw(r#"{"programGuide":{"1001":[]}}"#, "application/json"),
