@@ -196,6 +196,23 @@ impl RenderCaches {
         self.hdnea.write().unwrap().remove(key);
     }
 
+    /// Freshest cached `__hdnea__` token across all renditions of
+    /// `channel_id`. Jio's AES-128 key URIs carry no token of their own, and
+    /// the key endpoint rejects tokenless requests (403) while validating the
+    /// channel's current session token — which only the manifest/segment
+    /// flow observes and caches here.
+    pub fn freshest_channel_hdnea(&self, channel_id: &str) -> Option<String> {
+        if channel_id.is_empty() {
+            return None;
+        }
+        let prefix = format!("{channel_id}|");
+        let map = self.hdnea.read().unwrap();
+        map.iter()
+            .filter(|(key, _)| key.starts_with(&prefix))
+            .max_by_key(|(_, (_, at))| *at)
+            .map(|(_, (token, _))| token.clone())
+    }
+
     pub fn is_dead(&self, channel_id: &str) -> bool {
         if channel_id.is_empty() {
             return false;
@@ -1637,6 +1654,77 @@ pub(crate) fn passthrough_body(resp: reqwest::Response) -> Body {
     Body::new(reqwest::Body::from(resp))
 }
 
+/// Builds the upstream request for `/render.key`, mirroring the header
+/// selection of the manifest/segment paths: provider channels carry the
+/// provider's media headers, everything else uses the JioTV flow (player
+/// UA, `__hdnea__` session cookie, app credentials).
+async fn build_render_key_request(
+    state: &AppState,
+    decoded: &str,
+    hdnea: Option<&str>,
+    channel_id: &str,
+    is_custom: bool,
+) -> reqwest::RequestBuilder {
+    let mut req = state.http.get(decoded);
+    if let Some(headers) = provider_media_headers(state, channel_id).await {
+        let mut has_user_agent = false;
+        for (name, value) in headers {
+            if name.eq_ignore_ascii_case("user-agent") {
+                has_user_agent = true;
+            }
+            req = req.header(name.as_str(), value.as_str());
+        }
+        if !has_user_agent {
+            req = req.header(header::USER_AGENT, television::PLAYER_USER_AGENT);
+        }
+        return req;
+    }
+    if state.beta_channel(channel_id) {
+        #[cfg(feature = "beta")]
+        {
+            if crate::vzy::is_vzy_channel(channel_id) {
+                return req
+                    .header(header::USER_AGENT, "okhttp/4.12.0")
+                    .header(header::ACCEPT, "*/*");
+            }
+            if crate::airtel::is_airtel_channel(channel_id) {
+                let headers = state.airtel.media_headers(&state.store, channel_id).await;
+                let headers = merge_hdnea_cookie(headers, hdnea.unwrap_or_default());
+                for (name, value) in headers {
+                    req = req.header(name.as_str(), value.as_str());
+                }
+                return req;
+            }
+        }
+        return req;
+    }
+    req = req.header(header::USER_AGENT, television::PLAYER_USER_AGENT);
+    if let Some(t) = hdnea {
+        req = req.header(header::COOKIE, format!("__hdnea__={t}"));
+    }
+    if let Some(content_id) = state.extras.route(channel_id, state.tv.logged_in(), is_custom) {
+        for (k, v) in state.extras.key_headers(&content_id) {
+            req = req.header(k, v);
+        }
+    } else {
+        // Jio's AES key endpoint validates the full app header profile and
+        // 403s requests that only carry the player UA — unlike the
+        // manifest/segment endpoints, which accept UA + session cookie.
+        // Verified against the live CDN: the bare key URL returns 200 only
+        // with this complete set, matching JioTV Go's key route.
+        for (k, v) in state.tv.playback_headers() {
+            req = req.header(k, v);
+        }
+        let creds = state.tv.creds.read().unwrap().clone().unwrap_or_default();
+        req = req
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .header("srno", "230203144000")
+            .header("ssotoken", &creds.sso_token)
+            .header("channelId", channel_id);
+    }
+    req
+}
+
 /// `/render.key` — an AES-128 HLS key request. Mirrors `RenderKeyHandler`:
 /// a extras-routed channel gets the extras app's key headers
 /// (`extrasKeyHeaders`); otherwise it gets the usual JioTV ones.
@@ -1661,59 +1749,58 @@ pub async fn render_key_handler(
         )
             .into_response();
     }
-    let hdnea = q.hdnea.clone().or_else(|| extract_hdnea_from_url(&decoded));
+    let mut hdnea = q.hdnea.clone().or_else(|| extract_hdnea_from_url(&decoded));
+    if hdnea.is_none() {
+        // Jio's AES-128 key URIs carry no token of their own and the key
+        // endpoint 403s tokenless requests: it validates the channel's
+        // current `__hdnea__` session token instead (a 120-second window).
+        // Fall back to the freshest token the manifest/segment flow has
+        // captured for this channel — mirrors the segment handler's cache
+        // fallback and JioTV Go's key-link token injection.
+        hdnea = state.render_caches.freshest_channel_hdnea(&channel_id);
+    }
     let is_custom = state.custom_channels.contains(&channel_id);
 
-    let mut req = state.http.get(&decoded);
-    if let Some(headers) = provider_media_headers(&state, &channel_id).await {
-        let mut has_user_agent = false;
-        for (name, value) in headers {
-            if name.eq_ignore_ascii_case("user-agent") {
-                has_user_agent = true;
-            }
-            req = req.header(name.as_str(), value.as_str());
-        }
-        if !has_user_agent {
-            req = req.header(header::USER_AGENT, television::PLAYER_USER_AGENT);
-        }
-    } else if state.beta_channel(&channel_id) {
-        #[cfg(feature = "beta")]
-        if crate::vzy::is_vzy_channel(&channel_id) {
-            req = req
-                .header(header::USER_AGENT, "okhttp/4.12.0")
-                .header(header::ACCEPT, "*/*");
-        } else if crate::airtel::is_airtel_channel(&channel_id) {
-            let headers = state.airtel.media_headers(&state.store, &channel_id).await;
-            let headers = merge_hdnea_cookie(headers, hdnea.as_deref().unwrap_or_default());
-            for (name, value) in headers {
-                req = req.header(name.as_str(), value.as_str());
-            }
-        }
-    } else {
-        req = req.header(header::USER_AGENT, television::PLAYER_USER_AGENT);
-        if let Some(t) = &hdnea {
-            req = req.header(header::COOKIE, format!("__hdnea__={t}"));
-        }
-        if let Some(content_id) = state
+    let mut resp = build_render_key_request(
+        &state,
+        &decoded,
+        hdnea.as_deref(),
+        &channel_id,
+        is_custom,
+    )
+    .await
+    .send()
+    .await;
+    let upstream_403 = matches!(&resp, Ok(r) if matches!(r.status().as_u16(), 401 | 403));
+    if upstream_403
+        && provider_media_headers(&state, &channel_id).await.is_none()
+        && !state.beta_channel(&channel_id)
+        && state
             .extras
             .route(&channel_id, state.tv.logged_in(), is_custom)
-        {
-            for (k, v) in state.extras.key_headers(&content_id) {
-                req = req.header(k, v);
+            .is_none()
+    {
+        // Recover the way the segment handler does: re-resolve the channel's
+        // playback URL and retry the key with its fresh session token.
+        if let Ok(refreshed) = refresh_channel_token(&state, &channel_id).await {
+            let fresh = television::select_hls_hdnea_token(&refreshed, "auto", "");
+            if !fresh.is_empty() {
+                hdnea = Some(fresh);
+                resp = build_render_key_request(
+                    &state,
+                    &decoded,
+                    hdnea.as_deref(),
+                    &channel_id,
+                    is_custom,
+                )
+                .await
+                .send()
+                .await;
             }
-        } else {
-            let creds = state.tv.creds.read().unwrap().clone().unwrap_or_default();
-            req = req
-                .header("srno", "230203144000")
-                .header("ssotoken", &creds.sso_token)
-                .header("channelId", &channel_id)
-                .header("accesstoken", &creds.access_token)
-                .header("crmid", &creds.crm)
-                .header("uniqueId", &creds.unique_id);
         }
     }
 
-    match req.send().await {
+    match resp {
         Ok(resp) => {
             let status =
                 StatusCode::from_u16(resp.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);

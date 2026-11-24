@@ -611,8 +611,11 @@ impl Television {
     }
 
     /// The form headers `Television::New` builds in the Go version, sent on
-    /// every `Live`/`GetCatchupURL` call.
-    fn playback_headers(&self) -> Vec<(&'static str, String)> {
+    /// every `Live`/`GetCatchupURL` call. Also required by Jio's AES-128
+    /// key endpoint, which rejects requests without the full app header
+    /// profile (unlike the manifest/segment endpoints, which only need the
+    /// player UA and `__hdnea__` session cookie).
+    pub(crate) fn playback_headers(&self) -> Vec<(&'static str, String)> {
         let creds = self.creds.read().unwrap();
         let (crm, unique_id, access_token) = creds
             .as_ref()
