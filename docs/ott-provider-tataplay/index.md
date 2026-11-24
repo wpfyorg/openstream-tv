@@ -62,20 +62,126 @@ Playback URLs are AES-encrypted. `pas/api/v1/access/control/LIVE/<id>` returns
 config and `channels/all` answer without authentication, so the keys and the
 document-id map are available before login.
 
+### Live-verified contracts (2026-11-21)
+
+The OTP, guide, entitlement and playback paths were verified against a live
+LIT account. The details below replace the earlier runtime gaps:
+
+- **Send OTP** (`POST login-service/pub/api/v3/signin/generate/otp`) needs the
+  `device_details` header, a locale and an OkHttp user agent in addition to
+  `appVersion`/`platform`/`deviceId`/`deviceName`. Without the device profile
+  the edge answers a bare `403`.
+- **Verify OTP** (`POST login-service/pub/api/v3/signin/validate/otp`) sends the
+  chosen `refId` in both `refId` and `sid`. The app sets `sid` from the refId
+  whenever the offered account lists a LIT or DTH service, which is every ref
+  this client offers, so an empty `sid` is rejected.
+- **Login response** has no top-level `subscriberId`: the session `sid` under
+  `userDetails.sid` is the subscriber identity used by the device, access
+  control and heartbeat endpoints. The same value is sent as `subscriberId`,
+  `x-subscriber-id`, `sid` and `x-authenticated-userid`.
+- **Catalogue**: `homescreen/.../hierarchy/LIT_LIVETV` returns an empty `data`
+  array for this app generation, and `channels/all` carries only document ids.
+  The authenticated guide is the catalogue source: it pairs every channel with
+  its number, logo, HD/catch-up flags and pack ids.
+- **Guide**: `lit-mobile-common-bff/api/v2/channels/guide` takes epoch
+  **milliseconds** in `epgStartTime`/`epgEndTime` and an IST `date`. A page of
+  200 channels carries programmes; a page of 530 returns metadata only. The
+  client therefore reads metadata at 600 and programmes in 200-channel pages.
+- **Entitlements**: `getEntitlementDetails` returns the held pack ids in
+  `data.entitlements`; it is kept for diagnostics. The authenticated guide
+  with `subscribedFilter=true` is the account lineup (356 of 530 on the live
+  account). A second intersection with the held pack ids dropped zero rows and
+  is not applied.
+- **Playback**: `pas/api/v1/access/control/LIVE/<id>` returns a session id, a
+  60-second heartbeat interval and AES-encrypted URLs under
+  `data.playbackUrls`. Channels the account cannot stream return a null
+  `playbackUrls` with a success code. All live media is Widevine DASH.
+- **Media**: the decrypted manifest URL carries an Akamai `hdnea` token whose
+  ACL covers the channel directory. Akamai accepts it as the `hdnea` cookie;
+  the proxy sends both `hdnea` and the older `__hdnea__` name.
+- **License**: the Irdeto Widevine endpoint requires the playback JWT from
+  `data.tokenInfo.token` as `Authorization: Bearer <token>` on the license
+  request. Without it the same challenge is answered
+  `403 {"code":130001,"message":"License denied... [__anonymous]"}`. With it,
+  the license carries the key id that matches the manifest PSSH; a 2-byte dummy
+  challenge returns a license with a different key, which is why the token must
+  accompany the real 2.5–4 KB challenge.
+- **Per-channel detail**: `content-detail/pub/api/v1/lit/ls/channel/<id>`
+  returns plain (unsigned) manifest/license URLs plus current, forward and
+  backward programme rows. The unsigned URLs are not playable by themselves;
+  access control remains the playback source.
+- **Packs held by the test account**: `Tata Play Smart Base May26`,
+  `DD Complimentary`, `FTA Complimentary HSM`, `Flexi Smart Add On English`,
+  `FTA Complimentary Regi`; concurrency `1`.
+
+With the guide encoding proven, XMLTV now publishes both days for the active
+catalogue (356 channels, 27,456 programmes in the verification run) and the web
+guide serves `/epg/<id>/<offset>` from the same cached days.
+
+The proxy also rewrites the live MPD with `suggestedPresentationDelay="PT24S"`
+because the origin's SegmentTimeline trails its own clock by a couple of
+segments; without it Shaka asks for unpublished segments and loops.
+
+Widevine needs more than the init segment's PSSH. The samples carry a CENC
+`seig` sample group whose key id is the one the CDM actually decrypts with, and
+it can differ from the init segment's `tenc` default key. The proxy probes the
+newest small audio segment for that key id, merges it with the init PSSH key
+ids, and injects one `cenc:pssh` into every AdaptationSet. Players then ask for
+every key in a single challenge instead of one licence per rendition.
+
+A real Widevine challenge spends the playback token, so a `130601` answer is
+retried once with a fresh session and token. A `130402 Too many concurrent
+streams for device type` is resent only when this server just closed a local
+session. Every deliberate tune gets a playback id; manifest and licence routes
+from an older tune are refused, including an older tune of the same channel.
+Irdeto can keep the closed channel's licence stream counted for minutes (5m41s
+in one run, about 2 minutes in another), so an immediate switch returns HTTP
+409 `Waiting for the previous stream to close`; the web player shows that
+message and retries automatically every five seconds for two minutes with a
+countdown, then leaves the manual retry.
+
+The M3U licence property uses Kodi's four-field form:
+`<license-url>||R{SSM}|R`, with any `?q=` inside the URL before the pipes.
+
+The subscribed guide is the single lineup for `/api/channels`, the M3U, the
+XMLTV channel and programme entries, and direct web-guide lookups. A changed
+lineup clears cached guide days; a direct `/epg/:id` for a channel outside the
+lineup returns no rows. Playback failures do not change membership. Selecting
+a custom or non-Tata channel cancels a pending Tata Play resolve and closes its
+session, so a late resolve cannot take the account's slot or publish itself.
+
+XMLTV generation retries a failed startup preparation from the next request,
+at most once a minute, and refreshes a stale matching artifact in the
+background.
+
+The concurrency session's `POST`/`DELETE` must carry an OkHttp user agent
+(`okhttp/4.12.0`). Without it Akamai answers `403 Access Denied`, the heartbeat
+never starts, and the CDN freezes the live manifest at its first `publishTime`.
+
+
 ### Known gaps
 
-- EPG programmes are not published: the guide endpoint needs epoch-millisecond
-  `epgStartTime`/`epgEndTime` bounds whose runtime encoding is unproven, so
-  XMLTV contains channels only.
-- The OTP step still needs the `refId` and `refIdMode` values the app obtains
-  from the send-OTP JWT, so the client must pass the chosen account's `refId`.
+- Catch-up and on-demand surfaces are not wired: `catchupEpg` and
+  `myBox/epg` answered `Content does not exists` for the sampled channels, and
+  the VOD rails/search contracts have not been proven live.
+- Channel language is not present in the guide row, so playlists publish
+  `All Languages` until a per-channel detail fetch is worth the extra calls.
+- Subscribed feeds can be refused at play time while remaining in the lineup
+  (for example Star Sports HD without its HD add-on, and Star Utsav/Colors
+  Rishtey in the verification account). A null `playbackUrls` is not treated
+  as an unsubscribe signal. Per-channel `content-detail` has platform flags,
+  but a catalogue-wide probe of 356 channels tripped an Akamai 403 block and
+  was removed.
 
 ### Playback sessions
 
 `NetworkApi.X` opens a concurrency session with a bodyless
 `POST smgs/api/v1/session`, carrying `x-device-name` and the `x-session-id`
 returned by access control. The provider registers that session as soon as
-playback resolves and repeats the call every `heartbeatInterval` seconds. It
+playback resolves and repeats the call every `heartbeatInterval` seconds.
+Because the account's concurrency slot is one, the previous channel's session
+is closed before the next access-control call; otherwise the upstream answers
+the new channel with HTTP 403. It
 sends the bodyless `DELETE smgs/api/v1/session` when playback is invalidated
 (a CDN rejection), when the provider is cleared on logout or account switch,
 when another channel replaces the session, and after five minutes without a

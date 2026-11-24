@@ -250,7 +250,17 @@ impl RenderCaches {
     }
 }
 
-fn extract_hdnea_from_url(u: &str) -> Option<String> {
+pub(crate) fn extract_hdnea_from_url(u: &str) -> Option<String> {
+    // Parse the whole query: a literal `?` is valid inside a query value and
+    // must not truncate the `hdnea` parameter that follows it.
+    if let Ok(parsed) = url::Url::parse(u) {
+        for (key, value) in parsed.query_pairs() {
+            if key == "hdnea" || key == "__hdnea__" {
+                return Some(value.into_owned());
+            }
+        }
+        return None;
+    }
     let query = u.split('?').nth(1)?;
     for pair in query.split('&') {
         if let Some(v) = pair
@@ -335,6 +345,18 @@ pub(crate) async fn fetch_live(
     state: &AppState,
     channel_id: &str,
 ) -> anyhow::Result<LiveUrlOutput> {
+    fetch_live_selected(state, channel_id, None).await
+}
+
+/// `fetch_live` for a caller that already registered a Tata Play selection.
+/// Every other provider ignores `selected`.
+pub(crate) async fn fetch_live_selected(
+    state: &AppState,
+    channel_id: &str,
+    selected: Option<&str>,
+) -> anyhow::Result<LiveUrlOutput> {
+    #[cfg(not(feature = "beta"))]
+    let _ = selected;
     if !state.channel_allowed(channel_id).await {
         anyhow::bail!("channel {channel_id} is not available for the active account");
     }
@@ -344,7 +366,15 @@ pub(crate) async fn fetch_live(
     }
     #[cfg(feature = "beta")]
     if crate::tataplay::is_tataplay_channel(channel_id) {
-        return state.tataplay.live(channel_id).await;
+        return match selected {
+            Some(selected) => {
+                state
+                    .tataplay
+                    .live_selected(channel_id, Some(selected))
+                    .await
+            }
+            None => state.tataplay.live(channel_id).await,
+        };
     }
     #[cfg(feature = "beta")]
     if crate::vzy::is_vzy_channel(channel_id) {

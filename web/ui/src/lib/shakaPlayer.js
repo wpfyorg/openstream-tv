@@ -111,6 +111,7 @@ export function classifyPlaybackFailure({ dashError = null, hlsError = null, had
   if (drmCause(dashError) && (!hadHls || hlsError)) return "browser_unsupported";
   const status = playbackHttpStatus(hlsError ?? dashError);
   if (status === 404) return "provider_unavailable";
+  if (status === 409) return "stream_limit";
   if (status === 401 || status === 403) return "provider_denied";
   return "generic";
 }

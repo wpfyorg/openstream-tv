@@ -1079,6 +1079,7 @@ impl PlaybackResponse {
             key_url: d.key_url.clone(),
             algo_name: d.algo_name.clone(),
             hdnea: hdnea_from(&d.m3u8.auto),
+            playback_id: String::new(),
         }
     }
 }

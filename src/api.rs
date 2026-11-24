@@ -1621,19 +1621,63 @@ pub async fn live_play(
     }
 
     if let Some(ch) = state.custom_channels.get(&id) {
-        return Json(json!({"dash": false, "url": ch.url, "license": null})).into_response();
+        // A local custom channel is played directly; a manifest ending in
+        // `.mpd` is still DASH even though no provider resolved it.
+        // Leaving Tata Play must supersede any pending resolve so it cannot
+        // open a session and hold the account's only stream slot.
+        #[cfg(feature = "beta")]
+        state.tataplay.cancel_tune();
+        let dash = ch
+            .url
+            .split(['?', '#'])
+            .next()
+            .is_some_and(|path| path.to_ascii_lowercase().ends_with(".mpd"));
+        return Json(json!({"dash": dash, "url": ch.url, "license": null, "hls": null}))
+            .into_response();
+    }
+
+    #[cfg(feature = "beta")]
+    let mut selection = None;
+    #[cfg(feature = "beta")]
+    if crate::tataplay::is_tataplay_channel(&id) {
+        selection = state.tataplay.tune(&id);
+        state.dash_state.invalidate_channel(&id);
+    } else {
+        state.tataplay.cancel_tune();
     }
 
     // The response URLs are encrypted under the current context epoch, so the
     // data they carry must belong to that epoch from lookup until the last URL
     // is generated. If an account switch lands in between, resolve again.
     for _ in 0..2 {
-        let (live, epoch) = match crate::dash::get_live_cached(&state, &id).await {
+        #[cfg(feature = "beta")]
+        let resolved = if crate::tataplay::is_tataplay_channel(&id) {
+            crate::dash::get_live_cached_selected(&state, &id, selection.as_deref()).await
+        } else {
+            crate::dash::get_live_cached(&state, &id).await
+        };
+        #[cfg(not(feature = "beta"))]
+        let resolved = crate::dash::get_live_cached(&state, &id).await;
+        let (live, epoch) = match resolved {
             Ok(l) => l,
             Err(e) => return err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
         };
         let response = live_play_response_from_live(&state, &live, &id, &quality);
         if state.secure.current_epoch() == epoch {
+            // A resolve that finished after the user picked another channel
+            // must not publish its response: the player would tune back into
+            // a channel it already left.
+            #[cfg(feature = "beta")]
+            if crate::tataplay::is_tataplay_channel(&id)
+                && !selection
+                    .as_deref()
+                    .is_some_and(|playback_id| state.tataplay.selection_matches(&id, playback_id))
+            {
+                return err(
+                    StatusCode::CONFLICT,
+                    "The channel selection changed while resolving the stream; retry",
+                );
+            }
             state.observe_playback(&id, &live);
             return response;
         }

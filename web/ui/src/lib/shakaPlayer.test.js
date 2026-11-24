@@ -374,6 +374,7 @@ test("classifies a provider 401/403 from the player as provider_denied", () => {
   assert.equal(classifyPlaybackFailure({ hlsError: denied(403), secureContext: true }), "provider_denied");
   assert.equal(classifyPlaybackFailure({ dashError: denied(401), secureContext: true }), "provider_denied");
   assert.equal(classifyPlaybackFailure({ hlsError: denied(404), secureContext: true }), "provider_unavailable");
+  assert.equal(classifyPlaybackFailure({ hlsError: denied(409), secureContext: true }), "stream_limit");
   assert.equal(classifyPlaybackFailure({ hlsError: denied(500), secureContext: true }), "generic");
 });
 

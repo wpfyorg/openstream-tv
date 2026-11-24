@@ -450,6 +450,15 @@ async fn channels_or_playlist(
     }
 
     let host_url = base_url(&state, &https, &prefix, &headers);
+    let log_host = host_url.split("/k/").next().unwrap_or(&host_url);
+    tracing::debug!(
+        host = %log_host,
+        user_agent = headers
+            .get(axum::http::header::USER_AGENT)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or(""),
+        "m3u playlist request"
+    );
     let empty = String::new();
     let opts = crate::television::PlaylistOptions {
         host_url: &host_url,

@@ -394,6 +394,10 @@ pub struct LiveUrlOutput {
     /// stream URL carried a `hdnea=` query parameter (see `Television::live`).
     #[serde(skip)]
     pub hdnea: String,
+    /// Not part of the wire format: identifies the exact tune so a stale
+    /// manifest or licence request can be rejected.
+    #[serde(skip)]
+    pub playback_id: String,
 }
 
 impl LiveUrlOutput {
@@ -1108,15 +1112,17 @@ pub fn generate_m3u_playlist(
                 url.push_str("?q=");
                 url.push_str(opts.quality);
             }
-            let mut props = format!(
-                "#KODIPROP:inputstream=inputstream.adaptive\n#KODIPROP:inputstream.adaptive.manifest_type=mpd\n#KODIPROP:inputstream.adaptive.license_type=com.widevine.alpha\n#KODIPROP:inputstream.adaptive.license_key={}/live/key/{}",
-                opts.host_url, ch.id
-            );
+            let mut license_url = format!("{}/live/key/{}", opts.host_url, ch.id);
             if !opts.quality.is_empty() {
-                props.push_str("?q=");
-                props.push_str(opts.quality);
+                license_url.push_str("?q=");
+                license_url.push_str(opts.quality);
             }
-            props.push('\n');
+            // Kodi/InputStream Adaptive's legacy four-field form:
+            // URL|headers|POST body template|response format. `R{SSM}` is the
+            // challenge the CDM produces, and `R` says the reply is raw bytes.
+            let props = format!(
+                "#KODIPROP:inputstream=inputstream.adaptive\n#KODIPROP:inputstream.adaptive.manifest_type=mpd\n#KODIPROP:inputstream.adaptive.license_type=com.widevine.alpha\n#KODIPROP:inputstream.adaptive.license_key={license_url}||R{{SSM}}|R\n"
+            );
             (url, props)
         } else if is_dash_channel(&ch.id) {
             // Clear DASH (Fastway): the player still needs to be told the
@@ -1508,7 +1514,37 @@ mod tests {
         };
         let m3u = generate_m3u_playlist(&channels, &opts, |_| true, |_| false, |_| true);
         assert!(m3u.contains("http://h/live/mpd/999"));
-        assert!(m3u.contains("KODIPROP:inputstream.adaptive.license_key=http://h/live/key/999"));
+        assert!(m3u
+            .contains("KODIPROP:inputstream.adaptive.license_key=http://h/live/key/999||R{SSM}|R"));
+    }
+
+    #[test]
+    fn drm_license_key_keeps_quality_in_the_url_and_posts_the_challenge() {
+        let channels = vec![channel("999", "DRM Ch", 5, 1)];
+        let opts = PlaylistOptions {
+            host_url: "http://h",
+            quality: "high",
+            split_category: "",
+            languages: "",
+            skip_genres: "",
+            sub_filter: "",
+        };
+        let m3u = generate_m3u_playlist(&channels, &opts, |_| true, |_| false, |_| true);
+        assert!(m3u.contains("http://h/live/mpd/999?q=high"));
+        let line = m3u
+            .lines()
+            .find(|line| line.contains("inputstream.adaptive.license_key="))
+            .expect("drm licence property");
+        let value = line
+            .split("inputstream.adaptive.license_key=")
+            .nth(1)
+            .unwrap();
+        let fields: Vec<&str> = value.split('|').collect();
+        assert_eq!(fields.len(), 4, "Kodi needs four licence fields: {value}");
+        assert_eq!(fields[0], "http://h/live/key/999?q=high");
+        assert_eq!(fields[1], "");
+        assert_eq!(fields[2], "R{SSM}");
+        assert_eq!(fields[3], "R");
     }
 
     #[test]

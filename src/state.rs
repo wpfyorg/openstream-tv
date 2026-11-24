@@ -1060,11 +1060,20 @@ mod tests {
 
         let server = MockServer::start().await;
         Mock::given(method("GET"))
-            .and(path("/homescreen/pub/api/v1/lit/hierarchy/LIT_LIVETV"))
+            .and(path("/lit-mobile-common-bff/api/v2/channels/guide"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "data": [{"railId": 1, "contentList": [
-                    {"id": 1918, "channelName": "Star Plus"}
-                ]}]
+                "data": {"total": 1, "channelList": [
+                    {"id": 1918, "title": "Star Plus", "channelNumber": "115"}
+                ]}
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path(
+                "/lit-subscription-service/api/v1/lit/getEntitlementDetails",
+            ))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": {"entitlements": ["pack"]}
             })))
             .mount(&server)
             .await;

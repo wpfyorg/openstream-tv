@@ -48,8 +48,23 @@ pub fn for_request(tls: bool, headers: &HeaderMap, public_origin: Option<&str>) 
         }
     }
 
+    // A quick tunnel started outside this process (`cloudflared tunnel --url`)
+    // is not recorded in `tunnel_origin`, but Cloudflare always terminates its
+    // TLS. Without this the playlist, EPG and DRM URLs are rewritten to plain
+    // HTTP on a public HTTPS host, which breaks playback in mobile players.
+    if let Some(host) = host.as_deref() {
+        if is_cloudflare_quick_host(host) {
+            return format!("https://{host}");
+        }
+    }
+
     let scheme = if tls { "https" } else { "http" };
     format!("{scheme}://{}", host.as_deref().unwrap_or("localhost"))
+}
+
+fn is_cloudflare_quick_host(host: &str) -> bool {
+    let bare = host.split(':').next().unwrap_or(host);
+    bare.to_ascii_lowercase().ends_with(".trycloudflare.com")
 }
 
 fn safe_authority(raw: &str) -> Option<String> {
@@ -127,6 +142,22 @@ mod tests {
         assert_eq!(
             for_request(true, &request("lan:5443", "http"), origin),
             "https://lan:5443"
+        );
+    }
+
+    #[test]
+    fn a_manual_quick_tunnel_uses_https() {
+        assert_eq!(
+            for_request(false, &request("quiet-name.trycloudflare.com", "http"), None),
+            "https://quiet-name.trycloudflare.com"
+        );
+        assert_eq!(
+            for_request(false, &request("192.168.1.10:5001", "http"), None),
+            "http://192.168.1.10:5001"
+        );
+        assert_eq!(
+            for_request(false, &request("evil-trycloudflare.com", "http"), None),
+            "http://evil-trycloudflare.com"
         );
     }
 

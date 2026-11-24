@@ -20,6 +20,12 @@
     sourceResolutionFailure,
     widevineCapability,
   } from "../lib/shakaPlayer.js";
+  import {
+    STREAM_LIMIT_MAX_ATTEMPTS,
+    STREAM_LIMIT_RETRY_MS,
+    streamLimitExhaustedDetail,
+    streamLimitWaitingDetail,
+  } from "../lib/streamLimitRetry.js";
 
   let { id } = $props();
 
@@ -44,8 +50,11 @@
   let runID = 0;
   let activityTimer = null;
   let toastTimer = null;
+  let streamLimitAttempts = 0;
+  let streamLimitTimer = null;
+  let streamLimitDeadline = 0;
 
-  const fullStageKinds = new Set(["offline", "playback", "secure", "protected", "subscription", "restricted", "extras-signin", "extras-status", "extras-unavailable", "fastway-signin", "fastway-status", "fastway-unavailable", "playbox-signin", "playbox-status", "playbox-unavailable", "vzy-status", "vzy-unavailable", "service"]);
+  const fullStageKinds = new Set(["offline", "playback", "secure", "protected", "subscription", "restricted", "stream_limit", "extras-signin", "extras-status", "extras-unavailable", "fastway-signin", "fastway-status", "fastway-unavailable", "playbox-signin", "playbox-status", "playbox-unavailable", "vzy-status", "vzy-unavailable", "service"]);
 
   // Suggestions under the player come from the same category, so a viewer can
   // keep browsing the kind of channel they are already watching.
@@ -90,6 +99,38 @@
     return cleanupChain;
   }
 
+  function clearStreamLimitRetry() {
+    if (streamLimitTimer) {
+      clearInterval(streamLimitTimer);
+      streamLimitTimer = null;
+    }
+  }
+
+  function scheduleStreamLimitRetry() {
+    if (streamLimitAttempts >= STREAM_LIMIT_MAX_ATTEMPTS) {
+      clearStreamLimitRetry();
+      setPlayerState("stream_limit", "Account limit", "Waiting for the previous stream to close", streamLimitExhaustedDetail());
+      return;
+    }
+    streamLimitAttempts += 1;
+    streamLimitDeadline = Date.now() + STREAM_LIMIT_RETRY_MS;
+    setPlayerState("stream_limit", "Account limit", "Waiting for the previous stream to close", streamLimitWaitingDetail(streamLimitAttempts, STREAM_LIMIT_RETRY_MS));
+    if (streamLimitTimer) return;
+    streamLimitTimer = setInterval(() => {
+      if (playerState.kind !== "stream_limit") {
+        clearStreamLimitRetry();
+        return;
+      }
+      const remaining = streamLimitDeadline - Date.now();
+      if (remaining <= 0) {
+        clearStreamLimitRetry();
+        start(id, quality, { autoRetry: true });
+        return;
+      }
+      setPlayerState("stream_limit", "Account limit", "Waiting for the previous stream to close", streamLimitWaitingDetail(streamLimitAttempts, remaining));
+    }, 1000);
+  }
+
   function showPlaybackFailure(kind, message = "", status = null) {
     if (!navigator.onLine) {
       setPlayerState("offline", "Connection issue", "You’re offline", "Reconnect to the internet, then try the stream again.");
@@ -118,6 +159,10 @@
       } else {
         setPlayerState("restricted", "Account access", "The provider refused playback", `The current account may not have access, or its session may need refreshing.${providerStatus}`);
       }
+      return;
+    }
+    if (kind === "stream_limit") {
+      scheduleStreamLimitRetry();
       return;
     }
     setPlayerState("playback", "Playback issue", "Playback unavailable", "The live stream could not be started. Check the connection or try again in a moment.");
@@ -310,9 +355,11 @@
     };
   });
 
-  async function start(channelID, q) {
+  async function start(channelID, q, { autoRetry = false } = {}) {
     const thisRun = ++runID;
     const isCurrent = () => thisRun === runID;
+    clearStreamLimitRetry();
+    if (!autoRetry) streamLimitAttempts = 0;
     await stopActiveSession();
     if (!isCurrent()) return;
     setPlayerState("loading", "Live TV", "Starting live TV…", "");
@@ -433,6 +480,8 @@
       const player = session.player;
       const onPlaying = () => {
         if (isCurrent()) {
+          streamLimitAttempts = 0;
+          clearStreamLimitRetry();
           paused = false;
           setPlayerState("playing", "", "", "");
         }
@@ -484,7 +533,11 @@
         isCurrent,
         allowMutedFallback: false,
         onAutoplayResult: (played) => {
-          if (isCurrent()) setPlayerState(played ? "playing" : "tap", "", played ? "" : "Tap to play", "");
+          if (isCurrent()) {
+            streamLimitAttempts = 0;
+            clearStreamLimitRetry();
+            setPlayerState(played ? "playing" : "tap", "", played ? "" : "Tap to play", "");
+          }
         },
         onTerminalError: (message, info) => {
           if (!isCurrent()) return;
@@ -538,6 +591,7 @@
 
   onDestroy(() => {
     runID += 1;
+    clearStreamLimitRetry();
     clearTimeout(activityTimer);
     clearTimeout(toastTimer);
     video?.pause();

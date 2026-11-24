@@ -13,14 +13,16 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::io::Write;
 use std::path::Path as FsPath;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, RwLock};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const EPG_URL_FMT: &str =
     "https://jiotv.data.cdn.jio.com/apis/v1.3/getepg/get?offset={offset}&channel_id={id}";
 pub const EPG_POSTER_URL: &str = "https://jiotv.catchup.cdn.jio.com/dare_images/shows/";
 const CACHE_METADATA_VERSION: u32 = 1;
 const CACHE_MAX_AGE: Duration = Duration::from_secs(24 * 60 * 60);
+const PREPARATION_RETRY_COOLDOWN: Duration = Duration::from_secs(60);
 pub const STORE_KEY_ENABLED: &str = "epg_enabled";
 pub const COMPANION_APP_ENV: &str = "OPENSTREAM_COMPANION_APP";
 
@@ -44,11 +46,30 @@ pub struct EpgState {
     current_fingerprint: RwLock<Option<String>>,
     context_lock: Mutex<()>,
     generation_lock: tokio::sync::Mutex<()>,
+    preparing: AtomicBool,
+    last_attempt: Mutex<Option<Instant>>,
 }
 
 impl EpgState {
     pub fn invalidate(&self) {
         *self.current_fingerprint.write().unwrap() = None;
+        *self.last_attempt.lock().unwrap() = None;
+    }
+
+    /// Claims a preparation slot. Returns false while one is running or when
+    /// the last failed attempt is still inside the retry cooldown, so a
+    /// provider outage cannot turn every request into another upstream call.
+    fn begin_preparation(&self) -> bool {
+        if self.preparing.swap(true, Ordering::SeqCst) {
+            return false;
+        }
+        let mut last = self.last_attempt.lock().unwrap();
+        if last.is_some_and(|at| at.elapsed() < PREPARATION_RETRY_COOLDOWN) {
+            self.preparing.store(false, Ordering::SeqCst);
+            return false;
+        }
+        *last = Some(Instant::now());
+        true
     }
 
     pub fn current_fingerprint(&self) -> Option<String> {
@@ -128,7 +149,7 @@ fn snapshot_fingerprint(
         #[cfg(feature = "beta")]
         crate::state::ActiveProduct::TataPlay => {
             hash_field(&mut hasher, &state.tataplay.account_fingerprint());
-            hash_field(&mut hasher, "tataplay-epg:channels-only");
+            hash_field(&mut hasher, "tataplay-live-epg:2days");
         }
     }
 
@@ -556,17 +577,14 @@ pub async fn regenerate_for_state(state: &Arc<AppState>) -> anyhow::Result<()> {
                 generate_xml_gz_from_sources(&state.http, Vec::new(), sources, programmes).await?
             }
         }
-        // Tata Play's guide endpoint needs epoch-millisecond start/end bounds
-        // whose runtime encoding is not yet proven, so only the channel list is
-        // published; no programme is invented.
         #[cfg(feature = "beta")]
         crate::state::ActiveProduct::TataPlay => {
-            let channels = snapshot
-                .channels
-                .iter()
-                .map(|ch| (ch.id.clone(), ch.name.clone()))
-                .collect();
-            generate_channels_only_xml_gz(channels)?
+            let (sources, programmes) = state.tataplay.epg_source().await?;
+            if programmes.is_empty() {
+                generate_channels_only_xml_gz(sources)?
+            } else {
+                generate_xml_gz_from_sources(&state.http, Vec::new(), sources, programmes).await?
+            }
         }
     };
 
@@ -597,10 +615,15 @@ pub fn trigger_regeneration(state: &Arc<AppState>) {
     if !state.config.epg {
         return;
     }
+    if !state.epg_state.begin_preparation() {
+        return;
+    }
     let state = state.clone();
     tokio::spawn(async move {
-        if let Err(e) = ensure_current_cache(&state).await {
-            tracing::warn!("EPG regeneration after account change failed: {e}");
+        let result = ensure_current_cache(&state).await;
+        state.epg_state.preparing.store(false, Ordering::SeqCst);
+        if let Err(e) = result {
+            tracing::warn!("EPG regeneration failed: {e}");
         }
     });
 }
@@ -612,6 +635,10 @@ pub fn trigger_regeneration(state: &Arc<AppState>) {
 pub async fn epg_handler(State(state): State<Arc<AppState>>) -> Response {
     let _guard = state.epg_state.context_guard();
     let Some(fingerprint) = state.epg_state.current_fingerprint() else {
+        // Startup preparation can fail while the provider is briefly
+        // unavailable. A request is the natural retry point; without this the
+        // artifact stayed "being prepared" until a restart or account change.
+        trigger_regeneration(&state);
         return (
             StatusCode::SERVICE_UNAVAILABLE,
             "EPG is being prepared for the active account",
@@ -620,11 +647,15 @@ pub async fn epg_handler(State(state): State<Arc<AppState>>) -> Response {
     };
     let path = cache_path(&state);
     if !cache_matches(&path, &fingerprint) {
+        trigger_regeneration(&state);
         return (
             StatusCode::SERVICE_UNAVAILABLE,
-            "EPG is not ready for the active account",
+            "EPG is being prepared for the active account",
         )
             .into_response();
+    }
+    if !cache_is_fresh(&path) {
+        trigger_regeneration(&state);
     }
     match std::fs::read(&path) {
         Ok(bytes) => Response::builder()
@@ -748,6 +779,10 @@ pub async fn web_epg_handler(
     if crate::airtel::is_airtel_channel(&channel_id) {
         return airtel_web_epg(&state, &channel_id, &offset).await;
     }
+    #[cfg(feature = "beta")]
+    if crate::tataplay::is_tataplay_channel(&channel_id) {
+        return tataplay_web_epg(&state, &channel_id, &offset).await;
+    }
     if let Some(content_id) = crate::extras::content_id::content_id(&channel_id) {
         return extras_web_epg(&state, content_id, &offset).await;
     }
@@ -838,6 +873,33 @@ async fn airtel_web_epg(state: &AppState, channel_id: &str, offset: &str) -> Res
                 "startEpoch": p.start_millis(),
                 "endEpoch": p.end_millis(),
                 "episodePoster": "",
+            })
+        })
+        .collect();
+    axum::Json(serde_json::json!({ "epg": entries })).into_response()
+}
+
+/// Tata Play guide normalized to the same shape as JioTV/Fastway. Tata Play
+/// publishes epoch milliseconds already.
+#[cfg(feature = "beta")]
+async fn tataplay_web_epg(state: &AppState, channel_id: &str, offset: &str) -> Response {
+    let offset = match offset.parse::<i64>() {
+        Ok(o) if o >= 0 => o,
+        _ => return (StatusCode::BAD_REQUEST, "Invalid offset").into_response(),
+    };
+    let programmes = match state.tataplay.web_epg(channel_id, offset).await {
+        Ok(p) => p,
+        Err(e) => return (StatusCode::BAD_GATEWAY, e.to_string()).into_response(),
+    };
+    let entries: Vec<serde_json::Value> = programmes
+        .iter()
+        .map(|p| {
+            serde_json::json!({
+                "showname": p.title,
+                "description": p.desc,
+                "startEpoch": p.start_ms,
+                "endEpoch": p.end_ms,
+                "episodePoster": p.icon,
             })
         })
         .collect();
@@ -1395,6 +1457,20 @@ mod tests {
             .as_millis() as i64;
         assert_eq!(epg_day_offset_from_epoch(now_ms - 3 * DAY_MS), 3);
         assert_eq!(epg_day_offset_from_epoch(now_ms + DAY_MS), 0);
+    }
+
+    #[test]
+    fn preparation_retries_are_coalesced_and_rate_limited() {
+        let state = EpgState::default();
+        assert!(state.begin_preparation());
+        assert!(!state.begin_preparation(), "an in-flight attempt must win");
+        state.preparing.store(false, Ordering::SeqCst);
+        assert!(!state.begin_preparation(), "the cooldown must hold");
+        state.invalidate();
+        assert!(
+            state.begin_preparation(),
+            "an account change must retry immediately"
+        );
     }
 
     #[test]
